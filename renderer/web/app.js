@@ -107,7 +107,7 @@
     if (!list || !list.length) { backlinks.hidden = true; return; }
     backlinks.hidden = false;
     backlinks.innerHTML = "<h3>Backlinks</h3>" +
-      list.map((b) => `<a href="#/note/${enc(b.path)}">${esc(b.title)}</a>`).join("");
+      list.map((b) => `<a href="#/note/${enc(b.path)}">${esc(titleCase(b.title))}</a>`).join("");
   }
 
   function enableCheckboxes() {
@@ -141,6 +141,19 @@
   let weekOnly = store.get("tasksWeekOnly", "0") === "1";
   let categoryFilter = store.get("tasksCategory", ""); // "" = all, "@general" = no category
 
+  // Display-only Title Case: small words stay lowercase (unless first/last),
+  // and words that already have capitals (API, iPhone) are left alone.
+  const SMALL = new Set("a an and as at but by for in nor of on or per so the to up via vs yet".split(" "));
+  function titleCase(str) {
+    const words = String(str || "").split(/(\s+)/);
+    const idx = words.map((w, i) => (/\S/.test(w) ? i : -1)).filter((i) => i >= 0);
+    return words.map((w, i) => {
+      if (!/\S/.test(w) || /[A-Z]/.test(w)) return w;
+      if (SMALL.has(w) && i !== idx[0] && i !== idx[idx.length - 1]) return w;
+      return w.replace(/[a-z]/, (c) => c.toUpperCase());
+    }).join("");
+  }
+
   function fmtDue(iso, today) {
     const d = new Date(iso + "T00:00:00"), t = new Date(today + "T00:00:00");
     const days = Math.round((d - t) / 86400000);
@@ -150,15 +163,15 @@
 
   function folderLabel(t) {
     if (!t.category) return `<span class="tag-folder general">General</span>`;
-    const text = t.topic ? `${t.category_name} · ${t.topic_name}` : t.category_name;
+    const text = titleCase(t.topic ? `${t.category_name} · ${t.topic_name}` : t.category_name);
     return `<a class="tag-folder" href="#/folder/${enc(t.tag)}" title="#${esc(t.tag)}">${esc(text)}</a>`;
   }
 
   function taskRow(t, today) {
     const due = t.due ? `<span class="due${t.group === "overdue" ? " overdue" : ""}">${esc(fmtDue(t.due, today))}</span>` : "";
     return `<div class="task"><input type="checkbox" data-path="${esc(t.file)}" data-line="${t.line}">` +
-      `<span class="task-text">${t.html || esc(t.display)}</span>${folderLabel(t)}${due}` +
-      `<a class="src" href="#/note/${enc(t.file)}?line=${t.line}" title="${esc(t.file)}:${t.line}">${esc(t.title)}</a></div>`;
+      `<span class="task-text">${t.html || esc(t.display)}</span>${folderLabel(t)}${due || `<span class="due"></span>`}` +
+      `<a class="src" href="#/note/${enc(t.file)}?line=${t.line}" title="${esc(t.file)}:${t.line}">${esc(titleCase(t.title))}</a></div>`;
   }
 
   function taskGroups(tasks, today, onlyWeek) {
@@ -169,7 +182,7 @@
       if (!list.length) continue;
       html += `<h3 class="group group-${g}">${GROUP_LABELS[g]} <small>${list.length}</small></h3>` + list.map((t) => taskRow(t, today)).join("");
     }
-    return html;
+    return html && `<div class="task task-head"><span></span><span>Task</span><span>Category</span><span>Due</span><span>Note</span></div>` + html;
   }
 
   async function renderTasks() {
@@ -225,7 +238,7 @@
         `<li><a href="#/folder/${enc(t.tag)}">${esc(t.name)}</a><small>${t.count} note${t.count === 1 ? "" : "s"}</small></li>`).join("") + "</ul>";
     }
     html += "<h2>Notes</h2>" + (f.notes.length
-      ? "<ul class=\"folder-list\">" + f.notes.map((n) => `<li><a href="#/note/${enc(n.path)}">${esc(n.title)}</a></li>`).join("") + "</ul>"
+      ? "<ul class=\"folder-list\">" + f.notes.map((n) => `<li><a href="#/note/${enc(n.path)}">${esc(titleCase(n.title))}</a></li>`).join("") + "</ul>"
       : `<p class="empty">No notes directly in this folder.</p>`);
     html += "<h2>Open tasks</h2>" + (taskGroups(f.tasks, d.today, false) || `<p class="empty">No open tasks.</p>`);
     note.innerHTML = html;
@@ -270,7 +283,7 @@
     const hits = await api("/api/search?q=" + encodeURIComponent(q));
     if (search.value.trim() !== q) return;
     tree.innerHTML = hits.length ? hits.map((h) =>
-      `<a class="hit" href="#/note/${enc(h.path)}">${esc(h.title)}${h.snippet ? `<small>${esc(h.snippet)}</small>` : ""}</a>`).join("")
+      `<a class="hit" href="#/note/${enc(h.path)}">${esc(titleCase(h.title))}${h.snippet ? `<small>${esc(h.snippet)}</small>` : ""}</a>`).join("")
       : '<p class="empty" style="padding:8px">No matches</p>';
   }
   search.addEventListener("input", () => {
