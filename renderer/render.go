@@ -66,10 +66,10 @@ func (wikiParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Nod
 // ── Markdown pipeline ────────────────────────────────────────────
 
 type Markdown struct {
-	store *Store
-	files []string
-	md    goldmark.Markdown
-	note  string // current note, slash path relative to the notes folder
+	files  []string
+	md     goldmark.Markdown
+	inline goldmark.Markdown
+	note   string // current note, slash path relative to the notes folder
 }
 
 func escPath(p string) string { return (&url.URL{Path: p}).EscapedPath() }
@@ -79,7 +79,11 @@ func notesHref(rel string) string { return "#/note/" + escPath(rel) }
 func fileHref(rel string) string { return "/files/" + escPath(rel) }
 
 func NewMarkdown(store *Store, note string) *Markdown {
-	m := &Markdown{store: store, files: store.Files(), note: note}
+	return newMarkdown(store.Files(), note)
+}
+
+func newMarkdown(files []string, note string) *Markdown {
+	m := &Markdown{files: files, note: note}
 	m.md = goldmark.New(
 		goldmark.WithExtensions(
 			extension.GFM, // tables, strikethrough, task lists, autolinks
@@ -98,7 +102,28 @@ func NewMarkdown(store *Store, note string) *Markdown {
 			html.WithHardWraps(),
 		),
 	)
+	m.inline = newInlineMarkdown(
+		goldmark.WithParserOptions(parser.WithASTTransformers(util.Prioritized(m, 100))),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(m, 100))),
+	)
 	return m
+}
+
+// newInlineMarkdown builds a goldmark instance that treats its whole input as
+// one paragraph, so a single line such as a task's text keeps its inline
+// markup (emphasis, code, links, [[wiki links]]) while block syntax like a
+// leading "# " or "> " stays literal text.
+func newInlineMarkdown(opts ...goldmark.Option) goldmark.Markdown {
+	p := parser.NewParser(
+		parser.WithBlockParsers(util.Prioritized(parser.NewParagraphParser(), 1000)),
+		parser.WithInlineParsers(parser.DefaultInlineParsers()...),
+		parser.WithInlineParsers(util.Prioritized(wikiParser{}, 199)),
+	)
+	opts = append([]goldmark.Option{
+		goldmark.WithParser(p),
+		goldmark.WithExtensions(extension.Strikethrough, extension.Linkify),
+	}, opts...)
+	return goldmark.New(opts...)
 }
 
 func codeWrapper(w util.BufWriter, ctx highlighting.CodeBlockContext, entering bool) {
@@ -263,6 +288,61 @@ func (m *Markdown) Render(src []byte) (string, error) {
 			kind, g[2], strings.ToUpper(kind[:1])+kind[1:], body)
 	})
 	return out, nil
+}
+
+var paraRe = regexp.MustCompile(`(?s)^\s*<p[^>]*>(.*?)</p>\s*$`)
+
+// RenderInline converts one line of markdown (such as a task's text) to
+// inline HTML, without the surrounding paragraph.
+func (m *Markdown) RenderInline(src string) (string, error) {
+	var buf bytes.Buffer
+	if err := m.inline.Convert([]byte(strings.TrimSpace(src)), &buf); err != nil {
+		return "", err
+	}
+	return paraRe.ReplaceAllString(buf.String(), "$1"), nil
+}
+
+// plainMD parses inline markdown for PlainText; it has no renderer hooks.
+var plainMD = newInlineMarkdown()
+
+// PlainText strips inline markdown from one line, for places that show text
+// rather than HTML (titles, search snippets): "**Big** [[Plan|plan]]" becomes
+// "Big plan".
+func PlainText(src string) string {
+	b := []byte(strings.TrimSpace(src))
+	doc := plainMD.Parser().Parse(text.NewReader(b))
+	var out strings.Builder
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		switch v := n.(type) {
+		case *wikiNode:
+			if v.Alias != "" {
+				out.WriteString(v.Alias)
+			} else {
+				out.WriteString(v.Target)
+			}
+			return ast.WalkSkipChildren, nil
+		case *ast.Text:
+			if _, code := v.Parent().(*ast.CodeSpan); code {
+				out.Write(v.Segment.Value(b))
+			} else {
+				out.Write(util.UnescapePunctuations(v.Segment.Value(b)))
+			}
+			if v.SoftLineBreak() || v.HardLineBreak() {
+				out.WriteByte(' ')
+			}
+		case *ast.String:
+			out.Write(v.Value)
+		case *ast.AutoLink:
+			out.Write(v.Label(b))
+		case *ast.RawHTML:
+			return ast.WalkSkipChildren, nil
+		}
+		return ast.WalkContinue, nil
+	})
+	return strings.TrimSpace(out.String())
 }
 
 // ── Syntax highlighting CSS ──────────────────────────────────────

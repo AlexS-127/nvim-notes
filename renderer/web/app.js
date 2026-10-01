@@ -4,7 +4,7 @@
   const note = $("#note"), main = $("#main"), tree = $("#tree"), backlinks = $("#backlinks");
   const search = $("#search");
   let current = { view: "note", path: "" };
-  let pendingLine = 0;
+  let pendingLine = 0, pendingScroll = null;
 
   const store = {
     get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } },
@@ -70,7 +70,8 @@
         backlinks.hidden = true;
       }
     }
-    if (keepScroll) main.scrollTop = top;
+    if (pendingScroll !== null) { main.scrollTop = pendingScroll; pendingScroll = null; }
+    else if (keepScroll) main.scrollTop = top;
     else if (pendingLine) scrollToLine(pendingLine, true);
     else main.scrollTop = 0;
     pendingLine = 0;
@@ -98,13 +99,26 @@
   function enableCheckboxes() {
     for (const cb of note.querySelectorAll("input[type=checkbox]")) cb.disabled = false;
   }
+  // Checkboxes toggle the task in its file: in a note via the list item's
+  // source line, in the Tasks view via data-path/data-line on the box.
   note.addEventListener("change", async (e) => {
     const cb = e.target;
     if (cb.type !== "checkbox") return;
-    const li = cb.closest("li[data-line]");
-    if (!li || current.view !== "note") return;
-    try { await post("/api/toggle", { path: current.path, line: Number(li.dataset.line) }); }
-    catch (err) { cb.checked = !cb.checked; }
+    let path, line;
+    if (cb.dataset.path) {
+      path = cb.dataset.path; line = Number(cb.dataset.line);
+      cb.closest(".task").classList.toggle("done", cb.checked);
+    } else {
+      const li = cb.closest("li[data-line]");
+      if (!li || current.view !== "note") return;
+      path = current.path; line = Number(li.dataset.line);
+    }
+    try { await post("/api/toggle", { path, line }); }
+    catch (err) {
+      cb.checked = !cb.checked;
+      const t = cb.closest(".task");
+      if (t) t.classList.toggle("done", cb.checked);
+    }
   });
 
   async function renderTasks() {
@@ -113,17 +127,14 @@
     backlinks.hidden = true;
     document.title = "Tasks — notesview";
     if (!groups.length) { note.innerHTML = '<h1>Tasks</h1><p class="empty">No open tasks. 🎉</p>'; return; }
+    // The task text may contain links, so it is not wrapped in the link to
+    // its note; a separate small link points at the source line instead.
     note.innerHTML = "<h1>Tasks</h1>" + groups.map((g) =>
       `<h3><a href="#/note/${enc(g.path)}">${esc(g.title)}</a></h3>` +
       g.tasks.map((t) => `<div class="task"><input type="checkbox" data-path="${esc(g.path)}" data-line="${t.line}">` +
-        `<a href="#/note/${enc(g.path)}?line=${t.line}">${esc(t.text)}</a></div>`).join("")).join("");
+        `<span class="task-text">${t.html ?? esc(t.text)}</span>` +
+        `<a class="task-src" href="#/note/${enc(g.path)}?line=${t.line}" title="Open ${esc(g.path)} at line ${t.line}">${esc(g.path)}:${t.line}</a></div>`).join("")).join("");
   }
-  note.addEventListener("change", async (e) => {
-    const cb = e.target;
-    if (cb.type !== "checkbox" || !cb.dataset.path) return;
-    try { await post("/api/toggle", { path: cb.dataset.path, line: Number(cb.dataset.line) }); }
-    catch (err) { cb.checked = !cb.checked; }
-  });
 
   // ── sidebar ──
   let treeData = [];
@@ -197,8 +208,17 @@
   });
 
   // ── live updates ──
+  // custom.css edits reload the page; keep the scroll position across it.
+  try {
+    const y = sessionStorage.getItem("reloadScroll");
+    if (y !== null) { sessionStorage.removeItem("reloadScroll"); pendingScroll = Number(y); }
+  } catch (e) {}
   function connect() {
     const es = new EventSource("/events");
+    es.addEventListener("css", () => {
+      try { sessionStorage.setItem("reloadScroll", String(main.scrollTop)); } catch (e) {}
+      location.reload();
+    });
     es.addEventListener("change", () => {
       loadTree();
       if (current.view === "tasks" || current.path) show(current, true);

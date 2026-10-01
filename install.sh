@@ -8,6 +8,7 @@ REPO_SLUG="${NOTESVIEW_REPO:-alexs-127/nvim-notes}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 CONFIG_LINK="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
+CSS_LINK="${XDG_CONFIG_HOME:-$HOME/.config}/notesview/custom.css"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
 NOTES_HOME="${NOTES_DIR:-$HOME/notes}"
 MARK_BEGIN="# >>> nvim-notes >>>"
@@ -40,6 +41,12 @@ remove_block() { # remove our marked block from a file
 if [ "${1:-}" = "--uninstall" ]; then
   say "Removing config symlink"
   if [ -L "$CONFIG_LINK" ] && [ "$(readlink "$CONFIG_LINK")" = "$REPO_DIR/nvim" ]; then rm -f "$CONFIG_LINK"; fi
+  say "Removing notesview custom.css symlink"
+  if [ -L "$CSS_LINK" ] && [ "$(readlink "$CSS_LINK")" = "$REPO_DIR/notesview/custom.css" ]; then rm -f "$CSS_LINK"; fi
+  latest_css="$(ls -d "$CSS_LINK".bak-* 2>/dev/null | sort | tail -n 1 || true)"
+  if [ -n "$latest_css" ] && [ ! -e "$CSS_LINK" ] && [ ! -L "$CSS_LINK" ]; then
+    say "Restoring $latest_css"; mv "$latest_css" "$CSS_LINK"
+  fi
   say "Removing notesview and helper symlinks"
   rm -f "$BIN_DIR/notesview"
   [ -L "$BIN_DIR/fd" ] && case "$(readlink "$BIN_DIR/fd")" in *fdfind) rm -f "$BIN_DIR/fd" ;; esac
@@ -140,6 +147,19 @@ else
     mv "$CONFIG_LINK" "$backup"
   fi
   ln -s "$REPO_DIR/nvim" "$CONFIG_LINK"
+fi
+
+say "Linking notesview custom.css"
+mkdir -p "$(dirname "$CSS_LINK")"
+if [ -L "$CSS_LINK" ] && [ "$(readlink "$CSS_LINK")" = "$REPO_DIR/notesview/custom.css" ]; then
+  :
+else
+  if [ -e "$CSS_LINK" ] || [ -L "$CSS_LINK" ]; then
+    backup="$CSS_LINK.bak-$(date +%Y%m%d-%H%M%S)"
+    say "Backing up existing custom.css to $backup"
+    mv "$CSS_LINK" "$backup"
+  fi
+  ln -s "$REPO_DIR/notesview/custom.css" "$CSS_LINK"
 fi
 
 mkdir -p "$NOTES_HOME"
