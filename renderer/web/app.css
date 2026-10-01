@@ -137,7 +137,15 @@ body.sidebar-collapsed .note, body.sidebar-collapsed .backlinks { padding-left: 
   column-gap: 8px; align-items: baseline; padding: 2px 0; border-bottom: 1px solid var(--border); }
 .task > .tag-folder { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .task-head { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: .6em; }
-@media (max-width: 640px) { .task { grid-template-columns: 1.4em minmax(0, 1fr) auto; } .task > .tag-folder, .task > a.src, .task-head { display: none; } }
+@media (max-width: 960px) {
+  .task { grid-template-columns: 1.4em auto auto minmax(0, 1fr); grid-template-areas: "cb text text text" ". tag due src"; row-gap: 2px; padding: 5px 0; align-items: center; }
+  .task > input { grid-area: cb; } .task > .task-text { grid-area: text; }
+  .task > .tag-folder { grid-area: tag; } .task > .due { grid-area: due; } .task > a.src { grid-area: src; }
+  .task > .due:empty { display: none; }
+  .task-head { display: none; }
+}
+.task-text em:last-child { color: var(--muted); font-size: .8em; white-space: nowrap; }
+@media (max-width: 640px) { .task { grid-template-columns: 1.4em minmax(0, 1fr) auto; grid-template-areas: none; } .task > .task-text, .task > input, .task > .due { grid-area: auto; } .task > .tag-folder, .task > a.src, .task-head { display: none; } }
 .task input { cursor: pointer; accent-color: var(--accent); }
 .task-text { min-width: 0; }
 .note.tasks { max-width: 1100px; padding: 20px 20px; }
