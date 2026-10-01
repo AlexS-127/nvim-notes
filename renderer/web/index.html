@@ -6,16 +6,21 @@
 <meta name="color-scheme" content="light dark">
 <title>notesview</title>
 <link rel="icon" href="data:,">
+<script src="/theme.js"></script>
 <script>
-  // Before first paint: the system appearance (the same one Ghostty and Neovim follow); the saved sidebar state.
+  // Before first paint: the palette and appearance from config.json (default: follow the system, like
+  // Ghostty and Neovim); the saved sidebar state.
   (function () {
     var get = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
-    document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    var t = window.__notesviewTheme || {};
+    if (t.palette) document.documentElement.dataset.palette = t.palette;
+    document.documentElement.dataset.theme = t.mode || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     if (get("sidebar") === "collapsed") document.documentElement.classList.add("sidebar-collapsed-pending");
   })();
 </script>
 <link rel="stylesheet" href="/katex/katex.min.css">
 <link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/themes.css">
 <link rel="stylesheet" href="/chroma.css">
 <link rel="stylesheet" href="/custom.css" id="custom-css">
 </head>

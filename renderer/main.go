@@ -57,6 +57,8 @@ func usage() {
   notesview resolve  [--json] [--dir DIR] TARGET       what a [[TARGET]] link points to
   notesview daily    [--date YYYY-MM-DD] [--dir DIR]   create a daily note (today's with carry-over)
   notesview doctor                                     check the installation
+  notesview themes                                     list themes (* = current)
+  notesview theme    NAME                              choose a theme (writes config.json)
   notesview --version`)
 	os.Exit(2)
 }
@@ -72,7 +74,7 @@ func main() {
 		return
 	case "-h", "--help", "help":
 		usage()
-	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor":
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme":
 		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
@@ -148,6 +150,35 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 	switch cmd {
 	case "doctor":
 		return runDoctor(stdout)
+	case "themes":
+		cur, warn := LoadConfig()
+		for _, t := range themes {
+			mark := " "
+			if t.Name == cur.Theme {
+				mark = "*"
+			}
+			fmt.Fprintf(stdout, "%s %-12s %s\n", mark, t.Name, t.Desc)
+		}
+		if warn != "" {
+			fmt.Fprintln(stderr, "warning:", warn)
+		}
+		return 0
+	case "theme":
+		t, ok := findTheme(text)
+		if !ok {
+			return fail(fmt.Errorf("unknown theme %q (available: %s)", text, themeNames()))
+		}
+		cur, _ := LoadConfig()
+		cur.Theme = t.Name
+		b, _ := json.MarshalIndent(cur, "", "  ")
+		if err := os.MkdirAll(configDir(), 0o755); err != nil {
+			return fail(err)
+		}
+		if err := os.WriteFile(configPath(), append(b, '\n'), 0o644); err != nil {
+			return fail(err)
+		}
+		fmt.Fprintf(stdout, "theme set to %s (%s)\n", t.Name, configPath())
+		return 0
 	case "due":
 		d, ok := ParseDue(text, now)
 		if !ok {

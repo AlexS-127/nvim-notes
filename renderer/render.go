@@ -366,7 +366,7 @@ var chromaRuleRe = regexp.MustCompile(`(?m)^(/\*.*?\*/ )?\.chroma`)
 // --code-bg theme variable in app.css, not from the chroma style.
 func ChromaCSS() string {
 	var out strings.Builder
-	for _, t := range []struct{ theme, style string }{{"dark", "github-dark"}, {"light", "github"}} {
+	for _, t := range chromaThemes() {
 		style := styles.Get(t.style)
 		if style == nil {
 			style = styles.Fallback
@@ -378,7 +378,7 @@ func ChromaCSS() string {
 			if !chromaRuleRe.MatchString(line) { // e.g. the unscoped ".bg" rule
 				continue
 			}
-			line = chromaRuleRe.ReplaceAllString(line, `${1}:where(:root[data-theme="`+t.theme+`"]) .chroma`)
+			line = chromaRuleRe.ReplaceAllString(line, `${1}:where(:root`+t.palette+`[data-theme="`+t.theme+`"]) .chroma`)
 			if strings.Contains(line, "/* PreWrapper */") {
 				line = chromaBgRe.ReplaceAllString(line, "")
 			}
@@ -389,3 +389,22 @@ func ChromaCSS() string {
 }
 
 var chromaBgRe = regexp.MustCompile(`\s*background-color:[^;}]*;?`)
+
+type chromaTheme struct{ palette, theme, style string }
+
+// chromaThemes lists one scoped token style per theme and appearance. The
+// default theme is unscoped so it also applies when no palette is set.
+func chromaThemes() []chromaTheme {
+	var out []chromaTheme
+	for _, t := range themes {
+		pal := `[data-palette="` + t.Name + `"]`
+		if t.Name == "default" {
+			pal = ""
+		}
+		if t.Light != "" {
+			out = append(out, chromaTheme{pal, "light", t.Light})
+		}
+		out = append(out, chromaTheme{pal, "dark", t.Dark})
+	}
+	return out
+}

@@ -84,6 +84,15 @@ func (s *Server) Handler() http.Handler {
 			w.Write(b)
 		}
 	})
+	// theme.js runs before first paint (blocking script in index.html);
+	// /api/config gives the same answer to a page that is already open.
+	mux.HandleFunc("/theme.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript")
+		w.Header().Set("Cache-Control", "no-cache")
+		b, _ := json.Marshal(themeInfo())
+		fmt.Fprintf(w, "window.__notesviewTheme=%s;", b)
+	})
+	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, themeInfo()) })
 	mux.HandleFunc("/files/", s.handleFile)
 	mux.HandleFunc("/events", s.handleEvents)
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +124,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/scroll", s.post(s.handleScroll))
 	mux.HandleFunc("/api/openurl", s.post(s.handleOpenURL))
 	return s.guardHost(mux)
+}
+
+func themeInfo() map[string]string {
+	c, _ := LoadConfig()
+	palette, mode := c.Resolved()
+	return map[string]string{"palette": palette, "mode": mode}
 }
 
 func noCache(h http.Handler) http.Handler {
@@ -390,7 +405,7 @@ func (s *Server) Watch() (func(), error) {
 	}
 	isConfigFile := func(p string) bool {
 		b := filepath.Base(p)
-		return cfgDirs[filepath.Dir(p)] && b == filepath.Base(s.css)
+		return cfgDirs[filepath.Dir(p)] && (b == filepath.Base(s.css) || b == "config.json")
 	}
 	done := make(chan struct{})
 	go func() {

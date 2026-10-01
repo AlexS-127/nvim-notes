@@ -77,6 +77,34 @@ Folders are the structure; there is nothing to configure.
   [Source Serif 4](https://github.com/adobe-fonts/source-serif) (SIL OFL 1.1) embedded as the
   fallback; code stays monospace.
 
+### Themes
+
+Pick one with `notesview theme NAME` (list them with `notesview themes`), or edit
+`~/.config/notesview/config.json` (`$XDG_CONFIG_HOME/notesview/config.json`). The open viewer
+switches live when the file changes.
+
+```json
+{ "theme": "tokyo-night", "appearance": "auto" }
+```
+
+| Theme | Look |
+| --- | --- |
+| `default` | clean GitHub-like reading theme |
+| `nord` | arctic blue-greys |
+| `gruvbox` | warm retro earth tones |
+| `solarized` | low-contrast classic |
+| `catppuccin` | soft pastels (latte / mocha) |
+| `rose-pine` | dusky rose and gold (dawn / moon) |
+| `tokyo-night` | neon-lit city night (day / night) |
+| `dracula` | purple and pink on charcoal, dark only |
+| `terminal` | green phosphor CRT: monospace, glow, scanlines, dark only |
+
+`appearance` is `auto` (follow the system, the default), `light` or `dark`. Themes that only
+exist in one appearance (`dracula`, `terminal`) ignore it. Each theme also sets the code
+highlighting colours. An unknown theme falls back to `default`. Your `custom.css` loads after the theme, so it can still
+override anything. Note that font variables set there beat the theme's: remove
+`--font-body` from `custom.css` to let `terminal` be monospace.
+
 ### Fonts and custom CSS
 
 The viewer loads `~/.config/notesview/custom.css` (or `$XDG_CONFIG_HOME/notesview/custom.css`)
@@ -236,6 +264,8 @@ notesview capture -i [text]                 # capture step by step (what `inbox`
 notesview capture --folder act-200 --due fri -- "read ch 5"   # capture in one go
 notesview daily [--date YYYY-MM-DD]         # create a daily note (today's: with carry-over), print its path
 notesview doctor                            # check the installation, with a fix for each problem
+notesview themes                            # list themes (* = current)
+notesview theme tokyo-night                 # choose a theme
 notesview --version
 ```
 

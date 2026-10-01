@@ -19,11 +19,19 @@
   };
   const post = (u, body) => api(u, { method: "POST", headers: { "X-Notesview": "1", "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-  // ── theme: always the system appearance, live (index.html sets it before paint) ──
+  // ── theme: palette and appearance come from config.json (index.html sets them before paint);
+  // with no forced appearance it follows the system, live ──
   const systemDark = matchMedia("(prefers-color-scheme: dark)");
-  const applyTheme = (dark) => { document.documentElement.dataset.theme = dark ? "dark" : "light"; };
-  applyTheme(systemDark.matches);
-  systemDark.addEventListener("change", (e) => applyTheme(e.matches));
+  let forcedMode = (window.__notesviewTheme || {}).mode || "";
+  const applyTheme = () => { document.documentElement.dataset.theme = forcedMode || (systemDark.matches ? "dark" : "light"); };
+  const loadConfig = async () => {
+    const c = await api("/api/config");
+    forcedMode = c.mode || "";
+    if (c.palette) document.documentElement.dataset.palette = c.palette;
+    applyTheme();
+  };
+  applyTheme();
+  systemDark.addEventListener("change", applyTheme);
   try { localStorage.removeItem("theme"); } catch (e) {}   // a choice saved by the old toggle button
 
   // ── collapsible sidebar ──
@@ -350,7 +358,7 @@
     es.addEventListener("change", (e) => {
       let m = {};
       try { m = JSON.parse(e.data); } catch (err) {}
-      if (m.css) { const l = $("#custom-css"); l.href = "/custom.css?" + Date.now(); }
+      if (m.css) { const l = $("#custom-css"); l.href = "/custom.css?" + Date.now(); loadConfig().catch(() => {}); }
       loadTree().catch(() => {});
       if (current.view !== "note" || current.path) show(current, true);
     });

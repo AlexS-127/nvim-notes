@@ -1,0 +1,56 @@
+/* Themes. Each one is a block of the same variables app.css defines, chosen with
+   `notesview theme NAME` or { "theme": "NAME" } in ~/.config/notesview/config.json.
+   Wrapped in :where() like app.css, so custom.css still overrides everything. */
+:where(:root[data-palette="nord"][data-theme="light"]) { color-scheme: light; --bg: #eceff4; --bg2: #e5e9f0; --fg: #2e3440; --muted: #5e6b80; --border: #d0d6e2; --accent: #5e81ac; --missing: #bf616a; --hl: color-mix(in srgb, #5e81ac 16%, transparent); --overdue: #bf616a; --code-bg: #e5e9f0; --code-fg: #2e3440; --code-border: #d0d6e2; --icode-bg: #dde3ec; --icode-fg: #8f5b3a; --c-note: #5e81ac; --c-tip: #6f8f5a; --c-warning: #b58a3a; --c-danger: #bf616a; --c-important: #88699f; --callout-bg: #e5e9f0; }
+:where(:root[data-palette="nord"][data-theme="dark"]) { color-scheme: dark; --bg: #2e3440; --bg2: #3b4252; --fg: #d8dee9; --muted: #8f9bb3; --border: #434c5e; --accent: #88c0d0; --missing: #d08770; --hl: color-mix(in srgb, #88c0d0 16%, transparent); --overdue: #bf616a; --code-bg: #272c36; --code-fg: #e5e9f0; --code-border: #434c5e; --icode-bg: #434c5e; --icode-fg: #ebcb8b; --c-note: #81a1c1; --c-tip: #a3be8c; --c-warning: #ebcb8b; --c-danger: #bf616a; --c-important: #b48ead; --callout-bg: #353b49; }
+:where(:root[data-palette="gruvbox"][data-theme="light"]) { color-scheme: light; --bg: #fbf1c7; --bg2: #f2e5bc; --fg: #3c3836; --muted: #7c6f64; --border: #d5c4a1; --accent: #076678; --missing: #9d0006; --hl: color-mix(in srgb, #076678 16%, transparent); --overdue: #9d0006; --code-bg: #f2e5bc; --code-fg: #3c3836; --code-border: #d5c4a1; --icode-bg: #ebdbb2; --icode-fg: #af3a03; --c-note: #076678; --c-tip: #79740e; --c-warning: #b57614; --c-danger: #9d0006; --c-important: #8f3f71; --callout-bg: #f5e9b9; }
+:where(:root[data-palette="gruvbox"][data-theme="dark"]) { color-scheme: dark; --bg: #282828; --bg2: #32302f; --fg: #ebdbb2; --muted: #a89984; --border: #504945; --accent: #83a598; --missing: #fb4934; --hl: color-mix(in srgb, #83a598 16%, transparent); --overdue: #fb4934; --code-bg: #1d2021; --code-fg: #ebdbb2; --code-border: #504945; --icode-bg: #3c3836; --icode-fg: #fe8019; --c-note: #83a598; --c-tip: #b8bb26; --c-warning: #fabd2f; --c-danger: #fb4934; --c-important: #d3869b; --callout-bg: #302e2d; }
+:where(:root[data-palette="solarized"][data-theme="light"]) { color-scheme: light; --bg: #fdf6e3; --bg2: #eee8d5; --fg: #586e75; --muted: #93a1a1; --border: #e0d9c1; --accent: #268bd2; --missing: #cb4b16; --hl: color-mix(in srgb, #268bd2 16%, transparent); --overdue: #dc322f; --code-bg: #eee8d5; --code-fg: #586e75; --code-border: #ddd6bf; --icode-bg: #e8e1c9; --icode-fg: #cb4b16; --c-note: #268bd2; --c-tip: #859900; --c-warning: #b58900; --c-danger: #dc322f; --c-important: #6c71c4; --callout-bg: #f3ecd7; }
+:where(:root[data-palette="solarized"][data-theme="dark"]) { color-scheme: dark; --bg: #002b36; --bg2: #073642; --fg: #93a1a1; --muted: #7b9096; --border: #12495a; --accent: #2aa198; --missing: #cb4b16; --hl: color-mix(in srgb, #2aa198 16%, transparent); --overdue: #dc322f; --code-bg: #00212b; --code-fg: #93a1a1; --code-border: #12495a; --icode-bg: #0b3c49; --icode-fg: #cb4b16; --c-note: #268bd2; --c-tip: #859900; --c-warning: #b58900; --c-danger: #dc322f; --c-important: #6c71c4; --callout-bg: #04323d; }
+:where(:root[data-palette="catppuccin"][data-theme="light"]) { color-scheme: light; --bg: #eff1f5; --bg2: #e6e9ef; --fg: #4c4f69; --muted: #6c6f85; --border: #ccd0da; --accent: #8839ef; --missing: #d20f39; --hl: color-mix(in srgb, #8839ef 16%, transparent); --overdue: #d20f39; --code-bg: #e6e9ef; --code-fg: #4c4f69; --code-border: #ccd0da; --icode-bg: #dce0e8; --icode-fg: #e64553; --c-note: #1e66f5; --c-tip: #40a02b; --c-warning: #df8e1d; --c-danger: #d20f39; --c-important: #8839ef; --callout-bg: #e9ecf1; }
+:where(:root[data-palette="catppuccin"][data-theme="dark"]) { color-scheme: dark; --bg: #1e1e2e; --bg2: #181825; --fg: #cdd6f4; --muted: #9399b2; --border: #313244; --accent: #cba6f7; --missing: #fab387; --hl: color-mix(in srgb, #cba6f7 16%, transparent); --overdue: #f38ba8; --code-bg: #11111b; --code-fg: #cdd6f4; --code-border: #313244; --icode-bg: #313244; --icode-fg: #f5c2e7; --c-note: #89b4fa; --c-tip: #a6e3a1; --c-warning: #f9e2af; --c-danger: #f38ba8; --c-important: #cba6f7; --callout-bg: #232334; }
+:where(:root[data-palette="rose-pine"][data-theme="light"]) { color-scheme: light; --bg: #faf4ed; --bg2: #fffaf3; --fg: #575279; --muted: #797593; --border: #e4dcd0; --accent: #907aa9; --missing: #b4637a; --hl: color-mix(in srgb, #907aa9 16%, transparent); --overdue: #b4637a; --code-bg: #f2e9e1; --code-fg: #575279; --code-border: #e4dcd0; --icode-bg: #f2e9e1; --icode-fg: #d7827e; --c-note: #286983; --c-tip: #56949f; --c-warning: #ea9d34; --c-danger: #b4637a; --c-important: #907aa9; --callout-bg: #fffaf3; }
+:where(:root[data-palette="rose-pine"][data-theme="dark"]) { color-scheme: dark; --bg: #191724; --bg2: #1f1d2e; --fg: #e0def4; --muted: #908caa; --border: #2a283e; --accent: #c4a7e7; --missing: #eb6f92; --hl: color-mix(in srgb, #c4a7e7 16%, transparent); --overdue: #eb6f92; --code-bg: #14121f; --code-fg: #e0def4; --code-border: #2a283e; --icode-bg: #26233a; --icode-fg: #f6c177; --c-note: #9ccfd8; --c-tip: #31748f; --c-warning: #f6c177; --c-danger: #eb6f92; --c-important: #c4a7e7; --callout-bg: #1f1d2e; }
+:where(:root[data-palette="tokyo-night"][data-theme="light"]) { color-scheme: light; --bg: #e1e2e7; --bg2: #d5d6db; --fg: #3760bf; --muted: #6172b0; --border: #c4c8da; --accent: #2e7de9; --missing: #f52a65; --hl: color-mix(in srgb, #2e7de9 16%, transparent); --overdue: #f52a65; --code-bg: #d5d6db; --code-fg: #3760bf; --code-border: #c4c8da; --icode-bg: #cbcdd6; --icode-fg: #b15c00; --c-note: #2e7de9; --c-tip: #587539; --c-warning: #8c6c3e; --c-danger: #f52a65; --c-important: #9854f1; --callout-bg: #dcdde3; }
+:where(:root[data-palette="tokyo-night"][data-theme="dark"]) { color-scheme: dark; --bg: #1a1b26; --bg2: #16161e; --fg: #c0caf5; --muted: #7982a9; --border: #292e42; --accent: #7aa2f7; --missing: #ff9e64; --hl: color-mix(in srgb, #7aa2f7 16%, transparent); --overdue: #f7768e; --code-bg: #13141c; --code-fg: #c0caf5; --code-border: #292e42; --icode-bg: #24283b; --icode-fg: #ff9e64; --c-note: #7aa2f7; --c-tip: #9ece6a; --c-warning: #e0af68; --c-danger: #f7768e; --c-important: #bb9af7; --callout-bg: #1f2030; }
+:where(:root[data-palette="dracula"][data-theme="dark"]) { color-scheme: dark; --bg: #282a36; --bg2: #21222c; --fg: #f8f8f2; --muted: #9aa0c0; --border: #44475a; --accent: #bd93f9; --missing: #ffb86c; --hl: color-mix(in srgb, #bd93f9 16%, transparent); --overdue: #ff5555; --code-bg: #1e1f29; --code-fg: #f8f8f2; --code-border: #44475a; --icode-bg: #44475a; --icode-fg: #ff79c6; --c-note: #8be9fd; --c-tip: #50fa7b; --c-warning: #f1fa8c; --c-danger: #ff5555; --c-important: #bd93f9; --callout-bg: #2d2f3d; }
+:where(:root[data-palette="terminal"][data-theme="dark"]) { color-scheme: dark; --bg: #050805; --bg2: #0a110a; --fg: #3dff7a; --muted: #26a850; --border: #14401f; --accent: #7dffa8; --missing: #ffb000; --hl: color-mix(in srgb, #7dffa8 16%, transparent); --overdue: #ff4d4d; --code-bg: #030603; --code-fg: #3dff7a; --code-border: #14401f; --icode-bg: #0e1e12; --icode-fg: #ffd24a; --c-note: #3dd6ff; --c-tip: #3dff7a; --c-warning: #ffb000; --c-danger: #ff4d4d; --c-important: #ff7bf5; --callout-bg: #081008; }
+
+/* ── personality beyond colour ── */
+:where(:root[data-palette="gruvbox"]) { --font-body: Charter, Georgia, serif; }
+:where(:root[data-palette="rose-pine"]) { --font-heading: "Iowan Old Style", Georgia, serif; }
+:where(:root[data-palette="solarized"]) .note h1 { letter-spacing: .02em; }
+:where(:root[data-palette="catppuccin"]) .note pre,
+:where(:root[data-palette="tokyo-night"]) .note pre { border-radius: 12px; }
+:where(:root[data-palette="catppuccin"]) .note blockquote.callout { border-radius: 12px; }
+:where(:root[data-palette="nord"]) .note h1, :where(:root[data-palette="nord"]) .note h2 { border-bottom-color: var(--accent); }
+:where(:root[data-palette="dracula"]) .note h1 { color: var(--accent); }
+:where(:root[data-palette="dracula"]) .note h2 { color: #ff79c6; }
+:where(:root[data-palette="dracula"]) .note h3 { color: #50fa7b; }
+:where(:root[data-palette="tokyo-night"]) .note h1 { color: var(--accent); }
+:where(:root[data-palette="tokyo-night"]) .note h2 { color: #bb9af7; }
+
+/* terminal: phosphor green, monospace everywhere, glow and faint scanlines */
+:where(:root[data-palette="terminal"]) {
+  --font-body: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-heading: var(--font-body);
+  --font-ui: var(--font-body);
+  --font-size: 15px;
+  --line-height: 1.7;
+}
+:where(:root[data-palette="terminal"]) body {
+  background-image: repeating-linear-gradient(0deg, rgba(61,255,122,.035) 0 1px, transparent 1px 3px);
+  background-attachment: fixed;
+}
+:where(:root[data-palette="terminal"]) .note { text-shadow: 0 0 6px rgba(61,255,122,.35); }
+:where(:root[data-palette="terminal"]) .note h1::before { content: "# "; opacity: .6; }
+:where(:root[data-palette="terminal"]) .note h2::before { content: "## "; opacity: .6; }
+:where(:root[data-palette="terminal"]) .note h3::before { content: "### "; opacity: .6; }
+:where(:root[data-palette="terminal"]) .note h1,
+:where(:root[data-palette="terminal"]) .note h2 { border-bottom-style: dashed; }
+:where(:root[data-palette="terminal"]) .note pre,
+:where(:root[data-palette="terminal"]) .note code,
+:where(:root[data-palette="terminal"]) .note blockquote.callout,
+:where(:root[data-palette="terminal"]) #search,
+:where(:root[data-palette="terminal"]) .side-actions button { border-radius: 0; }
+:where(:root[data-palette="terminal"]) .note a { text-decoration: underline; text-underline-offset: 3px; }
