@@ -57,16 +57,25 @@ vim.pack.add({
   "https://github.com/nvim-mini/mini.starter",
 }, { confirm = false })
 
--- ── Theme: Catppuccin (latte/mocha), follows the macOS appearance ─
+-- ── Theme: Borland (light) / Catppuccin mocha (dark), follows the macOS appearance ─
 require("catppuccin").setup({
   background = { light = "latte", dark = "mocha" },
-  transparent_background = true,   -- keep the terminal's own background
+  transparent_background = true,   -- keep the terminal's own background (dark only, see below)
   float = { transparent = true },
 })
 local function set_theme(bg)
   vim.o.background = bg
   vim.cmd.colorscheme("catppuccin")
+  if bg == "light" then require("borland").apply() end   -- opaque, high-contrast overrides
 end
+-- Re-apply if something (e.g. :colorscheme) resets the highlights while in light mode.
+vim.api.nvim_create_autocmd("ColorScheme", {
+  callback = function()
+    if vim.o.background == "light" and vim.g.colors_name == "catppuccin" then
+      require("borland").apply()
+    end
+  end,
+})
 set_theme(vim.o.background)   -- no flash before auto-dark-mode's first check
 require("auto-dark-mode").setup({
   fallback = "dark",

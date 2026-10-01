@@ -237,15 +237,29 @@ type CaptureOpts struct {
 
 // BuildCapture turns the answers into the task line (without the "- [ ] "
 // prefix and timestamp): text, then #folder-tag, then @due.
+//
+// A folder that does not exist yet is not an error: BuildCapture returns the
+// tag for it and Capture creates the directory.
 func BuildCapture(o CaptureOpts, idx *FolderIndex, now time.Time) (string, error) {
-	text := ConvertNaturalDates(strings.Join(strings.Fields(o.Text), " "), now)
+	text, _, err := buildCapture(o, idx, now)
+	return text, err
+}
+
+// buildCapture also returns the folder to create, if the answer named one
+// that does not exist.
+func buildCapture(o CaptureOpts, idx *FolderIndex, now time.Time) (text string, create *Folder, err error) {
+	text = ConvertNaturalDates(strings.Join(strings.Fields(o.Text), " "), now)
 	if text == "" {
-		return "", errors.New("nothing to capture")
+		return "", nil, errors.New("nothing to capture")
 	}
 	if f := strings.TrimSpace(o.Folder); f != "" && !strings.EqualFold(f, "none") {
-		folder, ok := idx.Resolve(strings.TrimPrefix(f, "#"))
+		f = strings.TrimPrefix(f, "#")
+		folder, ok := idx.Resolve(f)
 		if !ok {
-			return "", fmt.Errorf("no folder %q", f)
+			if folder, ok = newFolder(f); !ok {
+				return "", nil, fmt.Errorf("can't make a folder called %q", f)
+			}
+			create = &folder
 		}
 		if _, tags := scanTask(text); !containsFold(tags, folder.Tag) {
 			text += " #" + folder.Tag
@@ -254,7 +268,7 @@ func BuildCapture(o CaptureOpts, idx *FolderIndex, now time.Time) (string, error
 	if strings.TrimSpace(o.Due) != "" {
 		d, ok := ParseDue(o.Due, now)
 		if !ok {
-			return "", fmt.Errorf("can't read due date %q (try fri, tomorrow, oct6, 10/6, +3d)", o.Due)
+			return "", nil, fmt.Errorf("can't read due date %q (try fri, tomorrow, oct6, 10/6, +3d)", o.Due)
 		}
 		iso := d.Format(isoDate)
 		if old, _ := scanTask(text); old != "" {
@@ -263,7 +277,34 @@ func BuildCapture(o CaptureOpts, idx *FolderIndex, now time.Time) (string, error
 			text += " @" + iso
 		}
 	}
-	return text, nil
+	return text, create, nil
+}
+
+// newFolder describes a category or category/topic folder that does not
+// exist yet, from a typed path like "ACT 200/Chapter 6". Deeper paths and
+// names that slugify to nothing (or are reserved) are refused.
+func newFolder(p string) (Folder, bool) {
+	var parts []string
+	for _, seg := range strings.Split(strings.ReplaceAll(p, "\\", "/"), "/") {
+		if seg = strings.TrimSpace(seg); seg != "" {
+			parts = append(parts, seg)
+		}
+	}
+	if len(parts) == 0 || len(parts) > 2 || !categoryDir(parts[0]) || slugify(parts[0]) == "" {
+		return Folder{}, false
+	}
+	cat := Folder{Path: parts[0], Tag: slugify(parts[0]), Name: parts[0], Kind: "category"}
+	cat.Category, cat.CategoryName = cat.Tag, cat.Name
+	if len(parts) == 1 {
+		return cat, true
+	}
+	if !topicDir(parts[1]) || slugify(parts[1]) == "" {
+		return Folder{}, false
+	}
+	return Folder{
+		Path: parts[0] + "/" + parts[1], Tag: cat.Tag + "/" + slugify(parts[1]), Name: parts[1], Kind: "topic",
+		Category: cat.Tag, CategoryName: cat.Name, Topic: slugify(parts[1]), TopicName: parts[1],
+	}, true
 }
 
 func containsFold(list []string, s string) bool {
@@ -278,9 +319,18 @@ func containsFold(list []string, s string) bool {
 // Capture appends "- [ ] text #tag @due _(timestamp)_" to inbox.md and
 // returns the line it wrote.
 func (s *Store) Capture(o CaptureOpts, now time.Time) (string, error) {
-	text, err := BuildCapture(o, s.Folders(), now)
+	text, create, err := buildCapture(o, s.Folders(), now)
 	if err != nil {
 		return "", err
+	}
+	if create != nil {
+		dir, err := s.Resolve(create.Path)
+		if err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
 	}
 	line := fmt.Sprintf("- [ ] %s _(%s)_", text, now.Format("Jan 02 15:04"))
 	full, err := s.Resolve("inbox.md")

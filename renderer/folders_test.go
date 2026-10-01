@@ -158,8 +158,8 @@ func TestCollectTasksByDate(t *testing.T) {
 		"tomorrow/ACT 200 · Chapter 5/problem set 5",
 		"later/General/later",
 		"none/ACT 200/buy textbook",
-		"none/General/undated",
 		"none/personal/in assets",
+		"none/General/undated",
 	}
 	if strings.Join(order, "\n") != strings.Join(want, "\n") {
 		t.Errorf("order:\n%s\nwant:\n%s", strings.Join(order, "\n"), strings.Join(want, "\n"))
@@ -340,6 +340,30 @@ func TestParseDue(t *testing.T) {
 	}
 }
 
+func TestCaptureCreatesNewFolder(t *testing.T) {
+	s := sampleNotes(t, map[string]string{"act-200/a.md": "# A\n"})
+	got, err := s.Capture(CaptureOpts{Text: "read ch 6", Folder: "ACT 200/Chapter 6"}, testNow)
+	if err != nil || got != "- [ ] read ch 6 #act-200/chapter-6 _(Oct 01 12:00)_" {
+		t.Fatalf("Capture = %q, %v", got, err)
+	}
+	if _, ok := s.Folders().Resolve("act-200/chapter-6"); !ok {
+		t.Error("topic folder was not created")
+	}
+	if _, err := s.Capture(CaptureOpts{Text: "buy", Folder: "#Errands"}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if f, ok := s.Folders().Resolve("errands"); !ok || f.Kind != "category" {
+		t.Errorf("category folder was not created: %+v %v", f, ok)
+	}
+	// a failed capture must not leave a folder behind
+	if _, err := s.Capture(CaptureOpts{Text: "x", Folder: "ghost", Due: "someday"}, testNow); err == nil {
+		t.Error("bad due date should fail")
+	}
+	if _, ok := s.Folders().Resolve("ghost"); ok {
+		t.Error("failed capture created a folder")
+	}
+}
+
 func TestCaptureOptions(t *testing.T) {
 	s := sampleNotes(t, map[string]string{"inbox.md": "# Inbox\n\nno newline at end"})
 	cases := []struct {
@@ -361,7 +385,7 @@ func TestCaptureOptions(t *testing.T) {
 	if !strings.HasPrefix(readFile(t, s, "inbox.md"), "# Inbox\n\nno newline at end\n- [ ] read ch 5") {
 		t.Errorf("inbox:\n%s", readFile(t, s, "inbox.md"))
 	}
-	for _, bad := range []CaptureOpts{{Text: "  "}, {Text: "x", Folder: "nope"}, {Text: "x", Due: "someday"}} {
+	for _, bad := range []CaptureOpts{{Text: "  "}, {Text: "x", Folder: "a/b/c"}, {Text: "x", Folder: "assets"}, {Text: "x", Due: "someday"}} {
 		if _, err := s.Capture(bad, testNow); err == nil {
 			t.Errorf("Capture(%+v) should fail", bad)
 		}
