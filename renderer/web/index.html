@@ -3,15 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>notesview</title>
 <link rel="icon" href="data:,">
 <script>
-  // Before first paint: the saved theme, else the system preference; the saved sidebar state.
+  // Before first paint: the system appearance (the same one Ghostty and Neovim follow); the saved sidebar state.
   (function () {
     var get = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
-    var t = get("theme");
-    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    document.documentElement.dataset.theme = t;
+    document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     if (get("sidebar") === "collapsed") document.documentElement.classList.add("sidebar-collapsed-pending");
   })();
 </script>
@@ -34,9 +33,6 @@
     </div>
   </div>
   <nav id="tree"></nav>
-  <div class="side-foot">
-    <button id="btn-theme" title="Switch between light and dark">◐ Dark mode</button>
-  </div>
 </aside>
 <main id="main">
   <article id="note" class="note"></article>

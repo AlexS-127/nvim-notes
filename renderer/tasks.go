@@ -235,7 +235,8 @@ type TaskQuery struct {
 }
 
 // CollectTasks gathers tasks from every note, assigns date groups and sorts
-// them by group, due date, file and line.
+// them by group (undated tasks form the last group), due date soonest first,
+// folder, file and line.
 func (s *Store) CollectTasks(q TaskQuery) []Task {
 	if q.Now.IsZero() {
 		q.Now = time.Now()
@@ -266,6 +267,13 @@ func (s *Store) CollectTasks(q TaskQuery) []Task {
 		}
 		if a.Due != b.Due {
 			return a.Due < b.Due
+		}
+		if a.Tag != b.Tag {
+			// tasks outside any folder (empty tag) come after the foldered ones
+			if a.Tag == "" || b.Tag == "" {
+				return a.Tag != ""
+			}
+			return a.Tag < b.Tag
 		}
 		if a.File != b.File {
 			return a.File < b.File

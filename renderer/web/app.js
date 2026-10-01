@@ -19,21 +19,12 @@
   };
   const post = (u, body) => api(u, { method: "POST", headers: { "X-Notesview": "1", "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-  // ── theme: the saved choice, else follow the system (index.html sets it before paint) ──
+  // ── theme: always the system appearance, live (index.html sets it before paint) ──
   const systemDark = matchMedia("(prefers-color-scheme: dark)");
-  const themeButton = $("#btn-theme");
-  function applyTheme(t) {
-    document.documentElement.dataset.theme = t;
-    themeButton.textContent = t === "dark" ? "◐ Light mode" : "◐ Dark mode";
-  }
-  const savedTheme = () => { const t = store.get("theme", ""); return t === "light" || t === "dark" ? t : ""; };
-  applyTheme(savedTheme() || (systemDark.matches ? "dark" : "light"));
-  systemDark.addEventListener("change", (e) => { if (!savedTheme()) applyTheme(e.matches ? "dark" : "light"); });
-  themeButton.onclick = () => {
-    const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    store.set("theme", t);
-    applyTheme(t);
-  };
+  const applyTheme = (dark) => { document.documentElement.dataset.theme = dark ? "dark" : "light"; };
+  applyTheme(systemDark.matches);
+  systemDark.addEventListener("change", (e) => applyTheme(e.matches));
+  try { localStorage.removeItem("theme"); } catch (e) {}   // a choice saved by the old toggle button
 
   // ── collapsible sidebar ──
   function setSidebar(collapsed) {

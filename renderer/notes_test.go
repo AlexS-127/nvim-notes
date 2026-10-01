@@ -81,6 +81,30 @@ func TestTaskGathering(t *testing.T) {
 	}
 }
 
+func TestTaskOrder(t *testing.T) {
+	s := newTestStore(t, map[string]string{
+		"zeta/n.md":  "- [ ] z-undated\n- [ ] z-soon @2026-10-02\n",
+		"alpha/n.md": "- [ ] a-undated\n- [ ] a-soon @2026-10-02\n- [ ] a-later @2026-12-01\n",
+		"loose.md":   "- [ ] loose-undated\n- [ ] loose-soon @2026-10-02\n- [ ] loose-today @2026-10-01\n",
+		"beta/n.md":  "- [ ] b-week @2026-10-05\n- [ ] b-late @2026-09-01\n",
+	})
+	var got []string
+	for _, tk := range s.CollectTasks(TaskQuery{Now: testNow}) {
+		got = append(got, tk.Display)
+	}
+	want := []string{
+		"b-late",                         // overdue
+		"loose-today",                    // today
+		"a-soon", "z-soon", "loose-soon", // tomorrow: by folder, no folder last
+		"b-week",                                  // week
+		"a-later",                                 // later
+		"a-undated", "z-undated", "loose-undated", // no due date: own section at the bottom, by folder
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("order:\n got %v\nwant %v", got, want)
+	}
+}
+
 func TestToggleChangesOnlyOneLine(t *testing.T) {
 	orig := "# T\r\n- [ ] a\r\n- [x] b\n  - [ ] c\nlast line no newline"
 	s := newTestStore(t, map[string]string{"n.md": orig})

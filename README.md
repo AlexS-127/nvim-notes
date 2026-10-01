@@ -73,7 +73,7 @@ Folders are the structure; there is nothing to configure.
   a **Tasks** view of every open `- [ ]` (task text rendered as inline markdown, with a link to
   its source line), generated folder pages, and backlinks under each note.
 - Clicking a checkbox, in a note or in the Tasks view, toggles it in the file (atomic write, only that line changes).
-- Light and dark themes (follows the system; ◐ toggles). Reading text is set in a Georgia-style serif, with
+- Light and dark themes (always follows the system, like Ghostty and Neovim). Reading text is set in a Georgia-style serif, with
   [Source Serif 4](https://github.com/adobe-fonts/source-serif) (SIL OFL 1.1) embedded as the
   fallback; code stays monospace.
 
@@ -252,9 +252,9 @@ The window opens as a tab-less app window if Chrome, Chromium, Brave or Edge is 
   with « at its top edge or `b`; when collapsed the note uses the full width (up to its max width).
 - A **Tasks** view (see [How tasks work](#how-tasks-work)) with category and "Due this week" filters.
 - Clicking a checkbox toggles it in the file (atomic write, only that line changes).
-- Light and dark themes, following your system setting until you use the toggle at the bottom of
-  the sidebar. Code highlighting, inline code, tables and callouts have colours for both. The theme
-  and the collapsed sidebar are remembered. `~/.config/notesview/custom.css` loads last and overrides
+- Light and dark themes, following your system setting live (there is no manual toggle).
+  Code highlighting, inline code, tables and callouts have colours for both. The collapsed
+  sidebar (`b`, or « / ») is remembered. `~/.config/notesview/custom.css` loads last and overrides
   the theme: `:root { --accent: … }` changes both themes, `:root[data-theme="dark"] { … }` just one.
 
 Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `g` today's daily note (created if needed) · `b` sidebar.
