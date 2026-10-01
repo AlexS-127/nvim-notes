@@ -53,6 +53,9 @@ vim.pack.add({
   "https://github.com/dkarter/bullets.vim",
   "https://github.com/dhruvasagar/vim-table-mode",
   "https://github.com/HakonHarnes/img-clip.nvim",
+  { src = "https://github.com/catppuccin/nvim", name = "catppuccin" },
+  "https://github.com/f-person/auto-dark-mode.nvim",
+  "https://github.com/nvim-mini/mini.starter",
 }, { confirm = false })
 
 -- Code-block syntax highlighting (needs: brew install tree-sitter-cli)
@@ -618,3 +621,38 @@ vim.api.nvim_create_autocmd({ "InsertLeave", "FocusLost", "BufLeave" }, {
 vim.api.nvim_create_autocmd("FocusGained", { command = "silent! checktime" })
 vim.opt.shortmess:append("I")
 
+local starter = require("mini.starter")
+local notes = vim.fn.expand("~/notes") 
+
+local function greeting()
+  local h = tonumber(os.date("%H"))
+  local part = h < 5 and "night" or h < 12 and "morning" or h < 18 and "afternoon" or "evening"
+  return ("good %s, alex\n%s"):format(part, os.date("%A, %B %d"))
+end
+
+local function open_tasks()
+  local f = io.open(notes .. "/inbox.md")
+  if not f then return "" end
+  local n = 0
+  for line in f:lines() do
+    if line:match("^%s*[-*+] %[ %]") then n = n + 1 end
+  end
+  f:close()
+  return n .. " open tasks in inbox"
+end
+
+starter.setup({
+  header = greeting,
+  footer = open_tasks,
+  items = {
+    { name = "Inbox", action = "edit " .. notes .. "/inbox.md", section = "Notes" },
+    { name = "Notes folder", action = "edit " .. notes, section = "Notes" },
+    starter.sections.recent_files(5, true),
+    starter.sections.recent_files(5, false),
+    starter.sections.builtin_actions(),
+  },
+  content_hooks = {
+    starter.gen_hook.adding_bullet("» "),
+    starter.gen_hook.aligning("center", "center"),
+  },
+})
