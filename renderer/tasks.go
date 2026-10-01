@@ -19,12 +19,14 @@ const (
 	GroupOverdue  = "overdue"
 	GroupToday    = "today"
 	GroupTomorrow = "tomorrow"
-	GroupWeek     = "week" // 2–7 days from today
-	GroupLater    = "later"
-	GroupNone     = "none" // no due date
+	GroupWeek     = "week"  // 2–7 days from today (the viewer shows one heading per date)
+	GroupWeek2    = "week2" // 8–14 days: "More than a week"
+	GroupWeek3    = "week3" // 15–21 days: "More than 2 weeks"
+	GroupLater    = "later" // 22+ days
+	GroupNone     = "none"  // no due date
 )
 
-var GroupOrder = []string{GroupOverdue, GroupToday, GroupTomorrow, GroupWeek, GroupLater, GroupNone}
+var GroupOrder = []string{GroupOverdue, GroupToday, GroupTomorrow, GroupWeek, GroupWeek2, GroupWeek3, GroupLater, GroupNone}
 
 type Task struct {
 	File         string   `json:"file"`  // slash path relative to the notes folder
@@ -216,6 +218,10 @@ func DateGroup(due string, today time.Time) string {
 		return GroupTomorrow
 	case days <= 7:
 		return GroupWeek
+	case days <= 14:
+		return GroupWeek2
+	case days <= 21:
+		return GroupWeek3
 	default:
 		return GroupLater
 	}

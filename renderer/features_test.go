@@ -69,7 +69,11 @@ func TestDateGroups(t *testing.T) {
 		"2026-10-02": GroupTomorrow,
 		"2026-10-03": GroupWeek,
 		"2026-10-08": GroupWeek,
-		"2026-10-09": GroupLater,
+		"2026-10-09": GroupWeek2,
+		"2026-10-15": GroupWeek2,
+		"2026-10-16": GroupWeek3,
+		"2026-10-22": GroupWeek3,
+		"2026-10-23": GroupLater,
 		"":           GroupNone,
 		"garbage":    GroupNone,
 	}

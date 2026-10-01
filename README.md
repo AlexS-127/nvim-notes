@@ -77,6 +77,13 @@ Folders are the structure; there is nothing to configure.
   [Source Serif 4](https://github.com/adobe-fonts/source-serif) (SIL OFL 1.1) embedded as the
   fallback; code stays monospace.
 
+### Folder colours
+
+Each category and topic folder in the sidebar has a small square before its name (hollow until
+you pick). Click it to choose one of ten colours, or × to clear. That colour tints the folder's
+tag pills in the Tasks view and on folder pages; a topic without its own colour uses its
+category's. Choices are saved in `~/.config/notesview/folder-colors.json`, shared by every window.
+
 ### Themes
 
 Pick one with `notesview theme NAME` (list them with `notesview themes`), or edit
@@ -96,6 +103,7 @@ switches live when the file changes.
 | `catppuccin` | soft pastels (latte / mocha) |
 | `rose-pine` | dusky rose and gold (dawn / moon) |
 | `tokyo-night` | neon-lit city night (day / night) |
+| `horizon` | white, orange and blue: colourful headings, tinted sidebar, blue table headers |
 | `dracula` | purple and pink on charcoal, dark only |
 | `terminal` | green phosphor CRT: monospace, glow, scanlines, dark only |
 
@@ -148,9 +156,11 @@ All task rules live in `notesview` (`notesview tasks --json`), so the viewer's T
   | `@oct6`, `@10/6` | that day this year, or next year if it has passed |
   | `@+3d`, `@+2w` | 3 days / 2 weeks from today |
 
-- **The Tasks view** lists every open task grouped by due date: Overdue (highlighted), Today,
-  Tomorrow, This week (the 7 days after today), Later and No date. Each task shows its category and
-  topic (or General). Filter by category (or General) and by "Due this week"; both are remembered.
+- **The Tasks view** lists every open task grouped by due date: Overdue (highlighted), then
+  one heading per day for the next 7 days (Today, Friday, October 2, …), then More than a week,
+  More than 2 weeks, Later, and Better late than never for tasks with no date. Each task shows its
+  category and topic (or General). The categories sit in a row of toggle chips with a Select all
+  box; "Due this week" limits to overdue and the next 7 days. Both are remembered.
   Task text renders inline markdown; ticking a checkbox updates the file. Moved and done tasks are
   not listed.
 - **Daily carry-over.** When today's daily note is created (`:Today`, `<Space>nd`, `notes`, or

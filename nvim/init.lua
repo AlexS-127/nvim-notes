@@ -447,7 +447,7 @@ local function open_tasks_picker()
   if type(tasks) ~= "table" then   -- no (or an older) notesview: plain grep
     return Snacks.picker.grep({ cwd = NOTES, search = "- \\[ \\]" })
   end
-  local when = { overdue = "overdue", today = "today", tomorrow = "tomorrow", week = "this week", later = "later", none = "" }
+  local when = { overdue = "overdue", today = "today", tomorrow = "tomorrow", week = "this week", week2 = "next week", week3 = "2+ weeks", later = "later", none = "" }
   local items = {}
   for _, t in ipairs(tasks) do
     local label = not t.category and "General" or (t.topic and (t.category_name .. " · " .. t.topic_name) or t.category_name)

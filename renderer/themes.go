@@ -25,6 +25,7 @@ var themes = []Theme{
 	{Name: "catppuccin", Desc: "soft pastels (latte / mocha)", Light: "catppuccin-latte", Dark: "catppuccin-mocha"},
 	{Name: "rose-pine", Desc: "dusky rose and gold (dawn / moon)", Light: "rose-pine-dawn", Dark: "rose-pine"},
 	{Name: "tokyo-night", Desc: "neon-lit city night (day / night)", Light: "tokyonight-day", Dark: "tokyonight-night"},
+	{Name: "horizon", Desc: "white, orange and blue: colourful headings, tinted sidebar", Light: "xcode", Dark: "xcode-dark"},
 	{Name: "dracula", Desc: "purple and pink on charcoal (dark only)", Dark: "dracula", Only: "dark"},
 	{Name: "terminal", Desc: "green phosphor CRT, monospace, scanlines (dark only)", Dark: "monokai", Only: "dark"},
 }

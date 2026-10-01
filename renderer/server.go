@@ -92,6 +92,8 @@ func (s *Server) Handler() http.Handler {
 		b, _ := json.Marshal(themeInfo())
 		fmt.Fprintf(w, "window.__notesviewTheme=%s;", b)
 	})
+	mux.HandleFunc("/api/folder-colors", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, loadFolderColors()) })
+	mux.HandleFunc("/api/folder-color", s.post(s.handleFolderColor))
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, themeInfo()) })
 	mux.HandleFunc("/files/", s.handleFile)
 	mux.HandleFunc("/events", s.handleEvents)
@@ -405,7 +407,7 @@ func (s *Server) Watch() (func(), error) {
 	}
 	isConfigFile := func(p string) bool {
 		b := filepath.Base(p)
-		return cfgDirs[filepath.Dir(p)] && (b == filepath.Base(s.css) || b == "config.json")
+		return cfgDirs[filepath.Dir(p)] && (b == filepath.Base(s.css) || b == "config.json" || b == "folder-colors.json")
 	}
 	done := make(chan struct{})
 	go func() {

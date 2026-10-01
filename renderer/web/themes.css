@@ -16,6 +16,41 @@
 :where(:root[data-palette="dracula"][data-theme="dark"]) { color-scheme: dark; --bg: #282a36; --bg2: #21222c; --fg: #f8f8f2; --muted: #9aa0c0; --border: #44475a; --accent: #bd93f9; --missing: #ffb86c; --hl: color-mix(in srgb, #bd93f9 16%, transparent); --overdue: #ff5555; --code-bg: #1e1f29; --code-fg: #f8f8f2; --code-border: #44475a; --icode-bg: #44475a; --icode-fg: #ff79c6; --c-note: #8be9fd; --c-tip: #50fa7b; --c-warning: #f1fa8c; --c-danger: #ff5555; --c-important: #bd93f9; --callout-bg: #2d2f3d; }
 :where(:root[data-palette="terminal"][data-theme="dark"]) { color-scheme: dark; --bg: #050805; --bg2: #0a110a; --fg: #3dff7a; --muted: #26a850; --border: #14401f; --accent: #7dffa8; --missing: #ffb000; --hl: color-mix(in srgb, #7dffa8 16%, transparent); --overdue: #ff4d4d; --code-bg: #030603; --code-fg: #3dff7a; --code-border: #14401f; --icode-bg: #0e1e12; --icode-fg: #ffd24a; --c-note: #3dd6ff; --c-tip: #3dff7a; --c-warning: #ffb000; --c-danger: #ff4d4d; --c-important: #ff7bf5; --callout-bg: #081008; }
 
+/* horizon: white, orange and blue */
+:where(:root[data-palette="horizon"][data-theme="light"]) { color-scheme: light;
+  --bg: #ffffff; --bg2: #eaf3ff; --fg: #14284b; --muted: #4f6b95; --border: #c9dcf5;
+  --accent: #ed7567; --missing: #d93a00; --hl: rgba(237,117,103,.16); --overdue: #d62828;
+  --code-bg: #f1f7ff; --code-fg: #14284b; --code-border: #bcd4f3; --icode-bg: #fff0e0; --icode-fg: #c24e00;
+  --c-note: #1010a8; --c-tip: #0f9d8a; --c-warning: #ed7567; --c-danger: #d62828; --c-important: #5b4bdb;
+  --callout-bg: #f3f8ff; --blue: #1010a8; --orange: #ed7567; --blue-soft: #e3e3fa; --orange-soft: #fde6e2; }
+:where(:root[data-palette="horizon"][data-theme="dark"]) { color-scheme: dark;
+  --bg: #0b1730; --bg2: #0f2144; --fg: #f4f8ff; --muted: #93abd1; --border: #1f3a6b;
+  --accent: #ed7567; --missing: #ff6b4a; --hl: rgba(255,154,61,.18); --overdue: #ff6b6b;
+  --code-bg: #08122a; --code-fg: #f4f8ff; --code-border: #1f3a6b; --icode-bg: #17305c; --icode-fg: #ffb870;
+  --c-note: #5aa9ff; --c-tip: #3fd6b8; --c-warning: #ff9a3d; --c-danger: #ff6b6b; --c-important: #a99bff;
+  --callout-bg: #0e1f42; --blue: #5aa9ff; --orange: #ed7567; --blue-soft: #14305f; --orange-soft: #3a2a1a; }
+:where(:root[data-palette="horizon"]) { --font-heading: "Avenir Next", "Helvetica Neue", -apple-system, sans-serif; }
+:where(:root[data-palette="horizon"]) body { background: linear-gradient(180deg, var(--bg) 0, var(--bg) 100%); }
+:where(:root[data-palette="horizon"]) .note h1 { color: var(--blue); border-bottom: 4px solid var(--orange); font-weight: 800; }
+:where(:root[data-palette="horizon"]) .note h2 { color: var(--orange); border-bottom: 2px solid var(--blue-soft); }
+:where(:root[data-palette="horizon"]) .note h3 { color: var(--blue); }
+:where(:root[data-palette="horizon"]) .note h4 { color: var(--orange); }
+:where(:root[data-palette="horizon"]) .note h5, :where(:root[data-palette="horizon"]) .note h6 { color: var(--blue); }
+:where(:root[data-palette="horizon"]) .note strong { color: var(--blue); }
+:where(:root[data-palette="horizon"]) .note em { color: var(--orange); }
+:where(:root[data-palette="horizon"]) .note a.wikilink { color: var(--blue); border-bottom-color: var(--orange); }
+:where(:root[data-palette="horizon"]) .note blockquote:not(.callout) { border-left: 4px solid var(--orange); background: var(--orange-soft); color: var(--fg); border-radius: 0 8px 8px 0; }
+:where(:root[data-palette="horizon"]) .note th { background: var(--blue); color: #fff; border-color: var(--blue); }
+:where(:root[data-palette="horizon"]) .note tr:nth-child(even) td { background: var(--blue-soft); }
+:where(:root[data-palette="horizon"]) .note td { border-color: var(--border); }
+:where(:root[data-palette="horizon"]) .note pre { border-left: 4px solid var(--orange); }
+:where(:root[data-palette="horizon"]) .note hr { border-top: 3px solid var(--orange); width: 30%; margin-left: 0; }
+:where(:root[data-palette="horizon"]) .note blockquote.callout { background: color-mix(in srgb, var(--c) 10%, var(--bg)); }
+:where(:root[data-palette="horizon"]) .note li::marker { color: var(--orange); }
+:where(:root[data-palette="horizon"]) .due { color: var(--blue); font-weight: 600; }
+:where(:root[data-palette="horizon"]) .tasks h3.group { color: var(--blue); border-bottom: 2px solid var(--orange); padding-bottom: .2em; }
+:where(:root[data-palette="horizon"]) .task-filter button.on, :where(:root[data-palette="horizon"]) .task-filter select.on { background: var(--orange); color: #fff; border-color: var(--orange); }
+
 /* ── personality beyond colour ── */
 :where(:root[data-palette="gruvbox"]) { --font-body: Charter, Georgia, serif; }
 :where(:root[data-palette="rose-pine"]) { --font-heading: "Iowan Old Style", Georgia, serif; }
@@ -52,5 +87,4 @@
 :where(:root[data-palette="terminal"]) .note code,
 :where(:root[data-palette="terminal"]) .note blockquote.callout,
 :where(:root[data-palette="terminal"]) #search,
-:where(:root[data-palette="terminal"]) .side-actions button { border-radius: 0; }
 :where(:root[data-palette="terminal"]) .note a { text-decoration: underline; text-underline-offset: 3px; }

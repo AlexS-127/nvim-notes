@@ -61,3 +61,21 @@ func TestLoadConfig(t *testing.T) {
 		t.Fatal("expected a warning for bad JSON")
 	}
 }
+
+func TestFolderColors(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := setFolderColor("act-200", "blue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setFolderColor("personal", "nope"); err != nil { // stored, but filtered out on load
+		t.Fatal(err)
+	}
+	m := loadFolderColors()
+	if m["act-200"] != "blue" || len(m) != 1 {
+		t.Fatalf("got %v", m)
+	}
+	_ = setFolderColor("act-200", "")
+	if len(loadFolderColors()) != 0 {
+		t.Fatal("colour not cleared")
+	}
+}
