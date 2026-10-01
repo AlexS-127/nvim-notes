@@ -66,10 +66,11 @@ func (wikiParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Nod
 // ── Markdown pipeline ────────────────────────────────────────────
 
 type Markdown struct {
-	store *Store
-	files []string
-	md    goldmark.Markdown
-	note  string // current note, slash path relative to the notes folder
+	store   *Store
+	files   []string
+	folders *FolderIndex
+	md      goldmark.Markdown
+	note    string // current note, slash path relative to the notes folder
 }
 
 func escPath(p string) string { return (&url.URL{Path: p}).EscapedPath() }
@@ -78,8 +79,10 @@ func notesHref(rel string) string { return "#/note/" + escPath(rel) }
 
 func fileHref(rel string) string { return "/files/" + escPath(rel) }
 
+func folderHref(tag string) string { return "#/folder/" + escPath(tag) }
+
 func NewMarkdown(store *Store, note string) *Markdown {
-	m := &Markdown{store: store, files: store.Files(), note: note}
+	m := &Markdown{store: store, files: store.Files(), folders: store.Folders(), note: note}
 	m.md = goldmark.New(
 		goldmark.WithExtensions(
 			extension.GFM, // tables, strikethrough, task lists, autolinks
@@ -131,6 +134,9 @@ func (m *Markdown) RegisterFuncs(r renderer.NodeRendererFuncRegisterer) {
 		}
 		if rel, ok := resolveWiki(m.files, wn.Target); ok {
 			fmt.Fprintf(w, `<a class="wikilink" href="%s">%s</a>`, notesHref(rel), util.EscapeHTML([]byte(label)))
+		} else if f, ok := m.folders.Resolve(wn.Target); ok { // [[act-200]] → the folder's page
+			fmt.Fprintf(w, `<a class="wikilink folder" title="Folder %s" href="%s">%s</a>`,
+				util.EscapeHTML([]byte(f.Path)), folderHref(f.Tag), util.EscapeHTML([]byte(label)))
 		} else {
 			t := strings.TrimSuffix(strings.SplitN(wn.Target, "#", 2)[0], ".md")
 			fmt.Fprintf(w, `<a class="wikilink missing" title="Note does not exist yet" href="%s">%s</a>`,
@@ -290,6 +296,10 @@ func (m *Markdown) Render(src []byte) (string, error) {
 
 var chromaRuleRe = regexp.MustCompile(`(?m)^(/\*.*?\*/ )?\.chroma`)
 
+// ChromaCSS returns token colours for both themes. Rules are scoped with
+// :where() so they weigh no more than a plain ".chroma .k" selector and
+// custom.css (loaded last) can override them. Backgrounds come from the
+// --code-bg theme variable in app.css, not from the chroma style.
 func ChromaCSS() string {
 	var out strings.Builder
 	for _, t := range []struct{ theme, style string }{{"dark", "github-dark"}, {"light", "github"}} {
@@ -300,9 +310,18 @@ func ChromaCSS() string {
 		var b bytes.Buffer
 		f := chromahtml.New(chromahtml.WithClasses(true))
 		_ = f.WriteCSS(&b, style)
-		css := chromaRuleRe.ReplaceAllString(b.String(), `${1}:root[data-theme="`+t.theme+`"] .chroma`)
-		out.WriteString(css)
-		out.WriteString("\n")
+		for _, line := range strings.Split(b.String(), "\n") {
+			if !chromaRuleRe.MatchString(line) { // e.g. the unscoped ".bg" rule
+				continue
+			}
+			line = chromaRuleRe.ReplaceAllString(line, `${1}:where(:root[data-theme="`+t.theme+`"]) .chroma`)
+			if strings.Contains(line, "/* PreWrapper */") {
+				line = chromaBgRe.ReplaceAllString(line, "")
+			}
+			out.WriteString(line + "\n")
+		}
 	}
 	return out.String()
 }
+
+var chromaBgRe = regexp.MustCompile(`\s*background-color:[^;}]*;?`)

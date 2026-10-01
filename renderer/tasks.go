@@ -14,12 +14,6 @@ const (
 	StateMoved = "moved" // - [>]  carried over to a later daily note
 )
 
-// Kinds: tasks that belong to a class are homework, everything else is other.
-const (
-	KindHomework = "homework"
-	KindOther    = "other"
-)
-
 // Date groups, in display order.
 const (
 	GroupOverdue  = "overdue"
@@ -33,27 +27,45 @@ const (
 var GroupOrder = []string{GroupOverdue, GroupToday, GroupTomorrow, GroupWeek, GroupLater, GroupNone}
 
 type Task struct {
-	File      string   `json:"file"`  // slash path relative to the notes folder
-	Title     string   `json:"title"` // title of the note
-	Line      int      `json:"line"`  // 1-based
-	Indent    int      `json:"indent"`
-	State     string   `json:"state"`
-	Text      string   `json:"text"`    // everything after the checkbox
-	Display   string   `json:"display"` // text without the due date and class tag
-	Due       string   `json:"due,omitempty"`
-	Class     string   `json:"class,omitempty"`
-	ClassName string   `json:"class_name,omitempty"`
-	Tags      []string `json:"tags"`
-	Kind      string   `json:"kind"`
-	Group     string   `json:"group"`
-	HTML      string   `json:"html,omitempty"` // Display rendered as inline markdown (viewer only)
+	File         string   `json:"file"`  // slash path relative to the notes folder
+	Title        string   `json:"title"` // title of the note
+	Line         int      `json:"line"`  // 1-based
+	Indent       int      `json:"indent"`
+	State        string   `json:"state"`
+	Text         string   `json:"text"`    // everything after the checkbox
+	Display      string   `json:"display"` // text without the due date and folder tag
+	Due          string   `json:"due,omitempty"`
+	Tag          string   `json:"tag,omitempty"`      // folder tag: act-200 or act-200/chapter-5
+	Category     string   `json:"category,omitempty"` // act-200
+	CategoryName string   `json:"category_name,omitempty"`
+	Topic        string   `json:"topic,omitempty"` // chapter-5
+	TopicName    string   `json:"topic_name,omitempty"`
+	Tags         []string `json:"tags"`
+	Group        string   `json:"group"`
+	HTML         string   `json:"html,omitempty"` // Display rendered as inline markdown (viewer only)
+}
+
+// Label is "Category · Topic", or "General" for tasks outside any folder.
+func (t Task) Label() string {
+	switch {
+	case t.Category == "":
+		return "General"
+	case t.Topic == "":
+		return t.CategoryName
+	default:
+		return t.CategoryName + " · " + t.TopicName
+	}
+}
+
+func (t *Task) setFolder(f Folder) {
+	t.Tag, t.Category, t.CategoryName, t.Topic, t.TopicName = f.Tag, f.Category, f.CategoryName, f.Topic, f.TopicName
 }
 
 var (
 	// checkboxRe matches a list item with a checkbox: indent, state char, text.
 	checkboxRe = regexp.MustCompile(`^(\s*)[-*+] \[([ xX>])\](?:[ \t]+(.*?))?\s*$`)
 	dueRe      = regexp.MustCompile(`(^|[\s(\[])@(\d{4}-\d{2}-\d{2})\b`)
-	tagRe      = regexp.MustCompile(`(^|[\s(\[])#([A-Za-z][\w/-]*)`)
+	tagRe      = regexp.MustCompile(`(^|[\s(\[])#([\p{L}\p{N}][\p{L}\p{N}_/-]*)`)
 	inlineCode = regexp.MustCompile("`[^`]*`")
 	spacesRe   = regexp.MustCompile(`[ \t]{2,}`)
 )
@@ -92,14 +104,20 @@ func parseTaskLine(line string) (indent int, state, text string, ok bool) {
 }
 
 // ParseTasks extracts every checkbox item from one note, skipping fenced
-// code. Each task gets its due date, tags, class and kind.
-func ParseTasks(rel string, src []byte, cfg *Config) []Task {
+// code. Each task gets its due date, tags and folder: the category/topic
+// folder the note is in, else the first #tag naming a folder, else its
+// parent task's folder.
+func ParseTasks(rel string, src []byte, idx *FolderIndex) []Task {
+	if idx == nil {
+		idx = NewFolderIndex(nil)
+	}
 	title := Title(rel, src)
 	var out []Task
-	// parents holds the enclosing task items, so subtasks inherit a class
+	// parents holds the enclosing task items, so subtasks inherit a folder
 	type parent struct {
 		indent int
-		class  Class
+		folder Folder
+		ok     bool
 	}
 	var parents []parent
 	inFence := false
@@ -119,63 +137,58 @@ func ParseTasks(rel string, src []byte, cfg *Config) []Task {
 		if !ok {
 			continue
 		}
-		t := Task{File: rel, Title: title, Line: i + 1, Indent: indent, State: state, Text: text, Tags: []string{}}
-		// tags and dates inside `code` don't count
-		scan := inlineCode.ReplaceAllStringFunc(text, func(s string) string { return strings.Repeat(" ", len(s)) })
-		if m := dueRe.FindStringSubmatch(scan); m != nil {
-			if _, err := time.Parse(isoDate, m[2]); err == nil {
-				t.Due = m[2]
+		t := Task{File: rel, Title: title, Line: i + 1, Indent: indent, State: state, Text: text}
+		var shown string // the tag that placed it, hidden from Display
+		t.Due, t.Tags = scanTask(text)
+		f, ok := idx.ForPath(rel)
+		if !ok {
+			for _, tag := range t.Tags {
+				if f, ok = idx.ForTag(tag); ok {
+					shown = tag
+					break
+				}
 			}
 		}
-		t.Tags = tagsOf(scan)
-		c, ok := classOf(cfg, rel, t.Tags)
 		if !ok && len(parents) > 0 {
-			c = parents[len(parents)-1].class
+			f, ok = parents[len(parents)-1].folder, parents[len(parents)-1].ok
 		}
-		t.Class, t.ClassName = c.ID, c.Name
-		parents = append(parents, parent{indent, c})
-		t.Kind = KindOther
-		if t.Class != "" {
-			t.Kind = KindHomework
+		if ok {
+			t.setFolder(f)
 		}
-		t.Display = displayText(text, t.Due, t.Class)
+		parents = append(parents, parent{indent, f, ok})
+		t.Display = displayText(text, t.Due, shown)
 		out = append(out, t)
 	}
 	return out
 }
 
-func tagsOf(text string) []string {
-	tags := []string{}
-	for _, m := range tagRe.FindAllStringSubmatch(text, -1) {
-		tags = append(tags, strings.ToLower(m[2]))
-	}
-	return tags
-}
-
-// classOf decides a task's class: the class whose folder holds the note, or
-// else the first #tag naming a class. (ParseTasks also lets a subtask
-// inherit its parent task's class.)
-func classOf(cfg *Config, rel string, tags []string) (Class, bool) {
-	if c, ok := cfg.ClassForPath(rel); ok {
-		return c, true
-	}
-	for _, tag := range tags {
-		if c, ok := cfg.ClassByID(tag); ok {
-			return c, true
+// scanTask finds the due date and tags in a task's text, ignoring `code`.
+func scanTask(text string) (due string, tags []string) {
+	scan := inlineCode.ReplaceAllStringFunc(text, func(s string) string { return strings.Repeat(" ", len(s)) })
+	if m := dueRe.FindStringSubmatch(scan); m != nil {
+		if _, err := time.Parse(isoDate, m[2]); err == nil {
+			due = m[2]
 		}
 	}
-	return Class{}, false
+	tags = []string{}
+	for _, m := range tagRe.FindAllStringSubmatch(scan, -1) {
+		if tag := strings.Trim(strings.ToLower(m[2]), "/-"); tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	return due, tags
 }
 
-// displayText drops the due date and class tag, which the views show as
+// displayText drops the due date and folder tag, which the views show as
 // labels of their own.
-func displayText(text, due, class string) string {
+func displayText(text, due, tag string) string {
 	d := text
 	if due != "" {
 		d = regexp.MustCompile(`(^|[\s(\[])@`+regexp.QuoteMeta(due)+`\b`).ReplaceAllString(d, "$1")
 	}
-	if class != "" {
-		d = regexp.MustCompile(`(?i)(^|[\s(\[])#`+regexp.QuoteMeta(class)+`\b`).ReplaceAllString(d, "$1")
+	if tag != "" {
+		d = regexp.MustCompile(`(?i)(^|[\s(\[])#`+regexp.QuoteMeta(tag)+`/?([\s,.;:!?)\]]|$)`).ReplaceAllString(d, "$1$2")
+		d = strings.NewReplacer(" ,", ",", " ;", ";", " :", ":", " .", ".").Replace(d)
 	}
 	d = strings.TrimSpace(spacesRe.ReplaceAllString(d, " "))
 	if d == "" {
@@ -222,18 +235,19 @@ type TaskQuery struct {
 }
 
 // CollectTasks gathers tasks from every note, assigns date groups and sorts
-// them: homework first, then by group, due date, file and line.
-func (s *Store) CollectTasks(cfg *Config, q TaskQuery) []Task {
+// them by group, due date, file and line.
+func (s *Store) CollectTasks(q TaskQuery) []Task {
 	if q.Now.IsZero() {
 		q.Now = time.Now()
 	}
+	idx := s.Folders()
 	out := []Task{}
 	for _, f := range s.Files() {
 		src, err := s.Read(f)
 		if err != nil {
 			continue
 		}
-		for _, t := range ParseTasks(f, src, cfg) {
+		for _, t := range ParseTasks(f, src, idx) {
 			if !q.All && t.State != StateOpen {
 				continue
 			}
@@ -247,9 +261,6 @@ func (s *Store) CollectTasks(cfg *Config, q TaskQuery) []Task {
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
-		if a.Kind != b.Kind {
-			return a.Kind == KindHomework
-		}
 		if a.Group != b.Group {
 			return rank[a.Group] < rank[b.Group]
 		}

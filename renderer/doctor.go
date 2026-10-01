@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -71,19 +70,6 @@ func runDoctor(w io.Writer) int {
 		add("fail", "Neovim init.lua", "no init.lua in "+filepath.Join(xdg, "nvim"), reinstall)
 	}
 	link("custom.css", filepath.Join(configDir(), "custom.css"), false)
-	link("config.toml", ConfigPath(), false)
-	if cfg, err := LoadConfig(ConfigPath()); err != nil {
-		add("fail", "config.toml syntax", err.Error(), "fix the TOML (see the comments at the top of the file)")
-	} else if len(cfg.Classes) == 0 {
-		add("warn", "classes", "no classes in "+ConfigPath(), "add [[class]] blocks to config.toml")
-	} else {
-		var ids []string
-		for _, c := range cfg.Classes {
-			ids = append(ids, c.ID)
-		}
-		add("ok", "classes", strings.Join(ids, ", "), "")
-	}
-
 	// notes folder
 	dir := defaultDir()
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
@@ -112,36 +98,17 @@ func runDoctor(w io.Writer) int {
 	if found == "" {
 		add("fail", "shell setup", "no nvim-notes block in ~/.zshrc or ~/.bashrc", reinstall+", then open a new shell")
 	} else if found != "old" {
-		add("ok", "shell setup", found+" (notes alias, inbox function)", "")
+		add("ok", "shell setup", found+" (notes alias, inbox command)", "")
 	}
 
 	if _, err := exec.LookPath("nvim"); err != nil {
 		add("warn", "nvim on PATH", "not found", reinstall)
 	}
 
-	// global capture shortcut
-	if runtime.GOOS == "darwin" {
-		app := ""
-		for _, p := range []string{"/Applications/Hammerspoon.app", filepath.Join(home, "Applications", "Hammerspoon.app")} {
-			if _, err := os.Stat(p); err == nil {
-				app = p
-			}
-		}
-		if app == "" {
-			add("fail", "Hammerspoon", "not installed", "brew install --cask hammerspoon, or "+reinstall)
-		} else {
-			add("ok", "Hammerspoon", app, "")
-		}
-		initLua := filepath.Join(home, ".hammerspoon", "init.lua")
-		if b, err := os.ReadFile(initLua); err != nil || !strings.Contains(string(b), `require("nvim_notes")`) {
-			add("fail", "Hammerspoon config", initLua+" does not load nvim_notes", reinstall)
-		} else if _, err := os.Stat(filepath.Join(home, ".hammerspoon", "nvim_notes.lua")); err != nil {
-			add("fail", "Hammerspoon config", "~/.hammerspoon/nvim_notes.lua is missing", reinstall)
-		} else {
-			add("ok", "Hammerspoon config", "Ctrl+Option+I captures to the inbox", "")
-		}
+	if _, err := exec.LookPath("fzf"); err != nil {
+		add("warn", "fzf", "not found; the inbox command falls back to a numbered folder list", reinstall+" (or install fzf)")
 	} else {
-		add("ok", "global shortcut", "skipped on "+runtime.GOOS+" (macOS only); use the inbox shell function", "")
+		add("ok", "fzf", "folder picker for the inbox command", "")
 	}
 
 	failed := 0

@@ -20,7 +20,7 @@ for _, name in ipairs({ "nvim-treesitter", "snacks.nvim", "bullets.vim", "vim-ta
   for _, p in ipairs(vim.pack.get()) do if p.spec.name == name then found = true end end
   check(found, "plugin missing: " .. name)
 end
-for _, lhs in ipairs({ " p", " o", " nt", " nd", " nc", " ni", " no", " x" }) do
+for _, lhs in ipairs({ " p", " o", " nt", " nd", " nn", " ni", " no", " x" }) do
   check(vim.fn.maparg(lhs, "n") ~= "", "missing keymap <Space>" .. lhs:sub(2))
 end
 for _, cmd in ipairs({ "SaveMacro", "Macros", "Today" }) do
@@ -29,33 +29,66 @@ end
 
 check(vim.fn.hlexists("NotesMovedTask") == 1, "missing highlight NotesMovedTask")
 
--- With notesview on PATH: daily carry-over, natural due dates, lecture notes, capture.
+-- With notesview on PATH: daily carry-over, natural due dates, folders, capture.
 if vim.fn.executable("notesview") == 1 then
   local function read(p) local f = io.open(p); if not f then return "" end local s = f:read("*a"); f:close(); return s end
-  local today = os.date("%Y-%m-%d")
-  local older = os.date("%Y-%m-%d", os.time() - 2 * 86400)
+  local function day(n) return os.date("%Y-%m-%d", os.time() + n * 86400) end
+  local today, tomorrow = day(0), day(1)
   vim.fn.mkdir(notes .. "/daily", "p")
-  vim.fn.writefile({ "## Tasks", "- [ ] carry me", "  - [ ] sub", "- [ ] homework #act200" }, notes .. "/daily/" .. older .. ".md")
+  vim.fn.mkdir(notes .. "/ACT 200/Chapter 5", "p")
+  vim.fn.writefile({ "# Costs" }, notes .. "/ACT 200/Chapter 5/costs.md")
+  vim.fn.writefile({ "## Tasks", "- [ ] carry me", "  - [ ] sub", "- [ ] stays #act-200", "- [ ] dated @" .. day(3) },
+    notes .. "/daily/" .. day(-2) .. ".md")
   vim.cmd("Today")
   check(read(notes .. "/daily/" .. today .. ".md"):find("## Tasks\n\n%- %[ %] carry me\n  %- %[ %] sub\n\n## Notes", 1) ~= nil,
     "daily carry-over: " .. read(notes .. "/daily/" .. today .. ".md"))
-  check(read(notes .. "/daily/" .. older .. ".md"):find("- [>] carry me → [[" .. today .. "]]", 1, true) ~= nil,
-    "moved marker: " .. read(notes .. "/daily/" .. older .. ".md"))
+  local old = read(notes .. "/daily/" .. day(-2) .. ".md")
+  check(old:find("- [>] carry me → [[" .. today .. "]]\n- [ ] stays #act-200\n- [ ] dated @", 1, true) ~= nil, "old daily: " .. old)
 
   vim.api.nvim_buf_set_lines(0, -1, -1, false, { "- [ ] due soon @tomorrow" })
   vim.api.nvim_win_set_cursor(0, { vim.api.nvim_buf_line_count(0), 0 })
   vim.cmd("doautocmd InsertLeave")
-  local tomorrow = os.date("%Y-%m-%d", os.time() + 86400)
   check(vim.api.nvim_get_current_line() == "- [ ] due soon @" .. tomorrow, "date conversion: " .. vim.api.nvim_get_current_line())
 
-  vim.ui.select = function(items, _, cb) cb(items[1]) end
-  vim.api.nvim_feedkeys(vim.keycode("<Space>nc"), "x", false)
-  check(vim.api.nvim_buf_get_name(0):sub(-#("act200/" .. today .. ".md")) == "act200/" .. today .. ".md",
-    "lecture note: " .. vim.api.nvim_buf_get_name(0))
+  -- pickers: answer with the item whose text starts with `want` (nil = Esc)
+  local want
+  Snacks.picker.pick = function(opts)
+    local p = { close = function() if opts.on_close then opts.on_close() end end }
+    for _, item in ipairs(opts.items) do
+      if want and item.text:sub(1, #want) == want then return opts.confirm(p, item) end
+    end
+    p.close()
+  end
+  local answers
+  vim.ui.input = function(_, cb) cb(table.remove(answers, 1)) end
+  local function capture(a, folder)
+    answers, want = a, folder
+    vim.api.nvim_feedkeys(vim.keycode("<Space>ni"), "x", false)
+    vim.wait(100)
+  end
+  capture({ "read ch 5", "someday", "fri", "" }, "act-200/chapter-5")   -- topic, a typo, then a date
+  capture({ "email prof", "tomorrow", "" }, "act-200")                -- category
+  capture({ "call mom", "" }, nil)                                     -- skip both
+  local inbox = read(notes .. "/inbox.md")
+  check(inbox:find("%- %[ %] read ch 5 #act%-200/chapter%-5 @%d%d%d%d%-%d%d%-%d%d _%(") ~= nil, "capture topic:\n" .. inbox)
+  check(inbox:find("- [ ] email prof #act-200 @" .. tomorrow .. " _(", 1, true) ~= nil, "capture category:\n" .. inbox)
+  check(inbox:find("- [ ] call mom _(", 1, true) ~= nil, "capture skip:\n" .. inbox)
 
-  vim.ui.input = function(_, cb) cb("worksheet @tomorrow #act200") end
-  vim.api.nvim_feedkeys(vim.keycode("<Space>ni"), "x", false)
-  check(read(notes .. "/inbox.md"):find("- [ ] worksheet @" .. tomorrow .. " #act200", 1, true) ~= nil, "capture")
+  -- <Space>nn: title, then a folder
+  answers, want = { "Lecture 7" }, "act-200/chapter-5"
+  vim.api.nvim_feedkeys(vim.keycode("<Space>nn"), "x", false)
+  vim.wait(100)
+  check(vim.api.nvim_buf_get_name(0):sub(-#"ACT 200/Chapter 5/lecture-7.md") == "ACT 200/Chapter 5/lecture-7.md",
+    "new note: " .. vim.api.nvim_buf_get_name(0))
+
+  -- Enter on [[act-200/chapter-5]] opens a picker of the folder's notes
+  vim.cmd.edit(notes .. "/links.md")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "see [[act-200/chapter-5]]" })
+  vim.api.nvim_win_set_cursor(0, { 1, 8 })
+  want = "Costs"
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false)
+  vim.wait(100)
+  check(vim.api.nvim_buf_get_name(0):sub(-#"Chapter 5/costs.md") == "Chapter 5/costs.md", "folder link: " .. vim.api.nvim_buf_get_name(0))
   check(vim.v.errmsg == "", "errmsg: " .. vim.v.errmsg)
 end
 

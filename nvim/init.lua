@@ -64,58 +64,13 @@ require("nvim-treesitter").install(vim.g.notes_parsers)
 require("snacks").setup({ picker = { enabled = true }, input = { enabled = true } })
 require("img-clip").setup({ default = { dir_path = "assets", relative_to_current_file = true } })
 
--- ── Shared config (classes) ──────────────────────────────────────
--- ~/.config/notesview/config.toml, shared with notesview (install.sh links it to
--- notesview/config.toml in the repo). Re-read whenever the file changes.
-local function config_path()
-  if vim.env.NOTESVIEW_CONFIG and vim.env.NOTESVIEW_CONFIG ~= "" then return vim.env.NOTESVIEW_CONFIG end
-  local base = (vim.env.XDG_CONFIG_HOME and vim.env.XDG_CONFIG_HOME ~= "") and vim.env.XDG_CONFIG_HOME
-    or vim.fn.expand("~/.config")
-  local p = base .. "/notesview/config.toml"
-  if uv.fs_stat(p) then return p end
-  -- not installed yet: use the repo copy next to this config
-  return uv.fs_realpath(vim.fn.resolve(vim.fn.stdpath("config")) .. "/../notesview/config.toml") or p
-end
-
-local CLASSES = { key = nil, list = {} }
--- Minimal reader for the [[class]] blocks of config.toml (id, name, folder).
-local function classes()
-  local p = config_path()
-  local st = uv.fs_stat(p)
-  local key = st and (p .. st.mtime.sec .. "." .. st.mtime.nsec .. ":" .. st.size) or p
-  if CLASSES.key == key then return CLASSES.list end
-  local list, cur, seen = {}, nil, {}
-  if st then
-    for line in io.lines(p) do
-      if line:match("^%s*%[%[%s*class%s*%]%]") then
-        cur = {}
-        table.insert(list, cur)
-      elseif line:match("^%s*%[") then
-        cur = nil
-      elseif cur and not line:match("^%s*#") then
-        local k, v = line:match([[^%s*([%w_]+)%s*=%s*"([^"]*)"]])
-        if not k then k, v = line:match([[^%s*([%w_]+)%s*=%s*'([^']*)']]) end
-        if k then cur[k] = v end
-      end
-    end
-  end
-  local out = {}
-  for _, c in ipairs(list) do
-    local id = vim.trim(c.id or ""):gsub("^#", ""):lower()
-    if id ~= "" and not seen[id] and not id:find("[%s/#]") then
-      seen[id] = true
-      local folder = (c.folder and c.folder ~= "" and not c.folder:find("%.%.")) and c.folder or id
-      table.insert(out, { id = id, name = (c.name and c.name ~= "") and c.name or id, folder = folder })
-    end
-  end
-  CLASSES.key, CLASSES.list = key, out
-  return out
-end
-
 -- ── notesview (CLI) ──────────────────────────────────────────────
--- Task parsing, due dates, daily carry-over, lecture notes and capture all live
--- in the notesview binary, so the rules are the same here and in the viewer.
-local function nv_env() return { NOTES_DIR = NOTES, NOTESVIEW_CONFIG = config_path() } end
+-- Task parsing, folders and tags, due dates, daily carry-over and capture all
+-- live in the notesview binary, so the rules are the same here, in the viewer
+-- and in the `inbox` shell command.
+local function nv_env() return { NOTES_DIR = NOTES } end
+
+
 
 local function version_less(a, b)
   local pa, pb = vim.split(a, ".", { plain = true }), vim.split(b, ".", { plain = true })
@@ -138,6 +93,14 @@ local function nv_sync(args, timeout)
     return nil, err ~= "" and err or ("notesview exited with " .. r.code)
   end
   return r.stdout or ""
+end
+
+-- Decodes `notesview … --json` output; nil if notesview failed or is missing.
+local function nv_json(args)
+  local out = nv_sync(args)
+  if not out then return nil end
+  local ok, v = pcall(vim.json.decode, out, { luanil = { object = true, array = true } })
+  return ok and v or nil
 end
 
 -- Warn once per session if the installed notesview is older than this config needs.
@@ -200,18 +163,54 @@ local function daily(offset_days)
   open_note(NOTES .. "/daily/" .. os.date("%Y-%m-%d", t) .. ".md", os.date("%A, %B %d %Y", t))
 end
 
-local function class_note()
-  local list = classes()
-  if #list == 0 then return vim.notify("No classes in " .. config_path(), vim.log.levels.WARN) end
-  vim.ui.select(list, {
-    prompt = "Class",
-    format_item = function(c) return c.name end,
-  }, function(c)
-    if not c then return end
-    local out, err = nv_sync({ "lecture", "--dir", NOTES, c.id })
-    if not out then return vim.notify("Lecture note: " .. err, vim.log.levels.ERROR) end
-    vim.cmd.edit(vim.fn.fnameescape(vim.trim(out)))
-  end)
+-- Picks a category or topic folder (with "none" first). Calls back with the
+-- folder ({ path, tag, name, kind }) or nil for none / Esc / no notesview.
+local function pick_folder(title, cb)
+  local folders = nv_json({ "folders", "--json", "--dir", NOTES })
+  if not folders or #folders == 0 then return cb(nil) end
+  local items = { { text = "none", none = true } }
+  for _, f in ipairs(folders) do table.insert(items, { text = f.tag .. " " .. f.path, folder = f }) end
+  local chosen, done = nil, false
+  local function finish()
+    if done then return end
+    done = true
+    vim.schedule(function() cb(chosen) end)
+  end
+  Snacks.picker.pick({
+    title = title,
+    items = items,
+    layout = { preset = "select" },
+    format = function(item)
+      if item.none then return { { "none", "Comment" }, { "  top level / no folder", "Comment" } } end
+      local f = item.folder
+      return { { "#" .. f.tag, f.kind == "category" and "Title" or "Normal" }, { "  " .. f.path, "Comment" } }
+    end,
+    confirm = function(picker, item)
+      chosen = item and item.folder or nil
+      picker:close()
+      finish()
+    end,
+    on_close = finish,   -- Esc: no folder
+  })
+end
+
+-- Opens a picker of the notes inside a folder ([[act-200]] links).
+local function folder_notes_picker(r)
+  if #(r.notes or {}) == 0 then return vim.notify("No notes in " .. r.path .. " yet") end
+  local items = {}
+  for _, n in ipairs(r.notes) do
+    table.insert(items, { text = n.title .. " " .. n.path, file = NOTES .. "/" .. n.path, title = n.title, rel = n.path })
+  end
+  Snacks.picker.pick({
+    title = "📁 " .. r.path,
+    items = items,
+    format = function(item) return { { item.title }, { "  " .. item.rel, "Comment" } } end,
+    preview = "file",
+    confirm = function(picker, item)
+      picker:close()
+      if item then vim.cmd.edit(vim.fn.fnameescape(item.file)) end
+    end,
+  })
 end
 
 -- Natural due dates (@tomorrow, @fri, @oct6, @10/6, @+3d) become @YYYY-MM-DD
@@ -263,7 +262,14 @@ local function follow_link()
   for s, target, e in line:gmatch("()%[%[([^%]]+)%]%]()") do        -- [[wiki link]]
     if col >= s and col < e then
       target = target:gsub("|.*", "")
-      return open_note(NOTES .. "/" .. target .. (target:match("%.md$") and "" or ".md"), target)
+      local direct = NOTES .. "/" .. target .. (target:match("%.md$") and "" or ".md")
+      if not uv.fs_stat(direct) then
+        -- a note elsewhere with that name, or a folder ([[act-200]], [[act-200/chapter-5]])
+        local r = nv_json({ "resolve", "--json", "--dir", NOTES, "--", target })
+        if r and r.kind == "note" then return open_note(NOTES .. "/" .. r.path, target) end
+        if r and r.kind == "folder" then return folder_notes_picker(r) end
+      end
+      return open_note(direct, target)
     end
   end
   for s, target, e in line:gmatch("()%[[^%]]*%]%(([^%)]+)%)()") do  -- [text](target)
@@ -310,23 +316,56 @@ local function insert_text(text)
   vim.api.nvim_put({ text }, "c", true, true)
 end
 
-local function capture_to_inbox()
-  vim.ui.input({ prompt = "Capture: " }, function(text)
-    if not text or text == "" then return end
-    if vim.fn.executable("notesview") == 1 then
-      local out, err = nv_sync({ "capture", "--dir", NOTES, "--", text })
-      if out then
-        vim.cmd("checktime")
-        return vim.notify(vim.trim(out))
-      end
-      return vim.notify("Capture failed: " .. err, vim.log.levels.ERROR)
+-- Capture: task text → folder (picker, "none" or Esc skips) → due date (natural
+-- forms, shown resolved before confirming; empty skips). The same steps as the
+-- `inbox` shell command; notesview decides what the text already answers and
+-- writes the line.
+local function ask_due(cb)
+  local function resolve(answer)
+    if answer == "" then return cb("") end
+    local r = nv_json({ "due", "--json", "--", answer })
+    if not (r and r.ok) then   -- can't parse it: ask again rather than saving it raw
+      return vim.ui.input({ prompt = ('Can\'t read "%s". Due (empty to skip): '):format(answer) }, function(again)
+        resolve(vim.trim(again or ""))
+      end)
     end
-    local f = NOTES .. "/inbox.md"
-    vim.fn.mkdir(NOTES, "p")
-    if not uv.fs_stat(f) then vim.fn.writefile({ "# Inbox", "" }, f) end
-    vim.fn.writefile({ "- [ ] " .. text .. " _(" .. os.date("%b %d %H:%M") .. ")_" }, f, "a")
-    vim.cmd("checktime")
-    vim.notify("Captured to inbox")
+    vim.ui.input({ prompt = ("%s → %s  (Enter to confirm, or type another date): "):format(answer:gsub("^@", ""), r.label) },
+      function(next)
+        if next == nil then return ask_due(cb) end   -- Esc: back to the date question
+        next = vim.trim(next)
+        if next == "" then return cb(r.date) end
+        resolve(next)
+      end)
+  end
+  vim.ui.input({ prompt = "Due (fri, tomorrow, oct6, 10/6, +3d — empty to skip): " }, function(answer)
+    resolve(vim.trim(answer or ""))
+  end)
+end
+
+local function capture_to_inbox()
+  vim.ui.input({ prompt = "Task: " }, function(text)
+    if not text or vim.trim(text) == "" then return end
+    if vim.fn.executable("notesview") == 0 then   -- no notesview: plain append
+      local f = NOTES .. "/inbox.md"
+      vim.fn.mkdir(NOTES, "p")
+      if not uv.fs_stat(f) then vim.fn.writefile({ "# Inbox", "" }, f) end
+      vim.fn.writefile({ "- [ ] " .. text .. " _(" .. os.date("%b %d %H:%M") .. ")_" }, f, "a")
+      vim.cmd("checktime")
+      return vim.notify("Captured to inbox")
+    end
+    local parsed = nv_json({ "capture", "--parse", "--dir", NOTES, "--", text }) or {}
+    local function save(folder, due)
+      local out, err = nv_sync({ "capture", "--dir", NOTES, "--folder", folder or "", "--due", due or "", "--", text })
+      if not out then return vim.notify("Capture failed: " .. err, vim.log.levels.ERROR) end
+      vim.cmd("checktime")
+      vim.notify(vim.trim(out))
+    end
+    local function due_step(folder)
+      if parsed.due and parsed.due ~= "" then return save(folder, "") end
+      ask_due(function(due) save(folder, due) end)
+    end
+    if parsed.folder and parsed.folder ~= "" then return due_step(nil) end
+    pick_folder("Folder for the task (Esc: none)", function(f) due_step(f and f.tag) end)
   end)
 end
 
@@ -356,34 +395,32 @@ local function notesview(args)
 end
 
 local function open_tasks_picker()
-  local out = nv_sync({ "tasks", "--json", "--dir", NOTES })
-  local ok, tasks = pcall(vim.json.decode, out or "")
-  if not (out and ok and type(tasks) == "table") then   -- older notesview: plain grep
+  local tasks = nv_json({ "tasks", "--json", "--dir", NOTES })
+  if type(tasks) ~= "table" then   -- no (or an older) notesview: plain grep
     return Snacks.picker.grep({ cwd = NOTES, search = "- \\[ \\]" })
   end
-  local labels = { overdue = "overdue", today = "today", tomorrow = "tomorrow", week = "this week", later = "later", none = "" }
+  local when = { overdue = "overdue", today = "today", tomorrow = "tomorrow", week = "this week", later = "later", none = "" }
   local items = {}
   for _, t in ipairs(tasks) do
-    local label = t.class_name ~= nil and t.class_name ~= vim.NIL and t.class_name or "other"
+    local label = not t.category and "General" or (t.topic and (t.category_name .. " · " .. t.topic_name) or t.category_name)
     table.insert(items, {
-      text = table.concat({ t.display, label, t.due ~= vim.NIL and t.due or "", t.file }, " "),
+      text = table.concat({ t.display, label, t.due or "", t.file }, " "),
       file = NOTES .. "/" .. t.file,
       pos = { t.line, 0 },
-      task = t, label = label, when = labels[t.group] or "",
+      task = t, label = label, when = when[t.group] or "",
     })
   end
   if #items == 0 then return vim.notify("No open tasks 🎉") end
   Snacks.picker.pick({
-    title = "Open tasks",
+    title = "Open tasks (by due date)",
     items = items,
     format = function(item)
       local t = item.task
       return {
-        { ("%-9s"):format(item.label), t.kind == "homework" and "Special" or "Comment" },
-        { " " },
         { ("%-9s"):format(item.when), t.group == "overdue" and "ErrorMsg" or "Comment" },
         { " " },
         { t.display },
+        { "  " .. item.label, t.category and "Special" or "Comment" },
         { "  " .. t.file .. ":" .. t.line, "Comment" },
       }
     end,
@@ -443,19 +480,21 @@ vim.api.nvim_create_user_command("Today", function() daily(0) end, {})
 local map = vim.keymap.set
 map("n", "<leader>nn", function()
   vim.ui.input({ prompt = "Note title: " }, function(title)
-    if not title or title == "" then return end
+    if not title or vim.trim(title) == "" then return end
     local slug = title:lower():gsub("[^%w]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
-    open_note(NOTES .. "/" .. slug .. ".md", title)
+    if slug == "" then slug = os.date("note-%Y%m%d-%H%M%S") end
+    pick_folder("Folder for the note (Esc: top level)", function(f)
+      open_note(NOTES .. "/" .. (f and (f.path .. "/") or "") .. slug .. ".md", title)
+    end)
   end)
-end, { desc = "New note" })
+end, { desc = "New note (pick a folder)" })
 map("n", "<leader>nd", function() daily(0) end, { desc = "Today's daily note" })
 map("n", "<leader>ny", function() daily(-1) end, { desc = "Yesterday's daily note" })
-map("n", "<leader>ni", capture_to_inbox, { desc = "Quick capture to inbox" })
+map("n", "<leader>ni", capture_to_inbox, { desc = "Capture a task: text, folder, due date" })
 map("n", "<leader>nI", function() open_note(NOTES .. "/inbox.md", "Inbox") end, { desc = "Open inbox" })
 map("n", "<leader>nf", function() Snacks.picker.files({ cwd = NOTES }) end, { desc = "Find note" })
 map("n", "<leader>ng", function() Snacks.picker.grep({ cwd = NOTES }) end, { desc = "Search inside notes" })
 map("n", "<leader>no", open_tasks_picker, { desc = "Open tasks across notes" })
-map("n", "<leader>nc", class_note, { desc = "Today's lecture note for a class" })
 map("n", "<leader>nr", function() Snacks.picker.recent({ filter = { cwd = NOTES } }) end, { desc = "Recent notes" })
 map("n", "<leader>p", function()
   local rel = note_path(0)

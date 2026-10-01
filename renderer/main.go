@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -43,15 +44,18 @@ var version = "0.2.0"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  notesview serve   [--dir DIR] [--port N]
-  notesview open    [PATH | --tasks] [--line N] [--dir DIR] [--port N]
-  notesview scroll  PATH --line N [--port N]
-  notesview tasks   [--json] [--all] [--dir DIR]       list open tasks
-  notesview date    TEXT…                              convert @tomorrow, @fri, @oct6, @10/6, @+3d
-  notesview capture [--dir DIR] TEXT…                  add "- [ ] TEXT" to inbox.md
-  notesview daily   [--date YYYY-MM-DD] [--dir DIR]    create today's daily note (with carry-over)
-  notesview lecture CLASS [--dir DIR]                  create today's lecture note for a class
-  notesview classes [--json]                           list classes from config.toml
+  notesview serve    [--dir DIR] [--port N]
+  notesview open     [PATH | --tasks] [--line N] [--dir DIR] [--port N]
+  notesview scroll   PATH --line N [--port N]
+  notesview tasks    [--json] [--all] [--dir DIR]      list open tasks
+  notesview date     TEXT…                             convert @tomorrow, @fri, @oct6, @10/6, @+3d in TEXT
+  notesview due      [--json] WHEN                     resolve one due date ("fri" → 2026-10-02, Fri Oct 2)
+  notesview capture  [-i] [--folder TAG] [--due WHEN] [--dir DIR] [TEXT…]
+                                                       add "- [ ] TEXT" to inbox.md (-i asks step by step;
+                                                       --parse only reports what TEXT already answers)
+  notesview folders  [--json] [--dir DIR]              list category and topic folders
+  notesview resolve  [--json] [--dir DIR] TARGET       what a [[TARGET]] link points to
+  notesview daily    [--date YYYY-MM-DD] [--dir DIR]   create a daily note (today's with carry-over)
   notesview doctor                                     check the installation
   notesview --version`)
 	os.Exit(2)
@@ -68,7 +72,7 @@ func main() {
 		return
 	case "-h", "--help", "help":
 		usage()
-	case "tasks", "date", "capture", "daily", "lecture", "classes", "doctor":
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor":
 		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
@@ -111,13 +115,25 @@ func main() {
 // server needed). Flags come first; everything after them (or after "--")
 // is the text, taken verbatim. It returns the exit code.
 func runCommand(cmd string, args []string, stdout, stderr io.Writer) int {
+	return runCommandIO(cmd, args, os.Stdin, stdout, stderr)
+}
+
+func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", defaultDir(), "notes folder")
 	asJSON := fs.Bool("json", false, "print JSON")
 	all := fs.Bool("all", false, "include done and moved tasks")
 	dateFlag := fs.String("date", "", "date (YYYY-MM-DD), default today")
+	folder := fs.String("folder", "", "folder tag or path for the captured task")
+	due := fs.String("due", "", "due date for the captured task (fri, oct6, +3d, …)")
+	interactive := fs.Bool("i", false, "capture step by step")
+	parse := fs.Bool("parse", false, "capture: only report which steps the text already answers (JSON)")
 	now := time.Now()
+	fail := func(err error) int {
+		fmt.Fprintln(stderr, "notesview:", err)
+		return 1
+	}
 	if cmd == "date" { // no flags: the text may well start with "- [ ]"
 		if len(args) > 0 && args[0] == "--" {
 			args = args[1:]
@@ -129,25 +145,21 @@ func runCommand(cmd string, args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	text := strings.Join(fs.Args(), " ")
-	fail := func(err error) int {
-		fmt.Fprintln(stderr, "notesview:", err)
-		return 1
-	}
-	if cmd == "doctor" {
+	switch cmd {
+	case "doctor":
 		return runDoctor(stdout)
-	}
-	cfg, err := LoadConfig(ConfigPath())
-	if err != nil {
-		fmt.Fprintln(stderr, "notesview: warning:", err)
-		cfg = &Config{}
-	}
-	if cmd == "classes" {
+	case "due":
+		d, ok := ParseDue(text, now)
+		if !ok {
+			if *asJSON {
+				printJSON(stdout, map[string]any{"ok": false, "input": text})
+			}
+			return fail(fmt.Errorf("can't read due date %q (try fri, tomorrow, oct6, 10/6, +3d)", text))
+		}
 		if *asJSON {
-			return printJSON(stdout, cfg.Classes)
+			return printJSON(stdout, map[string]any{"ok": true, "date": d.Format(isoDate), "label": DueLabel(d)})
 		}
-		for _, c := range cfg.Classes {
-			fmt.Fprintf(stdout, "%-10s %-12s classes/%s\n", c.ID, c.Name, c.Folder)
-		}
+		fmt.Fprintf(stdout, "%s\t%s\n", d.Format(isoDate), DueLabel(d))
 		return 0
 	}
 	store, err := NewStore(*dir)
@@ -156,30 +168,57 @@ func runCommand(cmd string, args []string, stdout, stderr io.Writer) int {
 	}
 	switch cmd {
 	case "tasks":
-		tasks := store.CollectTasks(cfg, TaskQuery{All: *all, Now: now})
+		tasks := store.CollectTasks(TaskQuery{All: *all, Now: now})
 		if *asJSON {
 			return printJSON(stdout, tasks)
 		}
 		for _, t := range tasks {
-			label := t.Kind
-			if t.ClassName != "" {
-				label = t.ClassName
-			}
-			due := ""
+			d := ""
 			if t.Due != "" {
-				due = " (due " + t.Due + ")"
+				d = " (due " + t.Due + ")"
 			}
-			fmt.Fprintf(stdout, "%s:%d: [%s/%s] %s%s\n", t.File, t.Line, label, t.Group, t.Display, due)
+			fmt.Fprintf(stdout, "%s:%d: [%s/%s] %s%s\n", t.File, t.Line, t.Label(), t.Group, t.Display, d)
 		}
+	case "folders":
+		list := store.Folders().List
+		if *asJSON {
+			if list == nil {
+				list = []Folder{}
+			}
+			return printJSON(stdout, list)
+		}
+		for _, f := range list {
+			fmt.Fprintf(stdout, "#%-30s %s\n", f.Tag, f.Path)
+		}
+	case "resolve":
+		r := store.ResolveLink(text)
+		if *asJSON {
+			return printJSON(stdout, r)
+		}
+		fmt.Fprintln(stdout, r.Kind, r.Path)
 	case "capture":
-		line, err := store.Capture(text, now)
+		if *parse {
+			return printJSON(stdout, ParseCaptureText(text, store.Folders(), now))
+		}
+		var line string
+		if *interactive {
+			in := bufio.NewReader(stdin)
+			ui := &captureUI{in: in, out: stdout, pick: terminalPicker(in, stdout)}
+			line, err = runCaptureInteractive(store, text, ui, now)
+			if err == errCancelled {
+				fmt.Fprintln(stdout, "Nothing captured.")
+				return 1
+			}
+		} else {
+			line, err = store.Capture(CaptureOpts{Text: text, Folder: *folder, Due: *due}, now)
+		}
 		if err != nil {
 			return fail(err)
 		}
 		if *asJSON {
 			return printJSON(stdout, map[string]string{"line": line, "path": filepath.Join(store.Root, "inbox.md")})
 		}
-		fmt.Fprintln(stdout, "Captured:", strings.TrimPrefix(line, "- [ ] "))
+		fmt.Fprintln(stdout, "Added to inbox:", line)
 	case "daily":
 		date := now
 		if *dateFlag != "" {
@@ -188,7 +227,7 @@ func runCommand(cmd string, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		// carry-over only happens when today's note is created
-		res, err := store.EnsureDaily(cfg, date, date.Format(isoDate) == now.Format(isoDate))
+		res, err := store.EnsureDaily(date, date.Format(isoDate) == now.Format(isoDate))
 		if err != nil {
 			return fail(err)
 		}
@@ -199,16 +238,6 @@ func runCommand(cmd string, args []string, stdout, stderr io.Writer) int {
 			return printJSON(stdout, res)
 		}
 		fmt.Fprintln(stdout, filepath.Join(store.Root, filepath.FromSlash(res.Path)))
-	case "lecture":
-		c, ok := cfg.ClassByID(strings.TrimSpace(text))
-		if !ok {
-			return fail(fmt.Errorf("unknown class %q (classes are listed in %s)", text, ConfigPath()))
-		}
-		rel, err := store.EnsureLecture(c, now)
-		if err != nil {
-			return fail(err)
-		}
-		fmt.Fprintln(stdout, filepath.Join(store.Root, filepath.FromSlash(rel)))
 	}
 	return 0
 }

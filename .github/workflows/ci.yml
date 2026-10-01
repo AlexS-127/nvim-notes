@@ -42,9 +42,8 @@ jobs:
           NOTES_DIR: ${{ runner.temp }}/notes
           XDG_CONFIG_HOME: ${{ runner.temp }}/config
         run: |
-          mkdir -p "$XDG_CONFIG_HOME/notesview"
+          mkdir -p "$XDG_CONFIG_HOME"
           ln -s "$GITHUB_WORKSPACE/nvim" "$XDG_CONFIG_HOME/nvim"
-          ln -s "$GITHUB_WORKSPACE/notesview/config.toml" "$XDG_CONFIG_HOME/notesview/config.toml"
           nvim --version | head -1
           # first start installs the plugins; parsers are fetched async and may be slow
           nvim --headless "+lua require('nvim-treesitter').install(vim.g.notes_parsers):wait(300000)" +qa || true

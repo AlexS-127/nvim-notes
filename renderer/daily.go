@@ -61,9 +61,10 @@ type DailyResult struct {
 }
 
 // EnsureDaily creates the daily note for date if it is missing, using the
-// daily template. With carry set it moves open non-class tasks from the
-// most recent earlier daily note into the new note's Tasks section.
-func (s *Store) EnsureDaily(cfg *Config, date time.Time, carry bool) (DailyResult, error) {
+// daily template. With carry set it moves open tasks that have no category
+// and no due date from the most recent earlier daily note into the new
+// note's Tasks section.
+func (s *Store) EnsureDaily(date time.Time, carry bool) (DailyResult, error) {
 	rel := dailyRel(date)
 	res := DailyResult{Path: rel}
 	full, err := s.Resolve(rel)
@@ -80,7 +81,7 @@ func (s *Store) EnsureDaily(cfg *Config, date time.Time, carry bool) (DailyResul
 			if prevFull, err = s.Resolve(prev); err == nil {
 				if data, rerr := os.ReadFile(prevFull); rerr == nil {
 					var n int
-					oldLines, moved, n = carryOver(strings.Split(string(data), "\n"), cfg, prev, date.Format(isoDate))
+					oldLines, moved, n = carryOver(strings.Split(string(data), "\n"), s.Folders(), prev, date.Format(isoDate))
 					if n > 0 {
 						res.From, res.Moved = prev, n
 					}
@@ -106,11 +107,12 @@ func (s *Store) EnsureDaily(cfg *Config, date time.Time, carry bool) (DailyResul
 var openBoxRe = regexp.MustCompile(`^(\s*[-*+] )\[ \]`)
 
 // carryOver splits a daily note into what stays and the task lines that
-// move to the note named target (YYYY-MM-DD). Open tasks that are not
-// homework move with their nested lines; homework (and anything nested
-// under open homework) never moves. Each moved task is left behind as
-// "- [>] text → [[target]]".
-func carryOver(lines []string, cfg *Config, rel, target string) (keep, moved []string, n int) {
+// move to the note named target (YYYY-MM-DD). An open task moves, with its
+// nested lines, only if it has no category (folder tag) and no due date;
+// the others stay put and show up in the Tasks view by date. Nested tasks
+// that have a category or due date stay behind too. Each moved task is
+// left behind as "- [>] text → [[target]]".
+func carryOver(lines []string, idx *FolderIndex, rel, target string) (keep, moved []string, n int) {
 	fence := make([]bool, len(lines)) // line is a fence marker or inside a fenced block
 	in := false
 	for i, l := range lines {
@@ -127,9 +129,21 @@ func carryOver(lines []string, cfg *Config, rel, target string) (keep, moved []s
 		}
 		return parseTaskLine(lines[i])
 	}
-	isHomework := func(text string) bool {
-		_, ok := classOf(cfg, rel, tagsOf(inlineCode.ReplaceAllString(text, "")))
-		return ok
+	// stays: the task has a due date or belongs to a folder
+	stays := func(text string) bool {
+		due, tags := scanTask(text)
+		if due != "" {
+			return true
+		}
+		if _, ok := idx.ForPath(rel); ok {
+			return true
+		}
+		for _, tag := range tags {
+			if _, ok := idx.ForTag(tag); ok {
+				return true
+			}
+		}
+		return false
 	}
 	// blockEnd returns the index after the lines nested under line i.
 	blockEnd := func(i, indent int) int {
@@ -155,7 +169,7 @@ func carryOver(lines []string, cfg *Config, rel, target string) (keep, moved []s
 			continue
 		}
 		end := blockEnd(i, indent)
-		if isHomework(text) {
+		if stays(text) {
 			keep = append(keep, lines[i:end]...)
 			i = end
 			continue
@@ -168,9 +182,9 @@ func carryOver(lines []string, cfg *Config, rel, target string) (keep, moved []s
 		moved = append(moved, strings.TrimPrefix(line, prefix))
 		keep = append(keep, openBoxRe.ReplaceAllString(line, "${1}[>]")+" → [["+target+"]]"+cr)
 		n++
-		// nested lines move too, except homework subtasks and their children
+		// nested lines move too, except subtasks that stay and their children
 		for j := i + 1; j < end; {
-			if cind, _, ctext, cok := isTask(j); cok && isHomework(ctext) {
+			if cind, _, ctext, cok := isTask(j); cok && stays(ctext) {
 				cend := blockEnd(j, cind)
 				keep = append(keep, lines[j:cend]...)
 				j = cend
@@ -199,59 +213,76 @@ func createExclusive(full string, data []byte) error {
 	return f.Close()
 }
 
-// ── Classes and lecture notes ────────────────────────────────────
-
-func classIndexTemplate(c Class) string {
-	return fmt.Sprintf("# %s\n\nLecture notes for %s, one per day (`<Space>nc` in Neovim).\n\n"+
-		"Homework: any task (`- [ ]`) in this folder, or tagged `#%s` anywhere else, "+
-		"shows up under **Homework** in the Tasks view (`<Space>nt`).\n", c.Name, c.Name, c.ID)
-}
-
-func lectureTemplate(c Class, date time.Time) string {
-	return fmt.Sprintf("# %s — %s\n\n## Topics\n\n## Notes\n\n## Key terms\n\n## Questions\n\n## Homework\n\n",
-		c.Name, date.Format("Monday, January 2 2006"))
-}
-
-// EnsureClassIndex creates classes/<folder>/index.md if it is missing.
-func (s *Store) EnsureClassIndex(c Class) (string, error) {
-	rel := c.Dir() + "/index.md"
-	full, err := s.Resolve(rel)
-	if err != nil {
-		return "", err
-	}
-	if err := createExclusive(full, []byte(classIndexTemplate(c))); err != nil && !errors.Is(err, os.ErrExist) {
-		return "", err
-	}
-	return rel, nil
-}
-
-// EnsureLecture creates the class index and the lecture note for date
-// (classes/<folder>/YYYY-MM-DD.md) when missing, and returns its path.
-func (s *Store) EnsureLecture(c Class, date time.Time) (string, error) {
-	if _, err := s.EnsureClassIndex(c); err != nil {
-		return "", err
-	}
-	rel := c.Dir() + "/" + date.Format(isoDate) + ".md"
-	full, err := s.Resolve(rel)
-	if err != nil {
-		return "", err
-	}
-	if err := createExclusive(full, []byte(lectureTemplate(c, date))); err != nil && !errors.Is(err, os.ErrExist) {
-		return "", err
-	}
-	return rel, nil
-}
-
 // ── Capture ──────────────────────────────────────────────────────
 
-// Capture appends "- [ ] text _(timestamp)_" to inbox.md, converting natural
-// due dates first. It returns the line it wrote.
-func (s *Store) Capture(text string, now time.Time) (string, error) {
-	text = strings.Join(strings.Fields(text), " ")
+// DueLabel formats a date for confirmation prompts: "Fri Oct 2".
+func DueLabel(d time.Time) string { return d.Format("Mon Jan 2") }
+
+// ParseDue reads a due date typed at a prompt: anything `notesview date`
+// understands, with or without the @, or an ISO date.
+func ParseDue(in string, now time.Time) (time.Time, bool) {
+	in = strings.TrimPrefix(strings.TrimSpace(in), "@")
+	if d, err := time.ParseInLocation(isoDate, in, now.Location()); err == nil {
+		return d, true
+	}
+	return ResolveNaturalDate(strings.ReplaceAll(in, " ", ""), now)
+}
+
+// CaptureOpts are the answers to the capture steps.
+type CaptureOpts struct {
+	Text   string // the task (natural @dates in it are converted)
+	Folder string // folder tag or path; "" or "none" for no folder
+	Due    string // natural or ISO due date; "" for none
+}
+
+// BuildCapture turns the answers into the task line (without the "- [ ] "
+// prefix and timestamp): text, then #folder-tag, then @due.
+func BuildCapture(o CaptureOpts, idx *FolderIndex, now time.Time) (string, error) {
+	text := ConvertNaturalDates(strings.Join(strings.Fields(o.Text), " "), now)
 	if text == "" {
 		return "", errors.New("nothing to capture")
 	}
-	line := fmt.Sprintf("- [ ] %s _(%s)_", ConvertNaturalDates(text, now), now.Format("Jan 02 15:04"))
+	if f := strings.TrimSpace(o.Folder); f != "" && !strings.EqualFold(f, "none") {
+		folder, ok := idx.Resolve(strings.TrimPrefix(f, "#"))
+		if !ok {
+			return "", fmt.Errorf("no folder %q", f)
+		}
+		if _, tags := scanTask(text); !containsFold(tags, folder.Tag) {
+			text += " #" + folder.Tag
+		}
+	}
+	if strings.TrimSpace(o.Due) != "" {
+		d, ok := ParseDue(o.Due, now)
+		if !ok {
+			return "", fmt.Errorf("can't read due date %q (try fri, tomorrow, oct6, 10/6, +3d)", o.Due)
+		}
+		iso := d.Format(isoDate)
+		if old, _ := scanTask(text); old != "" {
+			text = strings.Replace(text, "@"+old, "@"+iso, 1)
+		} else {
+			text += " @" + iso
+		}
+	}
+	return text, nil
+}
+
+func containsFold(list []string, s string) bool {
+	for _, x := range list {
+		if strings.EqualFold(x, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// Capture appends "- [ ] text #tag @due _(timestamp)_" to inbox.md and
+// returns the line it wrote.
+func (s *Store) Capture(o CaptureOpts, now time.Time) (string, error) {
+	text, err := BuildCapture(o, s.Folders(), now)
+	if err != nil {
+		return "", err
+	}
+	line := fmt.Sprintf("- [ ] %s _(%s)_", text, now.Format("Jan 02 15:04"))
 	full, err := s.Resolve("inbox.md")
 	if err != nil {
 		return "", err

@@ -61,7 +61,7 @@ func TestTaskGathering(t *testing.T) {
 		"b.md": "no tasks here\n",
 		"c.md": "# Gamma\n\n* [ ] star task\n",
 	})
-	got := s.CollectTasks(&Config{}, TaskQuery{})
+	got := s.CollectTasks(TaskQuery{})
 	if len(got) != 3 {
 		t.Fatalf("want 3 open tasks, got %d: %+v", len(got), got)
 	}
@@ -74,7 +74,7 @@ func TestTaskGathering(t *testing.T) {
 	if got[2].File != "c.md" || got[2].Line != 3 {
 		t.Errorf("unexpected c.md task: %+v", got[2])
 	}
-	if all := s.CollectTasks(&Config{}, TaskQuery{All: true}); len(all) != 4 {
+	if all := s.CollectTasks(TaskQuery{All: true}); len(all) != 4 {
 		t.Errorf("--all should include the done task, got %d", len(all))
 	}
 }
