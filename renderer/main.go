@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,11 +36,24 @@ func defaultPort() int {
 	return 7777
 }
 
+// version is the notesview release. Release builds override it with
+// -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
+// relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
+var version = "0.2.0"
+
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  notesview serve [--dir DIR] [--port N]
-  notesview open  [PATH | --tasks] [--line N] [--dir DIR] [--port N]
-  notesview scroll PATH --line N [--port N]`)
+  notesview serve   [--dir DIR] [--port N]
+  notesview open    [PATH | --tasks] [--line N] [--dir DIR] [--port N]
+  notesview scroll  PATH --line N [--port N]
+  notesview tasks   [--json] [--all] [--dir DIR]       list open tasks
+  notesview date    TEXT…                              convert @tomorrow, @fri, @oct6, @10/6, @+3d
+  notesview capture [--dir DIR] TEXT…                  add "- [ ] TEXT" to inbox.md
+  notesview daily   [--date YYYY-MM-DD] [--dir DIR]    create today's daily note (with carry-over)
+  notesview lecture CLASS [--dir DIR]                  create today's lecture note for a class
+  notesview classes [--json]                           list classes from config.toml
+  notesview doctor                                     check the installation
+  notesview --version`)
 	os.Exit(2)
 }
 
@@ -48,6 +62,15 @@ func main() {
 		usage()
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	switch cmd {
+	case "--version", "-version", "-v", "version":
+		fmt.Println("notesview", version)
+		return
+	case "-h", "--help", "help":
+		usage()
+	case "tasks", "date", "capture", "daily", "lecture", "classes", "doctor":
+		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
+	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	dir := fs.String("dir", defaultDir(), "notes folder")
 	port := fs.Int("port", defaultPort(), "port (127.0.0.1 only)")
@@ -82,6 +105,121 @@ func main() {
 	default:
 		usage()
 	}
+}
+
+// runCommand runs the note commands that work on files directly (no
+// server needed). Flags come first; everything after them (or after "--")
+// is the text, taken verbatim. It returns the exit code.
+func runCommand(cmd string, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", defaultDir(), "notes folder")
+	asJSON := fs.Bool("json", false, "print JSON")
+	all := fs.Bool("all", false, "include done and moved tasks")
+	dateFlag := fs.String("date", "", "date (YYYY-MM-DD), default today")
+	now := time.Now()
+	if cmd == "date" { // no flags: the text may well start with "- [ ]"
+		if len(args) > 0 && args[0] == "--" {
+			args = args[1:]
+		}
+		fmt.Fprintln(stdout, ConvertNaturalDates(strings.Join(args, " "), now))
+		return 0
+	}
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	text := strings.Join(fs.Args(), " ")
+	fail := func(err error) int {
+		fmt.Fprintln(stderr, "notesview:", err)
+		return 1
+	}
+	if cmd == "doctor" {
+		return runDoctor(stdout)
+	}
+	cfg, err := LoadConfig(ConfigPath())
+	if err != nil {
+		fmt.Fprintln(stderr, "notesview: warning:", err)
+		cfg = &Config{}
+	}
+	if cmd == "classes" {
+		if *asJSON {
+			return printJSON(stdout, cfg.Classes)
+		}
+		for _, c := range cfg.Classes {
+			fmt.Fprintf(stdout, "%-10s %-12s classes/%s\n", c.ID, c.Name, c.Folder)
+		}
+		return 0
+	}
+	store, err := NewStore(*dir)
+	if err != nil {
+		return fail(err)
+	}
+	switch cmd {
+	case "tasks":
+		tasks := store.CollectTasks(cfg, TaskQuery{All: *all, Now: now})
+		if *asJSON {
+			return printJSON(stdout, tasks)
+		}
+		for _, t := range tasks {
+			label := t.Kind
+			if t.ClassName != "" {
+				label = t.ClassName
+			}
+			due := ""
+			if t.Due != "" {
+				due = " (due " + t.Due + ")"
+			}
+			fmt.Fprintf(stdout, "%s:%d: [%s/%s] %s%s\n", t.File, t.Line, label, t.Group, t.Display, due)
+		}
+	case "capture":
+		line, err := store.Capture(text, now)
+		if err != nil {
+			return fail(err)
+		}
+		if *asJSON {
+			return printJSON(stdout, map[string]string{"line": line, "path": filepath.Join(store.Root, "inbox.md")})
+		}
+		fmt.Fprintln(stdout, "Captured:", strings.TrimPrefix(line, "- [ ] "))
+	case "daily":
+		date := now
+		if *dateFlag != "" {
+			if date, err = time.ParseInLocation(isoDate, *dateFlag, time.Local); err != nil {
+				return fail(fmt.Errorf("--date: %w", err))
+			}
+		}
+		// carry-over only happens when today's note is created
+		res, err := store.EnsureDaily(cfg, date, date.Format(isoDate) == now.Format(isoDate))
+		if err != nil {
+			return fail(err)
+		}
+		if res.Warning != "" {
+			fmt.Fprintln(stderr, "notesview: warning:", res.Warning)
+		}
+		if *asJSON {
+			return printJSON(stdout, res)
+		}
+		fmt.Fprintln(stdout, filepath.Join(store.Root, filepath.FromSlash(res.Path)))
+	case "lecture":
+		c, ok := cfg.ClassByID(strings.TrimSpace(text))
+		if !ok {
+			return fail(fmt.Errorf("unknown class %q (classes are listed in %s)", text, ConfigPath()))
+		}
+		rel, err := store.EnsureLecture(c, now)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Fprintln(stdout, filepath.Join(store.Root, filepath.FromSlash(rel)))
+	}
+	return 0
+}
+
+func printJSON(w io.Writer, v any) int {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return 1
+	}
+	return 0
 }
 
 func fatal(err error) {

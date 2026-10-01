@@ -5,6 +5,8 @@ vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 local NOTES = vim.fn.expand((vim.env.NOTES_DIR and vim.env.NOTES_DIR ~= "") and vim.env.NOTES_DIR or "~/notes")
 local uv = vim.uv or vim.loop
+-- Oldest notesview this config works with. Bump together with `version` in renderer/main.go.
+local NOTESVIEW_MIN_VERSION = "0.2.0"
 
 -- ── Options ──────────────────────────────────────────────────────
 local o = vim.opt
@@ -62,15 +64,134 @@ require("nvim-treesitter").install(vim.g.notes_parsers)
 require("snacks").setup({ picker = { enabled = true }, input = { enabled = true } })
 require("img-clip").setup({ default = { dir_path = "assets", relative_to_current_file = true } })
 
+-- ── Shared config (classes) ──────────────────────────────────────
+-- ~/.config/notesview/config.toml, shared with notesview (install.sh links it to
+-- notesview/config.toml in the repo). Re-read whenever the file changes.
+local function config_path()
+  if vim.env.NOTESVIEW_CONFIG and vim.env.NOTESVIEW_CONFIG ~= "" then return vim.env.NOTESVIEW_CONFIG end
+  local base = (vim.env.XDG_CONFIG_HOME and vim.env.XDG_CONFIG_HOME ~= "") and vim.env.XDG_CONFIG_HOME
+    or vim.fn.expand("~/.config")
+  local p = base .. "/notesview/config.toml"
+  if uv.fs_stat(p) then return p end
+  -- not installed yet: use the repo copy next to this config
+  return uv.fs_realpath(vim.fn.resolve(vim.fn.stdpath("config")) .. "/../notesview/config.toml") or p
+end
+
+local CLASSES = { key = nil, list = {} }
+-- Minimal reader for the [[class]] blocks of config.toml (id, name, folder).
+local function classes()
+  local p = config_path()
+  local st = uv.fs_stat(p)
+  local key = st and (p .. st.mtime.sec .. "." .. st.mtime.nsec .. ":" .. st.size) or p
+  if CLASSES.key == key then return CLASSES.list end
+  local list, cur, seen = {}, nil, {}
+  if st then
+    for line in io.lines(p) do
+      if line:match("^%s*%[%[%s*class%s*%]%]") then
+        cur = {}
+        table.insert(list, cur)
+      elseif line:match("^%s*%[") then
+        cur = nil
+      elseif cur and not line:match("^%s*#") then
+        local k, v = line:match([[^%s*([%w_]+)%s*=%s*"([^"]*)"]])
+        if not k then k, v = line:match([[^%s*([%w_]+)%s*=%s*'([^']*)']]) end
+        if k then cur[k] = v end
+      end
+    end
+  end
+  local out = {}
+  for _, c in ipairs(list) do
+    local id = vim.trim(c.id or ""):gsub("^#", ""):lower()
+    if id ~= "" and not seen[id] and not id:find("[%s/#]") then
+      seen[id] = true
+      local folder = (c.folder and c.folder ~= "" and not c.folder:find("%.%.")) and c.folder or id
+      table.insert(out, { id = id, name = (c.name and c.name ~= "") and c.name or id, folder = folder })
+    end
+  end
+  CLASSES.key, CLASSES.list = key, out
+  return out
+end
+
+-- ── notesview (CLI) ──────────────────────────────────────────────
+-- Task parsing, due dates, daily carry-over, lecture notes and capture all live
+-- in the notesview binary, so the rules are the same here and in the viewer.
+local function nv_env() return { NOTES_DIR = NOTES, NOTESVIEW_CONFIG = config_path() } end
+
+local function version_less(a, b)
+  local pa, pb = vim.split(a, ".", { plain = true }), vim.split(b, ".", { plain = true })
+  for i = 1, 3 do
+    local x, y = tonumber(pa[i]) or 0, tonumber(pb[i]) or 0
+    if x ~= y then return x < y end
+  end
+  return false
+end
+
+-- Runs notesview synchronously. Returns stdout, or nil and an error message.
+local function nv_sync(args, timeout)
+  if vim.fn.executable("notesview") == 0 then return nil, "notesview is not installed — run ./install.sh" end
+  local ok, r = pcall(function()
+    return vim.system(vim.list_extend({ "notesview" }, args), { text = true, env = nv_env() }):wait(timeout or 5000)
+  end)
+  if not ok then return nil, tostring(r) end
+  if r.code ~= 0 then
+    local err = vim.trim(r.stderr or "")
+    return nil, err ~= "" and err or ("notesview exited with " .. r.code)
+  end
+  return r.stdout or ""
+end
+
+-- Warn once per session if the installed notesview is older than this config needs.
+vim.defer_fn(function()
+  if vim.fn.executable("notesview") == 0 then return end
+  vim.system({ "notesview", "--version" }, { text = true }, function(r)
+    local v = r.code == 0 and (r.stdout or ""):match("(%d+%.%d+%.?%d*)") or nil
+    if v and not version_less(v, NOTESVIEW_MIN_VERSION) then return end
+    vim.schedule(function()
+      vim.notify(("notesview %s is older than %s, which this config needs — run ./install.sh in your nvim-notes checkout")
+        :format(v or "(unknown version)", NOTESVIEW_MIN_VERSION), vim.log.levels.WARN)
+    end)
+  end)
+end, 300)
+
 -- ── Helpers ──────────────────────────────────────────────────────
+-- Daily notes are created by notesview (template + carry-over of open tasks
+-- from the most recent earlier daily note). Returns true if it created one.
+local function ensure_daily(path)
+  local date = path:match("^" .. vim.pesc(NOTES) .. "/daily/(%d%d%d%d%-%d%d%-%d%d)%.md$")
+  if not date or uv.fs_stat(path) then return false end
+  local out, err = nv_sync({ "daily", "--dir", NOTES, "--date", date, "--json" })
+  if not out then
+    if vim.fn.executable("notesview") == 1 then vim.notify("notesview daily: " .. err, vim.log.levels.WARN) end
+    return false
+  end
+  local ok, res = pcall(vim.json.decode, out)
+  if ok and type(res) == "table" then
+    if (res.moved or 0) > 0 then
+      vim.notify(("Carried over %d task(s) from %s"):format(res.moved, res.from))
+    end
+    if res.warning and res.warning ~= vim.NIL then vim.notify(res.warning, vim.log.levels.WARN) end
+  end
+  return true
+end
+
 local function open_note(path, title)
   if not path:match("%.md$") and uv.fs_stat(path) then return vim.ui.open(path) end
+  local is_daily = path:match("^" .. vim.pesc(NOTES) .. "/daily/%d%d%d%d%-%d%d%-%d%d%.md$") ~= nil
+  local created = is_daily and ensure_daily(path)
   vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
   local exists = uv.fs_stat(path)
   vim.cmd.edit(vim.fn.fnameescape(path))
   if not exists then
-    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "# " .. title, "", "" })
-    vim.api.nvim_win_set_cursor(0, { 3, 0 })
+    if is_daily then -- notesview unavailable: same template, no carry-over
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, { "# " .. title, "", "## Tasks", "", "", "## Notes", "" })
+    else
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, { "# " .. title, "", "" })
+      return vim.api.nvim_win_set_cursor(0, { 3, 0 })
+    end
+  end
+  if created or (is_daily and not exists) then
+    local notes_row = vim.fn.search("^## Notes", "nw")
+    if notes_row > 1 then vim.api.nvim_win_set_cursor(0, { notes_row - 1, 0 }) end
   end
 end
 
@@ -79,7 +200,42 @@ local function daily(offset_days)
   open_note(NOTES .. "/daily/" .. os.date("%Y-%m-%d", t) .. ".md", os.date("%A, %B %d %Y", t))
 end
 
+local function class_note()
+  local list = classes()
+  if #list == 0 then return vim.notify("No classes in " .. config_path(), vim.log.levels.WARN) end
+  vim.ui.select(list, {
+    prompt = "Class",
+    format_item = function(c) return c.name end,
+  }, function(c)
+    if not c then return end
+    local out, err = nv_sync({ "lecture", "--dir", NOTES, c.id })
+    if not out then return vim.notify("Lecture note: " .. err, vim.log.levels.ERROR) end
+    vim.cmd.edit(vim.fn.fnameescape(vim.trim(out)))
+  end)
+end
+
+-- Natural due dates (@tomorrow, @fri, @oct6, @10/6, @+3d) become @YYYY-MM-DD
+-- through notesview, so files only ever hold ISO dates.
+local function convert_due_dates(buf)
+  local row = vim.api.nvim_win_get_cursor(0)[1]
+  local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1]
+  if not line or not line:find("@", 1, true) then return end
+  local candidate = false
+  for tok in line:gmatch("@([%w/+]+)") do
+    if not tok:match("^%d%d%d%d$") then candidate = true break end   -- @2026-10-06 is already ISO
+  end
+  if not candidate or vim.fn.executable("notesview") == 0 then return end
+  local out = nv_sync({ "date", "--", line }, 2000)
+  if not out then return end
+  out = out:gsub("\r?\n$", "")
+  if out ~= line and not out:find("\n") then
+    pcall(vim.cmd, "undojoin")
+    vim.api.nvim_buf_set_lines(buf, row - 1, row, false, { out })
+  end
+end
+
 local function toggle_checkbox_line(line)
+  if line:match("^%s*[-*+] %[>%]") then return line end   -- moved to a later note: leave it
   if line:match("^%s*[-*+] %[ %]") then return (line:gsub("%[ %]", "[x]", 1)) end
   if line:match("^%s*[-*+] %[[xX]%]") then return (line:gsub("%[[xX]%]", "[ ]", 1)) end
   if line:match("^%s*[-*+] ") then return (line:gsub("^(%s*[-*+] )", "%1[ ] ", 1)) end
@@ -157,6 +313,14 @@ end
 local function capture_to_inbox()
   vim.ui.input({ prompt = "Capture: " }, function(text)
     if not text or text == "" then return end
+    if vim.fn.executable("notesview") == 1 then
+      local out, err = nv_sync({ "capture", "--dir", NOTES, "--", text })
+      if out then
+        vim.cmd("checktime")
+        return vim.notify(vim.trim(out))
+      end
+      return vim.notify("Capture failed: " .. err, vim.log.levels.ERROR)
+    end
     local f = NOTES .. "/inbox.md"
     vim.fn.mkdir(NOTES, "p")
     if not uv.fs_stat(f) then vim.fn.writefile({ "# Inbox", "" }, f) end
@@ -188,7 +352,49 @@ local function notesview(args)
     end
     return
   end
-  vim.system(vim.list_extend({ "notesview" }, args), { env = { NOTES_DIR = NOTES }, stdout = false, stderr = false }, function() end)
+  vim.system(vim.list_extend({ "notesview" }, args), { env = nv_env(), stdout = false, stderr = false }, function() end)
+end
+
+local function open_tasks_picker()
+  local out = nv_sync({ "tasks", "--json", "--dir", NOTES })
+  local ok, tasks = pcall(vim.json.decode, out or "")
+  if not (out and ok and type(tasks) == "table") then   -- older notesview: plain grep
+    return Snacks.picker.grep({ cwd = NOTES, search = "- \\[ \\]" })
+  end
+  local labels = { overdue = "overdue", today = "today", tomorrow = "tomorrow", week = "this week", later = "later", none = "" }
+  local items = {}
+  for _, t in ipairs(tasks) do
+    local label = t.class_name ~= nil and t.class_name ~= vim.NIL and t.class_name or "other"
+    table.insert(items, {
+      text = table.concat({ t.display, label, t.due ~= vim.NIL and t.due or "", t.file }, " "),
+      file = NOTES .. "/" .. t.file,
+      pos = { t.line, 0 },
+      task = t, label = label, when = labels[t.group] or "",
+    })
+  end
+  if #items == 0 then return vim.notify("No open tasks 🎉") end
+  Snacks.picker.pick({
+    title = "Open tasks",
+    items = items,
+    format = function(item)
+      local t = item.task
+      return {
+        { ("%-9s"):format(item.label), t.kind == "homework" and "Special" or "Comment" },
+        { " " },
+        { ("%-9s"):format(item.when), t.group == "overdue" and "ErrorMsg" or "Comment" },
+        { " " },
+        { t.display },
+        { "  " .. t.file .. ":" .. t.line, "Comment" },
+      }
+    end,
+    preview = "file",
+    confirm = function(picker, item)
+      picker:close()
+      if not item then return end
+      vim.cmd.edit(vim.fn.fnameescape(item.file))
+      pcall(vim.api.nvim_win_set_cursor, 0, { item.pos[1], 0 })
+    end,
+  })
 end
 
 local function viewer_show(rel, line)
@@ -248,8 +454,8 @@ map("n", "<leader>ni", capture_to_inbox, { desc = "Quick capture to inbox" })
 map("n", "<leader>nI", function() open_note(NOTES .. "/inbox.md", "Inbox") end, { desc = "Open inbox" })
 map("n", "<leader>nf", function() Snacks.picker.files({ cwd = NOTES }) end, { desc = "Find note" })
 map("n", "<leader>ng", function() Snacks.picker.grep({ cwd = NOTES }) end, { desc = "Search inside notes" })
-map("n", "<leader>no", function() Snacks.picker.grep({ cwd = NOTES, search = "- \\[ \\]" }) end,
-  { desc = "Open todos across notes" })
+map("n", "<leader>no", open_tasks_picker, { desc = "Open tasks across notes" })
+map("n", "<leader>nc", class_note, { desc = "Today's lecture note for a class" })
 map("n", "<leader>nr", function() Snacks.picker.recent({ filter = { cwd = NOTES } }) end, { desc = "Recent notes" })
 map("n", "<leader>p", function()
   local rel = note_path(0)
@@ -297,7 +503,12 @@ vim.api.nvim_create_autocmd("FileType", {
     bmap("n", "<leader>a", archive_done, "Archive completed tasks")
 
     -- Headings
-    for i = 1, 4 do bmap("n", "<leader>" .. i, function() set_heading(i) end, "Heading " .. i) end
+    for i = 1, 4 do
+      bmap("n", "<leader>" .. i, function()
+        set_heading(i)
+        vim.cmd("startinsert!")   -- keep typing at the end of the heading
+      end, "Heading " .. i)
+    end
     bmap("n", "<leader>0", function() set_heading(0) end, "Remove heading")
     bmap("n", "<leader>+", function() change_heading(1) end, "Heading level +1")
     bmap("n", "<leader>-", function() change_heading(-1) end, "Heading level -1")
@@ -327,6 +538,32 @@ vim.api.nvim_create_autocmd("FileType", {
     bmap("x", "<leader>s", 'c~~<C-r>"~~<Esc>', "Strikethrough")
     bmap("x", "<leader>l", 'c[<C-r>"]()<Esc>i', "Make link (cursor lands in URL)")
     bmap("x", "<leader>w", 'c[[<C-r>"]]<Esc>', "Make wiki link")
+  end,
+})
+
+-- Moved tasks ("- [>] … → [[date]]") are shown greyed out
+local function set_task_hl()
+  vim.api.nvim_set_hl(0, "NotesMovedTask", { ctermfg = 8, fg = "#7d8590", italic = true, default = true })
+end
+set_task_hl()
+vim.api.nvim_create_autocmd("ColorScheme", { callback = set_task_hl })
+local task_ns = vim.api.nvim_create_namespace("notes_tasks")
+vim.api.nvim_set_decoration_provider(task_ns, {
+  on_win = function(_, _, buf) return vim.bo[buf].filetype == "markdown" end,
+  on_line = function(_, _, buf, row)
+    local l = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1]
+    if l and l:find("^%s*[-*+] %[>%]") then
+      vim.api.nvim_buf_set_extmark(buf, task_ns, row, 0,
+        { end_row = row, end_col = #l, hl_group = "NotesMovedTask", ephemeral = true, priority = 200 })
+    end
+  end,
+})
+
+-- Convert natural due dates on the line just edited (runs before autosave below)
+vim.api.nvim_create_autocmd("InsertLeave", {
+  pattern = "*.md",
+  callback = function(ev)
+    if vim.bo[ev.buf].filetype == "markdown" then convert_due_dates(ev.buf) end
   end,
 })
 

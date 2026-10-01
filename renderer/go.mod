@@ -3,6 +3,7 @@ module notesview
 go 1.25.0
 
 require (
+	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
 	github.com/dlclark/regexp2 v1.7.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.2.1 // indirect

@@ -107,17 +107,56 @@
     catch (err) { cb.checked = !cb.checked; }
   });
 
+  const GROUP_LABELS = { overdue: "Overdue", today: "Today", tomorrow: "Tomorrow", week: "This week", later: "Later", none: "No date" };
+  const WEEK_GROUPS = new Set(["overdue", "today", "tomorrow", "week"]);
+  let weekOnly = store.get("tasksWeekOnly", "0") === "1";
+
+  function fmtDue(iso, today) {
+    const d = new Date(iso + "T00:00:00"), t = new Date(today + "T00:00:00");
+    const days = Math.round((d - t) / 86400000);
+    const label = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    if (days < 0) return `${label} · ${-days}d overdue`;
+    return label;
+  }
+
+  function taskRow(t, today) {
+    const cls = t.class_name ? `<span class="tag-class" title="#${esc(t.class)}">${esc(t.class_name)}</span>` : "";
+    const due = t.due ? `<span class="due${t.group === "overdue" ? " overdue" : ""}">${esc(fmtDue(t.due, today))}</span>` : "";
+    return `<div class="task"><input type="checkbox" data-path="${esc(t.file)}" data-line="${t.line}">` +
+      `<span class="task-text">${t.html || esc(t.display)}</span>${cls}${due}` +
+      `<a class="src" href="#/note/${enc(t.file)}?line=${t.line}" title="${esc(t.file)}:${t.line}">${esc(t.title)}</a></div>`;
+  }
+
+  function taskSection(title, tasks, today) {
+    let html = "";
+    for (const g of Object.keys(GROUP_LABELS)) {
+      if (weekOnly && !WEEK_GROUPS.has(g)) continue;
+      const list = tasks.filter((t) => t.group === g);
+      if (!list.length) continue;
+      html += `<h3 class="group group-${g}">${GROUP_LABELS[g]} <small>${list.length}</small></h3>` + list.map((t) => taskRow(t, today)).join("");
+    }
+    return `<h2>${title}</h2>` + (html || `<p class="empty">${weekOnly ? "Nothing due this week." : "Nothing open."}</p>`);
+  }
+
   async function renderTasks() {
-    const groups = await api("/api/tasks");
+    const d = await api("/api/tasks");
     note.className = "note tasks";
     backlinks.hidden = true;
     document.title = "Tasks — notesview";
-    if (!groups.length) { note.innerHTML = '<h1>Tasks</h1><p class="empty">No open tasks. 🎉</p>'; return; }
-    note.innerHTML = "<h1>Tasks</h1>" + groups.map((g) =>
-      `<h3><a href="#/note/${enc(g.path)}">${esc(g.title)}</a></h3>` +
-      g.tasks.map((t) => `<div class="task"><input type="checkbox" data-path="${esc(g.path)}" data-line="${t.line}">` +
-        `<a href="#/note/${enc(g.path)}?line=${t.line}">${esc(t.text)}</a></div>`).join("")).join("");
+    const filter = `<div class="task-filter"><button data-week="0" class="${weekOnly ? "" : "on"}">All</button>` +
+      `<button data-week="1" class="${weekOnly ? "on" : ""}">Due this week</button></div>`;
+    if (!d.tasks.length) { note.innerHTML = '<h1>Tasks</h1><p class="empty">No open tasks. 🎉</p>'; return; }
+    note.innerHTML = "<h1>Tasks</h1>" + filter +
+      taskSection("Homework", d.tasks.filter((t) => t.kind === "homework"), d.today) +
+      taskSection("Other", d.tasks.filter((t) => t.kind !== "homework"), d.today);
   }
+  note.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest(".task-filter button");
+    if (!b) return;
+    weekOnly = b.dataset.week === "1";
+    store.set("tasksWeekOnly", weekOnly ? "1" : "0");
+    show(current, true);
+  });
   note.addEventListener("change", async (e) => {
     const cb = e.target;
     if (cb.type !== "checkbox" || !cb.dataset.path) return;
@@ -137,9 +176,21 @@
       return `<a href="#/note/${enc(n.path)}" data-path="${esc(n.path)}" class="${n.path === "inbox.md" ? "pinned" : ""}">${esc(n.name)}</a>`;
     }).join("");
   }
+  function renderClasses(classes) {
+    if (!classes.length) return "";
+    return `<details data-dir="@classes" ${closed.has("@classes") ? "" : "open"} class="classes"><summary>Classes</summary><div class="children">` +
+      classes.map((c) => `<a href="#/note/${enc(c.path)}" data-path="${esc(c.path)}" class="class-link" title="classes/${esc(c.folder)}">${esc(c.name)}</a>`).join("") +
+      "</div></details>";
+  }
   async function loadTree() {
-    treeData = await api("/api/tree");
-    if (!search.value.trim()) { tree.innerHTML = renderTree(treeData); markActive(); }
+    const [t, classes] = await Promise.all([api("/api/tree"), api("/api/classes").catch(() => [])]);
+    treeData = t;
+    const q = search.value.trim();
+    if (q) return runSearch(q);
+    const open = tree.scrollTop;
+    tree.innerHTML = renderClasses(classes) + renderTree(treeData);
+    tree.scrollTop = open;
+    markActive();
   }
   tree.addEventListener("toggle", (e) => {
     const d = e.target.dataset && e.target.dataset.dir;
@@ -151,15 +202,18 @@
     for (const a of tree.querySelectorAll("a[data-path]")) a.classList.toggle("active", current.view === "note" && a.dataset.path === current.path);
   }
   let searchTimer;
+  async function runSearch(q) {
+    const hits = await api("/api/search?q=" + encodeURIComponent(q));
+    if (search.value.trim() !== q) return;
+    tree.innerHTML = hits.length ? hits.map((h) =>
+      `<a class="hit" href="#/note/${enc(h.path)}">${esc(h.title)}${h.snippet ? `<small>${esc(h.snippet)}</small>` : ""}</a>`).join("")
+      : '<p class="empty" style="padding:8px">No matches</p>';
+  }
   search.addEventListener("input", () => {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(async () => {
+    searchTimer = setTimeout(() => {
       const q = search.value.trim();
-      if (!q) return loadTree();
-      const hits = await api("/api/search?q=" + encodeURIComponent(q));
-      tree.innerHTML = hits.length ? hits.map((h) =>
-        `<a class="hit" href="#/note/${enc(h.path)}">${esc(h.title)}${h.snippet ? `<small>${esc(h.snippet)}</small>` : ""}</a>`).join("")
-        : '<p class="empty" style="padding:8px">No matches</p>';
+      (q ? runSearch(q) : loadTree()).catch(() => {});
     }, 120);
   });
   search.addEventListener("keydown", (e) => {
@@ -179,7 +233,8 @@
   });
   $("#btn-tasks").onclick = () => { location.hash = "#/tasks"; };
   $("#btn-today").onclick = goToday;
-  async function goToday() { const t = await api("/api/today"); go(t.path); }
+  // creates today's daily note (with carry-over) if it doesn't exist yet
+  async function goToday() { const t = await post("/api/daily", {}); go(t.path); }
 
   // ── keyboard ──
   document.addEventListener("keydown", (e) => {
@@ -200,9 +255,11 @@
   function connect() {
     const es = new EventSource("/events");
     es.addEventListener("change", () => {
-      loadTree();
+      loadTree().catch(() => {});
       if (current.view === "tasks" || current.path) show(current, true);
     });
+    // after a reconnect (server restart, laptop sleep) things may have changed
+    es.addEventListener("open", () => { loadTree().catch(() => {}); });
     es.addEventListener("show", (e) => {
       const m = JSON.parse(e.data);
       if (!m.path) return;
@@ -219,6 +276,7 @@
   }
 
   window.addEventListener("hashchange", route);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) loadTree().catch(() => {}); });
   loadTree().catch(() => {});
   route();
   connect();

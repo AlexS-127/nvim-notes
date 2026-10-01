@@ -61,18 +61,21 @@ func TestTaskGathering(t *testing.T) {
 		"b.md": "no tasks here\n",
 		"c.md": "# Gamma\n\n* [ ] star task\n",
 	})
-	got := s.Tasks()
-	if len(got) != 2 {
-		t.Fatalf("want 2 notes with tasks, got %d: %+v", len(got), got)
+	got := s.CollectTasks(&Config{}, TaskQuery{})
+	if len(got) != 3 {
+		t.Fatalf("want 3 open tasks, got %d: %+v", len(got), got)
 	}
-	if got[0].Path != "a.md" || got[0].Title != "Alpha" || len(got[0].Tasks) != 2 {
-		t.Fatalf("unexpected a.md tasks: %+v", got[0])
+	if got[0].File != "a.md" || got[0].Title != "Alpha" || got[0].Line != 2 || got[0].Text != "one" {
+		t.Errorf("unexpected first task: %+v", got[0])
 	}
-	if got[0].Tasks[0].Line != 2 || got[0].Tasks[0].Text != "one" || got[0].Tasks[1].Line != 4 {
-		t.Errorf("wrong lines/text: %+v", got[0].Tasks)
+	if got[1].File != "a.md" || got[1].Line != 4 || got[1].Text != "nested" || got[1].Indent != 2 {
+		t.Errorf("unexpected nested task: %+v", got[1])
 	}
-	if got[1].Path != "c.md" || got[1].Tasks[0].Line != 3 {
-		t.Errorf("unexpected c.md tasks: %+v", got[1])
+	if got[2].File != "c.md" || got[2].Line != 3 {
+		t.Errorf("unexpected c.md task: %+v", got[2])
+	}
+	if all := s.CollectTasks(&Config{}, TaskQuery{All: true}); len(all) != 4 {
+		t.Errorf("--all should include the done task, got %d", len(all))
 	}
 }
 

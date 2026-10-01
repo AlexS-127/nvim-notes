@@ -167,7 +167,6 @@ func resolveWiki(files []string, target string) (string, bool) {
 
 var (
 	wikiRe  = regexp.MustCompile(`\[\[([^\]\|\n]+?)(?:\|[^\]\n]*)?\]\]`)
-	taskRe  = regexp.MustCompile(`^\s*[-*+] \[ \] ?(.*)$`)
 	fenceRe = regexp.MustCompile("^\\s*(```|~~~)")
 	h1Re    = regexp.MustCompile(`^#\s+(.+?)\s*#*\s*$`)
 )
@@ -180,48 +179,6 @@ func Title(rel string, src []byte) string {
 		}
 	}
 	return strings.TrimSuffix(path.Base(rel), path.Ext(rel))
-}
-
-type Task struct {
-	Line int    `json:"line"`
-	Text string `json:"text"`
-}
-
-type NoteTasks struct {
-	Path  string `json:"path"`
-	Title string `json:"title"`
-	Tasks []Task `json:"tasks"`
-}
-
-// Tasks gathers every open "- [ ]" item across all notes (ignoring fenced
-// code), grouped by note.
-func (s *Store) Tasks() []NoteTasks {
-	out := []NoteTasks{}
-	for _, f := range s.Files() {
-		src, err := s.Read(f)
-		if err != nil {
-			continue
-		}
-		var tasks []Task
-		inFence := false
-		for i, l := range strings.Split(string(src), "\n") {
-			l = strings.TrimRight(l, "\r")
-			if fenceRe.MatchString(l) {
-				inFence = !inFence
-				continue
-			}
-			if inFence {
-				continue
-			}
-			if m := taskRe.FindStringSubmatch(l); m != nil {
-				tasks = append(tasks, Task{Line: i + 1, Text: m[1]})
-			}
-		}
-		if len(tasks) > 0 {
-			out = append(out, NoteTasks{Path: f, Title: Title(f, src), Tasks: tasks})
-		}
-	}
-	return out
 }
 
 // ToggleCheckbox flips the checkbox on one 1-based line, rewriting the file

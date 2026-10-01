@@ -244,6 +244,26 @@ func (m *Markdown) relTarget(dest string) (string, bool) {
 	return rel, true
 }
 
+// movedRe finds list items written as "- [>] …" (tasks carried over to a
+// later daily note), with or without a wrapping paragraph.
+var movedRe = regexp.MustCompile(`(<li[^>]*?)>(\s*<p[^>]*>)?\[&gt;\][^\S\n]*`)
+
+var paraRe = regexp.MustCompile(`^<p[^>]*>([\s\S]*)</p>\s*$`)
+
+// RenderInline renders one line of markdown (a task's text) for the note
+// rel, without the surrounding paragraph. Anything that is not a plain
+// paragraph is shown as escaped text.
+func (m *Markdown) RenderInline(rel, text string) string {
+	m.note = rel
+	var buf bytes.Buffer
+	if err := m.md.Convert([]byte(text), &buf); err == nil {
+		if g := paraRe.FindStringSubmatch(buf.String()); g != nil && !strings.Contains(g[1], "<p") {
+			return strings.TrimSpace(g[1])
+		}
+	}
+	return string(util.EscapeHTML([]byte(text)))
+}
+
 var calloutRe = regexp.MustCompile(`(<blockquote)([^>]*)>\s*<p([^>]*)>\[!([A-Za-z]+)\][^\S\n]*(?:<br>\s*|\n)?(?:</p>\s*)?`)
 
 // Render converts markdown to HTML and extracts a title.
@@ -262,6 +282,7 @@ func (m *Markdown) Render(src []byte) (string, error) {
 		return fmt.Sprintf(`<blockquote class="callout callout-%s"%s><div class="callout-title">%s</div>%s`,
 			kind, g[2], strings.ToUpper(kind[:1])+kind[1:], body)
 	})
+	out = movedRe.ReplaceAllString(out, `$1 class="task-moved">$2<span class="moved-box" title="Moved to a later note">›</span> `)
 	return out, nil
 }
 

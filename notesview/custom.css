@@ -1,0 +1,7 @@
+/* Your own styles for the notesview window. install.sh links this file to
+   ~/.config/notesview/custom.css; it loads after the built-in styles, and a
+   reload of the viewer picks up changes. Example:
+
+   .note { max-width: 960px; }
+   :root[data-theme="dark"] { --accent: #f0a35e; }
+*/

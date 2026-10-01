@@ -26,6 +26,15 @@ jobs:
         with:
           neovim: true
           version: stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: renderer/go.mod
+      - name: Build notesview
+        working-directory: renderer
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          go build -o "$RUNNER_TEMP/bin/notesview" .
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Install tree-sitter CLI
         run: npm install -g tree-sitter-cli
       - name: Headless config check
@@ -33,8 +42,9 @@ jobs:
           NOTES_DIR: ${{ runner.temp }}/notes
           XDG_CONFIG_HOME: ${{ runner.temp }}/config
         run: |
-          mkdir -p "$XDG_CONFIG_HOME"
+          mkdir -p "$XDG_CONFIG_HOME/notesview"
           ln -s "$GITHUB_WORKSPACE/nvim" "$XDG_CONFIG_HOME/nvim"
+          ln -s "$GITHUB_WORKSPACE/notesview/config.toml" "$XDG_CONFIG_HOME/notesview/config.toml"
           nvim --version | head -1
           # first start installs the plugins; parsers are fetched async and may be slow
           nvim --headless "+lua require('nvim-treesitter').install(vim.g.notes_parsers):wait(300000)" +qa || true

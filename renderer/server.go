@@ -31,6 +31,7 @@ type event struct {
 type Server struct {
 	store *Store
 	port  int
+	cfg   *configCache
 
 	mu         sync.Mutex
 	clients    map[chan event]struct{}
@@ -44,7 +45,7 @@ type showMsg struct {
 }
 
 func NewServer(store *Store, port int) *Server {
-	return &Server{store: store, port: port, clients: map[chan event]struct{}{}}
+	return &Server{store: store, port: port, cfg: newConfigCache(ConfigPath()), clients: map[chan event]struct{}{}}
 }
 
 func (s *Server) broadcast(e event) {
@@ -70,10 +71,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/custom.css", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css")
 		w.Header().Set("Cache-Control", "no-cache")
-		if home, err := os.UserHomeDir(); err == nil {
-			if b, err := os.ReadFile(filepath.Join(home, ".config", "notesview", "custom.css")); err == nil {
-				w.Write(b)
-			}
+		if b, err := os.ReadFile(filepath.Join(configDir(), "custom.css")); err == nil {
+			w.Write(b)
 		}
 	})
 	mux.HandleFunc("/files/", s.handleFile)
@@ -85,7 +84,8 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, map[string]any{"viewers": n, "dir": s.store.Root, "current": s.current})
 	})
 	mux.HandleFunc("/api/tree", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.store.Tree()) })
-	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.store.Tasks()) })
+	mux.HandleFunc("/api/tasks", s.handleTasks)
+	mux.HandleFunc("/api/classes", s.handleClasses)
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.store.Search(r.URL.Query().Get("q")))
 	})
@@ -93,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, map[string]string{"path": "daily/" + time.Now().Format("2006-01-02") + ".md"})
 	})
 	mux.HandleFunc("/api/note", s.handleNote)
+	mux.HandleFunc("/api/daily", s.post(s.handleDaily))
 	mux.HandleFunc("/api/toggle", s.post(s.handleToggle))
 	mux.HandleFunc("/api/show", s.post(s.handleShow))
 	mux.HandleFunc("/api/scroll", s.post(s.handleScroll))
@@ -170,6 +171,57 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"path": rel, "title": Title(rel, src), "html": body, "backlinks": s.store.Backlinks(rel),
 	})
+}
+
+func (s *Server) config() *Config {
+	cfg, err := s.cfg.Get()
+	if err != nil {
+		log.Println("config:", err)
+	}
+	return cfg
+}
+
+// handleTasks returns open tasks with date groups and inline-rendered text.
+func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	tasks := s.store.CollectTasks(s.config(), TaskQuery{Now: now})
+	md := NewMarkdown(s.store, "")
+	for i := range tasks {
+		tasks[i].HTML = md.RenderInline(tasks[i].File, tasks[i].Display)
+	}
+	writeJSON(w, map[string]any{"today": now.Format(isoDate), "groups": GroupOrder, "tasks": tasks})
+}
+
+type classInfo struct {
+	Class
+	Path string `json:"path"` // the class index note
+}
+
+func (s *Server) handleClasses(w http.ResponseWriter, r *http.Request) {
+	out := []classInfo{}
+	for _, c := range s.config().Classes {
+		out = append(out, classInfo{Class: c, Path: c.Dir() + "/index.md"})
+	}
+	writeJSON(w, out)
+}
+
+// ensureClassIndexes gives every configured class folder an index.md.
+func (s *Server) ensureClassIndexes() {
+	for _, c := range s.config().Classes {
+		if _, err := s.store.EnsureClassIndex(c); err != nil {
+			log.Println("class index:", err)
+		}
+	}
+}
+
+// handleDaily creates today's daily note (with carry-over) if needed.
+func (s *Server) handleDaily(w http.ResponseWriter, r *http.Request) {
+	res, err := s.store.EnsureDaily(s.config(), time.Now(), true)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, res)
 }
 
 type toggleReq struct {
@@ -289,11 +341,14 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Watch pushes a "change" event whenever files under the notes folder change.
-func (s *Server) Watch() error {
+// Watch pushes a "change" event whenever files under the notes folder or
+// the config files change. The event says whether the folder structure
+// changed (tree) or config.toml / custom.css did (config). Stop with the
+// returned function.
+func (s *Server) Watch() (func(), error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	addAll := func(root string) {
 		filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
@@ -306,27 +361,71 @@ func (s *Server) Watch() error {
 			return nil
 		})
 	}
+	// resync drops watches on folders that are gone (renamed or removed) and
+	// adds any folder that is new, so the watch list always matches the disk.
+	resync := func() {
+		for _, p := range w.WatchList() {
+			if !within(s.store.Root, p) {
+				continue
+			}
+			if _, err := os.Stat(p); err != nil {
+				_ = w.Remove(p)
+			}
+		}
+		addAll(s.store.Root)
+	}
 	addAll(s.store.Root)
+	// config.toml is usually a symlink into the repo: watch both folders.
+	cfgPath := s.cfg.path
+	cfgDirs := map[string]bool{filepath.Dir(cfgPath): true}
+	if real, err := filepath.EvalSymlinks(cfgPath); err == nil {
+		cfgDirs[filepath.Dir(real)] = true
+	}
+	for d := range cfgDirs {
+		if !within(s.store.Root, d) {
+			_ = w.Add(d)
+		}
+	}
+	isConfigFile := func(p string) bool {
+		b := filepath.Base(p)
+		return cfgDirs[filepath.Dir(p)] && (b == filepath.Base(cfgPath) || b == "custom.css")
+	}
+	done := make(chan struct{})
 	go func() {
-		var timer *time.Timer
+		var fire <-chan time.Time
+		tree, cfgChanged := false, false
 		for {
 			select {
+			case <-done:
+				return
 			case ev, ok := <-w.Events:
 				if !ok {
 					return
 				}
-				if strings.HasPrefix(filepath.Base(ev.Name), ".") {
-					continue
-				}
-				if ev.Has(fsnotify.Create) {
-					if st, err := os.Stat(ev.Name); err == nil && st.IsDir() {
-						addAll(ev.Name)
+				if !within(s.store.Root, ev.Name) {
+					if !isConfigFile(ev.Name) {
+						continue
+					}
+					cfgChanged = true
+				} else {
+					if strings.HasPrefix(filepath.Base(ev.Name), ".") {
+						continue
+					}
+					if ev.Has(fsnotify.Create) || ev.Has(fsnotify.Remove) || ev.Has(fsnotify.Rename) {
+						tree = true
 					}
 				}
-				if timer != nil {
-					timer.Stop()
+				fire = time.After(80 * time.Millisecond)
+			case <-fire:
+				fire = nil
+				if tree {
+					resync()
 				}
-				timer = time.AfterFunc(80*time.Millisecond, func() { s.broadcast(event{"change", "{}"}) })
+				if cfgChanged {
+					s.ensureClassIndexes()
+				}
+				s.broadcast(event{"change", fmt.Sprintf(`{"tree":%t,"config":%t}`, tree, cfgChanged)})
+				tree, cfgChanged = false, false
 			case err, ok := <-w.Errors:
 				if !ok {
 					return
@@ -335,11 +434,12 @@ func (s *Server) Watch() error {
 			}
 		}
 	}()
-	return nil
+	return func() { close(done); w.Close() }, nil
 }
 
 func (s *Server) ListenAndServe() error {
-	if err := s.Watch(); err != nil {
+	s.ensureClassIndexes()
+	if _, err := s.Watch(); err != nil {
 		log.Println("file watching disabled:", err)
 	}
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
