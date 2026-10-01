@@ -133,7 +133,7 @@ body.sidebar-collapsed .note, body.sidebar-collapsed .backlinks { padding-left: 
 .task-filter button, .task-filter select { padding: 3px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg);
   color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; }
 .task-filter button.on, .task-filter select.on { color: var(--accent); border-color: var(--accent); background: var(--hl); }
-.task { display: grid; grid-template-columns: 1.3em minmax(0, 1fr) max-content max-content max-content;
+.task { display: grid; grid-template-columns: 1.3em minmax(0, 1fr) 11em 8.5em 9em;
   column-gap: 8px; align-items: baseline; padding: 2px 0; border-bottom: 1px solid var(--border); }
 .task > .tag-folder { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .task-head { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: .6em; }
