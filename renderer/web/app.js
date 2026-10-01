@@ -78,6 +78,7 @@
         note.className = "note";
         note.innerHTML = d.html;
         enableCheckboxes();
+        typesetMath(note);
         renderBacklinks(d.backlinks);
       } catch (e) {
         note.className = "note";
@@ -89,6 +90,16 @@
     else if (pendingLine) scrollToLine(pendingLine, true);
     else main.scrollTop = 0;
     pendingLine = 0;
+  }
+
+  // Typeset the $$…$$ spans the server emitted (TeX is their text content).
+  function typesetMath(root) {
+    if (!window.katex) return;
+    for (const el of root.querySelectorAll(".math")) {
+      try {
+        katex.render(el.textContent, el, { displayMode: el.classList.contains("math-display"), throwOnError: false });
+      } catch (e) { el.classList.add("math-error"); }
+    }
   }
 
   function scrollToLine(line, flash) {
@@ -203,6 +214,7 @@
     note.innerHTML = "<h1>Tasks</h1>" + filter +
       (body || `<p class="empty">${d.tasks.length ? "Nothing matches these filters." : "No open tasks. 🎉"}</p>`);
     $("#cat-filter").value = categoryFilter;
+    typesetMath(note);
   }
   note.addEventListener("click", (e) => {
     const b = e.target.closest && e.target.closest(".task-filter button");

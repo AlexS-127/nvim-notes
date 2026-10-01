@@ -88,6 +88,7 @@ func NewMarkdown(store *Store, note string) *Markdown {
 		goldmark.WithExtensions(
 			extension.GFM, // tables, strikethrough, task lists, autolinks
 			extension.Footnote,
+			mathExt{},
 			highlighting.NewHighlighting(
 				highlighting.WithFormatOptions(chromahtml.WithClasses(true), chromahtml.PreventSurroundingPre(true)),
 				highlighting.WithWrapperRenderer(codeWrapper),
@@ -193,7 +194,7 @@ func (m *Markdown) Transform(doc *ast.Document, reader text.Reader, _ parser.Con
 		}
 		switch v := n.(type) {
 		case *ast.Heading, *ast.Paragraph, *ast.List, *ast.ListItem, *ast.Blockquote,
-			*ast.FencedCodeBlock, *ast.CodeBlock, *east.Table:
+			*ast.FencedCodeBlock, *ast.CodeBlock, *east.Table, *mathBlock:
 			if off, ok := firstOffset(n); ok {
 				if f, isFence := n.(*ast.FencedCodeBlock); isFence {
 					// point at the opening fence line, not the first content line

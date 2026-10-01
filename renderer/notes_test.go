@@ -341,3 +341,19 @@ func TestCustomCSSChangeTriggersReload(t *testing.T) {
 		t.Errorf("custom.css served %q", rec.Body)
 	}
 }
+
+func TestMathRendering(t *testing.T) {
+	m := NewMarkdown(&Store{}, "a.md")
+	out, err := m.Render([]byte("Inline $$x^2 < y$$ here.\n\n$$\n\\frac{a}{b}\n$$\n\n$$E=mc^2$$\n\nCost is $5 and $10.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<span class="math math-inline">x^2 &lt; y</span>`,
+		`\frac{a}{b}`, `class="math math-display"`, `E=mc^2</div>`, "Cost is $5 and $10.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}

@@ -159,3 +159,7 @@ a.tag-folder:hover { border-color: var(--accent); }
 .folder-list li { padding: 2px 0; break-inside: avoid; }
 .folder-list a { text-decoration: none; }
 .folder-list small { color: var(--muted); margin-left: .4em; }
+
+/* ── math ($$…$$, typeset by KaTeX) ── */
+.math-display { margin: 1em 0; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.math-error { color: #c0392b; font-family: ui-monospace, monospace; }
