@@ -23,7 +23,7 @@ end
 for _, lhs in ipairs({ " p", " o", " nt", " nd", " nn", " ni", " no", " x" }) do
   check(vim.fn.maparg(lhs, "n") ~= "", "missing keymap <Space>" .. lhs:sub(2))
 end
-for _, cmd in ipairs({ "SaveMacro", "Macros", "Today" }) do
+for _, cmd in ipairs({ "SaveMacro", "Macros", "Today", "NoteRename", "Backlinks", "Outline" }) do
   check(vim.fn.exists(":" .. cmd) == 2, "missing command :" .. cmd)
 end
 
