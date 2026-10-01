@@ -170,13 +170,18 @@ var (
 	taskRe  = regexp.MustCompile(`^\s*[-*+] \[ \] ?(.*)$`)
 	fenceRe = regexp.MustCompile("^\\s*(```|~~~)")
 	h1Re    = regexp.MustCompile(`^#\s+(.+?)\s*#*\s*$`)
+	// blockRe matches the block markers at the start of a line (heading,
+	// quote, list item, task box) that a search snippet leaves out.
+	blockRe = regexp.MustCompile(`^(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+(?:\[[ xX]\]\s+)?)+`)
 )
 
-// Title is the first level-1 heading, or the file name.
+// Title is the first level-1 heading as plain text, or the file name.
 func Title(rel string, src []byte) string {
 	for _, l := range strings.Split(string(src), "\n") {
 		if m := h1Re.FindStringSubmatch(strings.TrimRight(l, "\r")); m != nil {
-			return m[1]
+			if t := PlainText(m[1]); t != "" {
+				return t
+			}
 		}
 	}
 	return strings.TrimSuffix(path.Base(rel), path.Ext(rel))
@@ -185,6 +190,7 @@ func Title(rel string, src []byte) string {
 type Task struct {
 	Line int    `json:"line"`
 	Text string `json:"text"`
+	HTML string `json:"html,omitempty"` // Text rendered as inline markdown
 }
 
 type NoteTasks struct {
@@ -329,9 +335,9 @@ func (s *Store) Search(q string) []SearchHit {
 		}
 		for _, l := range strings.Split(string(src), "\n") {
 			if i := strings.Index(strings.ToLower(l), q); i >= 0 {
-				l = strings.TrimSpace(l)
-				if len(l) > 120 {
-					l = l[:120] + "…"
+				l = PlainText(blockRe.ReplaceAllString(strings.TrimSpace(l), ""))
+				if r := []rune(l); len(r) > 120 {
+					l = string(r[:120]) + "…"
 				}
 				out = append(out, SearchHit{Path: f, Title: title, Snippet: l})
 				break

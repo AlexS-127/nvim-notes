@@ -70,10 +70,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/custom.css", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css")
 		w.Header().Set("Cache-Control", "no-cache")
-		if home, err := os.UserHomeDir(); err == nil {
-			if b, err := os.ReadFile(filepath.Join(home, ".config", "notesview", "custom.css")); err == nil {
-				w.Write(b)
-			}
+		if b, err := os.ReadFile(customCSSPath()); err == nil {
+			w.Write(b)
 		}
 	})
 	mux.HandleFunc("/files/", s.handleFile)
@@ -85,7 +83,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, map[string]any{"viewers": n, "dir": s.store.Root, "current": s.current})
 	})
 	mux.HandleFunc("/api/tree", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.store.Tree()) })
-	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.store.Tasks()) })
+	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.tasks()) })
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.store.Search(r.URL.Query().Get("q")))
 	})
@@ -170,6 +168,24 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"path": rel, "title": Title(rel, src), "html": body, "backlinks": s.store.Backlinks(rel),
 	})
+}
+
+// tasks returns every open task with its text also rendered as inline HTML,
+// links resolved relative to the task's own note.
+func (s *Server) tasks() []NoteTasks {
+	groups := s.store.Tasks()
+	m := newMarkdown(s.store.Files(), "")
+	for gi := range groups {
+		g := &groups[gi]
+		m.note = g.Path
+		for ti := range g.Tasks {
+			t := &g.Tasks[ti]
+			if h, err := m.RenderInline(t.Text); err == nil {
+				t.HTML = h
+			}
+		}
+	}
+	return groups
 }
 
 type toggleReq struct {
@@ -338,10 +354,43 @@ func (s *Server) Watch() error {
 	return nil
 }
 
+// customCSSPath is the user stylesheet loaded after the built-in theme:
+// $XDG_CONFIG_HOME/notesview/custom.css, by default ~/.config/notesview/custom.css.
+func customCSSPath() string {
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".config")
+	}
+	return filepath.Join(dir, "notesview", "custom.css")
+}
+
+// WatchCustomCSS pushes a "css" event (viewers reload) when custom.css is
+// created, edited or removed. It polls instead of using fsnotify because the
+// file is usually a symlink into the repo, whose target's directory is not
+// the one the link lives in; os.Stat follows the link wherever it points.
+func (s *Server) WatchCustomCSS(every time.Duration) {
+	stamp := func() string {
+		st, err := os.Stat(customCSSPath())
+		if err != nil {
+			return ""
+		}
+		return fmt.Sprint(st.Size(), st.ModTime().UnixNano())
+	}
+	last := stamp()
+	for range time.Tick(every) {
+		if now := stamp(); now != last {
+			last = now
+			s.broadcast(event{"css", "{}"})
+		}
+	}
+}
+
 func (s *Server) ListenAndServe() error {
 	if err := s.Watch(); err != nil {
 		log.Println("file watching disabled:", err)
 	}
+	go s.WatchCustomCSS(500 * time.Millisecond)
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
