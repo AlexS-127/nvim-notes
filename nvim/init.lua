@@ -10,7 +10,7 @@ local NOTESVIEW_MIN_VERSION = "0.2.0"
 
 -- ── Options ──────────────────────────────────────────────────────
 local o = vim.opt
-o.termguicolors = false          -- use Ghostty's palette (Borland)
+o.termguicolors = true           -- needed for Catppuccin's true colours
 o.number = true
 o.relativenumber = true
 o.clipboard = "unnamedplus"
@@ -22,7 +22,6 @@ o.signcolumn = "yes"
 o.scrolloff = 5
 o.autoread = true
 o.updatetime = 400                -- CursorHold fires quickly (viewer scroll sync)
-vim.cmd.colorscheme("default")
 
 -- ── Plugins (built-in vim.pack) ──────────────────────────────────
 vim.g.bullets_set_mappings = 0   -- we pick bullets.vim's keys ourselves
@@ -58,10 +57,23 @@ vim.pack.add({
   "https://github.com/nvim-mini/mini.starter",
 }, { confirm = false })
 
+-- ── Theme: Catppuccin (latte/mocha), follows the macOS appearance ─
+require("catppuccin").setup({ background = { light = "latte", dark = "mocha" } })
+local function set_theme(bg)
+  vim.o.background = bg
+  vim.cmd.colorscheme("catppuccin")
+end
+set_theme(vim.o.background)   -- no flash before auto-dark-mode's first check
+require("auto-dark-mode").setup({
+  fallback = "dark",
+  set_dark_mode = function() set_theme("dark") end,
+  set_light_mode = function() set_theme("light") end,
+})
+
 -- Code-block syntax highlighting (needs: brew install tree-sitter-cli)
 vim.g.notes_parsers = {
   "bash", "python", "javascript", "typescript", "tsx", "json", "yaml", "toml",
-  "html", "css", "go", "rust", "sql", "swift", "lua", "c",
+  "html", "css", "go", "rust", "sql", "swift", "lua", "c", "cpp",
 }
 require("nvim-treesitter").install(vim.g.notes_parsers)
 require("snacks").setup({ picker = { enabled = true }, input = { enabled = true } })
@@ -656,3 +668,11 @@ starter.setup({
     starter.gen_hook.aligning("center", "center"),
   },
 })
+
+-- ── Competitive programming / LeetCode (lua/cp.lua) ──────────────
+local ok, err = pcall(require, "cp")
+if not ok then vim.notify("cp failed to load: " .. tostring(err), vim.log.levels.WARN) end
+
+-- ── UI: which-key, statusline, completion (lua/ui.lua) ───────────
+local ok_ui, err_ui = pcall(require, "ui")
+if not ok_ui then vim.notify("ui failed to load: " .. tostring(err_ui), vim.log.levels.WARN) end
