@@ -5,7 +5,6 @@
  * and a measure (line length) that stays easy on the eyes.
  *
  * All fonts here ship with macOS, so nothing needs installing.
- * Remember: comments in CSS are only slash-star ... star-slash, never //.
  */
 
 :root {
@@ -18,12 +17,12 @@
   --font-code: "SF Mono", ui-monospace, Menlo, monospace;
   --font-ui: -apple-system, "Helvetica Neue", sans-serif;
 
-  --font-size: 16px;
+  --font-size: 18px;
   --line-height: 1.6;
 }
 
 /* About 70 characters per line: wide enough for tables, narrow enough to read. */
-.note, .backlinks { max-width: 44rem; }
+.note, .backlinks { max-width: 64rem; }
 
 /* Headings: firm weight, slightly tightened, with room above to separate sections. */
 .note h1, .note h2, .note h3 {
@@ -49,13 +48,11 @@
  * the star-slash line below it, then save.
  * --------------------------------------------------------------- */
 
-/* All sans-serif, closer to a typical app look.
 :root {
   --font-body: -apple-system, "Helvetica Neue", sans-serif;
   --font-heading: var(--font-body);
   --line-height: 1.55;
 }
-*/
 
 /* Bigger and looser, for reading on the big screen or late at night.
 :root {
@@ -64,9 +61,7 @@
 }
 */
 
-/* JetBrains Mono for code, matching Ghostty (install it first:
    brew install --cask font-jetbrains-mono).
 :root {
   --font-code: "JetBrains Mono", "SF Mono", Menlo, monospace;
 }
-*/
