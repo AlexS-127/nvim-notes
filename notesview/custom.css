@@ -1,56 +1,72 @@
 /* notesview custom stylesheet
  *
- * install.sh links this file to ~/.config/notesview/custom.css. The viewer
- * loads it after its built-in theme and reloads the page whenever it changes,
- * so edits show up as soon as you save.
+ * Tuned for reading study notes: a book-like serif for body text,
+ * a clean sans for headings so sections stand out when you skim,
+ * and a measure (line length) that stays easy on the eyes.
  *
- * Everything below is commented out, so this file changes nothing until you
- * uncomment or add something.
- *
- *   --font-body     reading text
- *   --font-heading  headings (h1-h6); follows --font-body unless set
- *   --font-code     inline code and code blocks
- *   --font-ui       sidebar, search box and buttons
- *   --font-size     reading text size
- *   --line-height   reading text line height
+ * All fonts here ship with macOS, so nothing needs installing.
+ * Remember: comments in CSS are only slash-star ... star-slash, never //.
  */
 
-/* The defaults:
 :root {
-  --font-body: Georgia, "Source Serif 4", serif;
+  /* Charter: sturdy, very readable serif built for screens. */
+  --font-body: Charter, "Iowan Old Style", Georgia, serif;
+
+  /* Avenir Next: geometric sans, clearly different from the body text. */
+  --font-heading: Georgia, serif;
+
+  --font-code: "SF Mono", ui-monospace, Menlo, monospace;
+  --font-ui: -apple-system, "Helvetica Neue", sans-serif;
+
+  --font-size: 16px;
+  --line-height: 1.6;
+}
+
+/* About 70 characters per line: wide enough for tables, narrow enough to read. */
+.note, .backlinks { max-width: 44rem; }
+
+/* Headings: firm weight, slightly tightened, with room above to separate sections. */
+.note h1, .note h2, .note h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+.note h2 { margin-top: 2em; }
+.note h3 { margin-top: 1.6em; }
+
+/* Monospace looks larger than serif at the same size, so shrink it to match. */
+.note code { font-size: 0.88em; }
+
+/* Numbers line up in tables (useful for accounting notes). */
+.note table { font-variant-numeric: tabular-nums; }
+
+/* Completed tasks fade back so open ones stand out. */
+.note li:has(> input[type="checkbox"]:checked) { opacity: 0.5; }
+
+
+/* ---------------------------------------------------------------
+ * Alternatives: to try one, remove the slash-star line above it and
+ * the star-slash line below it, then save.
+ * --------------------------------------------------------------- */
+
+/* All sans-serif, closer to a typical app look.
+:root {
+  --font-body: -apple-system, "Helvetica Neue", sans-serif;
   --font-heading: var(--font-body);
-  --font-code: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  --font-ui: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-size: 17px;
-  --line-height: 1.65;
+  --line-height: 1.55;
 }
 */
 
-/* Example: a sans-serif reading font.
+/* Bigger and looser, for reading on the big screen or late at night.
 :root {
-  --font-body: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-size: 20px;
+  --line-height: 1.7;
 }
 */
 
-/* Example: serif body text with sans-serif headings.
+/* JetBrains Mono for code, matching Ghostty (install it first:
+   brew install --cask font-jetbrains-mono).
 :root {
-  --font-heading: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-code: "JetBrains Mono", "SF Mono", Menlo, monospace;
 }
-*/
-
-/* Example: larger text with more room between lines.
-:root {
-  --font-size: 19px;
-  --line-height: 1.75;
-}
-*/
-
-/* Example: a different code font (it must be installed on your machine).
-:root {
-  --font-code: "JetBrains Mono", ui-monospace, monospace;
-}
-*/
-
-/* Example: a wider reading column.
-.note, .backlinks { max-width: 960px; }
 */
