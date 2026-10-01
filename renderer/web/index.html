@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>notesview</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/chroma.css">
+<link rel="stylesheet" href="/custom.css">
+</head>
+<body>
+<aside id="sidebar">
+  <div class="side-head">
+    <input id="search" type="search" placeholder="Search notes  ( / )" autocomplete="off" spellcheck="false">
+    <div class="side-actions">
+      <button id="btn-tasks" title="Open tasks (t)">Tasks</button>
+      <button id="btn-today" title="Today's note (g)">Today</button>
+      <button id="btn-theme" title="Toggle light/dark theme">◐</button>
+    </div>
+  </div>
+  <nav id="tree"></nav>
+</aside>
+<main id="main">
+  <article id="note" class="note"></article>
+  <section id="backlinks" class="backlinks" hidden></section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>
