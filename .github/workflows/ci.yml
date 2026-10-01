@@ -1,0 +1,41 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  renderer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: renderer/go.mod
+      - name: go vet
+        working-directory: renderer
+        run: go vet ./...
+      - name: go test
+        working-directory: renderer
+        run: go test ./...
+
+  neovim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+      - name: Install tree-sitter CLI
+        run: npm install -g tree-sitter-cli
+      - name: Headless config check
+        env:
+          NOTES_DIR: ${{ runner.temp }}/notes
+          XDG_CONFIG_HOME: ${{ runner.temp }}/config
+        run: |
+          mkdir -p "$XDG_CONFIG_HOME"
+          ln -s "$GITHUB_WORKSPACE/nvim" "$XDG_CONFIG_HOME/nvim"
+          nvim --version | head -1
+          # first start installs the plugins; parsers are fetched async and may be slow
+          nvim --headless "+lua require('nvim-treesitter').install(vim.g.notes_parsers):wait(300000)" +qa || true
+          nvim --headless -c "luafile $GITHUB_WORKSPACE/.github/scripts/nvim_check.lua"

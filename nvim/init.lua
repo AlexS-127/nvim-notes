@@ -1,9 +1,9 @@
 -- ~/.config/nvim/init.lua — markdown notes (Neovim 0.12+, no plugin manager)
--- Leader is <Space>. Notes live in ~/notes. Press <Space>? to search all shortcuts.
+-- Leader is <Space>. Notes live in $NOTES_DIR (default ~/notes). Press <Space>? to search all shortcuts.
 
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
-local NOTES = vim.fn.expand("~/notes")
+local NOTES = vim.fn.expand((vim.env.NOTES_DIR and vim.env.NOTES_DIR ~= "") and vim.env.NOTES_DIR or "~/notes")
 local uv = vim.uv or vim.loop
 
 -- ── Options ──────────────────────────────────────────────────────
@@ -19,6 +19,7 @@ o.splitright = true
 o.signcolumn = "yes"
 o.scrolloff = 5
 o.autoread = true
+o.updatetime = 400                -- CursorHold fires quickly (viewer scroll sync)
 vim.cmd.colorscheme("default")
 
 -- ── Plugins (built-in vim.pack) ──────────────────────────────────
@@ -46,7 +47,6 @@ vim.api.nvim_create_autocmd("PackChanged", {
 
 vim.pack.add({
   { src = "https://github.com/nvim-treesitter/nvim-treesitter", version = "main" },
-  "https://github.com/brianhuster/live-preview.nvim",
   "https://github.com/folke/snacks.nvim",
   "https://github.com/dkarter/bullets.vim",
   "https://github.com/dhruvasagar/vim-table-mode",
@@ -54,12 +54,12 @@ vim.pack.add({
 }, { confirm = false })
 
 -- Code-block syntax highlighting (needs: brew install tree-sitter-cli)
-require("nvim-treesitter").install({
+vim.g.notes_parsers = {
   "bash", "python", "javascript", "typescript", "tsx", "json", "yaml", "toml",
   "html", "css", "go", "rust", "sql", "swift", "lua", "c",
-})
+}
+require("nvim-treesitter").install(vim.g.notes_parsers)
 require("snacks").setup({ picker = { enabled = true }, input = { enabled = true } })
-require("livepreview.config").set({ picker = "snacks.picker", sync_scroll = true })
 require("img-clip").setup({ default = { dir_path = "assets", relative_to_current_file = true } })
 
 -- ── Helpers ──────────────────────────────────────────────────────
@@ -166,6 +166,56 @@ local function capture_to_inbox()
   end)
 end
 
+-- ── notesview integration ────────────────────────────────────────
+-- A small local server renders the current note in its own window. It follows
+-- the note you edit and scrolls with your cursor. Install: ./install.sh
+local NV = { follow = true, warned = false, shown = nil, sent = nil }
+local NOTES_REAL = uv.fs_realpath(NOTES) or NOTES
+
+local function note_path(buf)
+  local name = vim.api.nvim_buf_get_name(buf)
+  if name == "" or not name:match("%.md$") or vim.bo[buf].buftype ~= "" then return nil end
+  local real = uv.fs_realpath(name) or name
+  if real:sub(1, #NOTES_REAL + 1) ~= NOTES_REAL .. "/" then return nil end
+  return real:sub(#NOTES_REAL + 2)
+end
+
+local function notesview(args)
+  if vim.fn.executable("notesview") == 0 then
+    if not NV.warned then
+      NV.warned = true
+      vim.notify("notesview is not installed — run install.sh to get the note viewer", vim.log.levels.WARN)
+    end
+    return
+  end
+  vim.system(vim.list_extend({ "notesview" }, args), { env = { NOTES_DIR = NOTES }, stdout = false, stderr = false }, function() end)
+end
+
+local function viewer_show(rel, line)
+  notesview({ "open", NOTES_REAL .. "/" .. rel, "--line", tostring(line or 0) })
+  NV.shown, NV.sent = rel, line
+end
+
+vim.api.nvim_create_autocmd("BufEnter", {
+  pattern = "*.md",
+  callback = function(ev)
+    local rel = note_path(ev.buf)
+    if rel and NV.follow and rel ~= NV.shown then viewer_show(rel, vim.fn.line(".")) end
+  end,
+})
+vim.api.nvim_create_autocmd("CursorHold", {
+  pattern = "*.md",
+  callback = function(ev)
+    local rel = note_path(ev.buf)
+    if not (rel and NV.follow) then return end
+    local line = vim.fn.line(".")
+    if rel == NV.shown and line == NV.sent then return end   -- debounce: only when it moved
+    if rel ~= NV.shown then return viewer_show(rel, line) end
+    NV.sent = line
+    notesview({ "scroll", rel, "--line", tostring(line) })
+  end,
+})
+
 -- ── Macros that survive restarts ─────────────────────────────────
 -- Record with qa … q, then run :SaveMacro a. Edit/delete them with :Macros.
 local MACROS = vim.fn.stdpath("config") .. "/macros.lua"
@@ -201,6 +251,16 @@ map("n", "<leader>ng", function() Snacks.picker.grep({ cwd = NOTES }) end, { des
 map("n", "<leader>no", function() Snacks.picker.grep({ cwd = NOTES, search = "- \\[ \\]" }) end,
   { desc = "Open todos across notes" })
 map("n", "<leader>nr", function() Snacks.picker.recent({ filter = { cwd = NOTES } }) end, { desc = "Recent notes" })
+map("n", "<leader>p", function()
+  local rel = note_path(0)
+  if rel then viewer_show(rel, vim.fn.line(".")) else vim.notify("Not a note in " .. NOTES, vim.log.levels.WARN) end
+end, { desc = "Show note in viewer" })
+map("n", "<leader>o", function()
+  NV.follow = not NV.follow
+  vim.notify("Viewer follow mode " .. (NV.follow and "on" or "off"))
+  if NV.follow then NV.shown = nil end
+end, { desc = "Toggle viewer follow mode" })
+map("n", "<leader>nt", function() notesview({ "open", "--tasks" }) end, { desc = "Open Tasks view" })
 map("n", "<leader>?", function() Snacks.picker.keymaps() end, { desc = "Search all shortcuts" })
 map("n", "<leader>w", "<cmd>write<cr>", { desc = "Save" })
 map("n", "<leader>q", "<cmd>quit<cr>", { desc = "Quit window" })
@@ -226,10 +286,6 @@ vim.api.nvim_create_autocmd("FileType", {
     bmap("n", "<BS>", "<C-o>", "Go back")
     bmap("n", "]]", "<cmd>call search('^#\\+ ', 'W')<cr>", "Next heading")
     bmap("n", "[[", "<cmd>call search('^#\\+ ', 'bW')<cr>", "Previous heading")
-
-    -- Preview
-    bmap("n", "<leader>p", "<cmd>LivePreview start<cr>", "Open browser preview")
-    bmap("n", "<leader>P", "<cmd>LivePreview close<cr>", "Stop browser preview")
 
     -- Tasks
     bmap("n", "<leader>x", function() local r = vim.fn.line("."); toggle_checkbox_range(r, r) end, "Toggle checkbox")

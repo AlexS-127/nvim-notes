@@ -1,0 +1,287 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"net/url"
+	"path"
+	"regexp"
+	"strconv"
+	"strings"
+
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/yuin/goldmark"
+	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	east "github.com/yuin/goldmark/extension/ast"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
+	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
+)
+
+// ── [[wiki links]] ───────────────────────────────────────────────
+
+var kindWiki = ast.NewNodeKind("WikiLink")
+
+type wikiNode struct {
+	ast.BaseInline
+	Target string
+	Alias  string
+}
+
+func (n *wikiNode) Kind() ast.NodeKind { return kindWiki }
+func (n *wikiNode) Dump(src []byte, level int) {
+	ast.DumpHelper(n, src, level, map[string]string{"target": n.Target}, nil)
+}
+
+type wikiParser struct{}
+
+func (wikiParser) Trigger() []byte { return []byte{'['} }
+func (wikiParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
+	line, _ := block.PeekLine()
+	if len(line) < 5 || line[1] != '[' {
+		return nil
+	}
+	end := bytes.Index(line[2:], []byte("]]"))
+	if end <= 0 {
+		return nil
+	}
+	inner := string(line[2 : 2+end])
+	if strings.ContainsAny(inner, "[]\n") {
+		return nil
+	}
+	block.Advance(end + 4)
+	n := &wikiNode{Target: inner}
+	if i := strings.IndexByte(inner, '|'); i >= 0 {
+		n.Target, n.Alias = inner[:i], inner[i+1:]
+	}
+	n.Target = strings.TrimSpace(n.Target)
+	return n
+}
+
+// ── Markdown pipeline ────────────────────────────────────────────
+
+type Markdown struct {
+	store *Store
+	files []string
+	md    goldmark.Markdown
+	note  string // current note, slash path relative to the notes folder
+}
+
+func escPath(p string) string { return (&url.URL{Path: p}).EscapedPath() }
+
+func notesHref(rel string) string { return "#/note/" + escPath(rel) }
+
+func fileHref(rel string) string { return "/files/" + escPath(rel) }
+
+func NewMarkdown(store *Store, note string) *Markdown {
+	m := &Markdown{store: store, files: store.Files(), note: note}
+	m.md = goldmark.New(
+		goldmark.WithExtensions(
+			extension.GFM, // tables, strikethrough, task lists, autolinks
+			extension.Footnote,
+			highlighting.NewHighlighting(
+				highlighting.WithFormatOptions(chromahtml.WithClasses(true), chromahtml.PreventSurroundingPre(true)),
+				highlighting.WithWrapperRenderer(codeWrapper),
+			),
+		),
+		goldmark.WithParserOptions(
+			parser.WithInlineParsers(util.Prioritized(wikiParser{}, 199)),
+			parser.WithASTTransformers(util.Prioritized(m, 100)),
+		),
+		goldmark.WithRendererOptions(
+			renderer.WithNodeRenderers(util.Prioritized(m, 100)),
+			html.WithHardWraps(),
+		),
+	)
+	return m
+}
+
+func codeWrapper(w util.BufWriter, ctx highlighting.CodeBlockContext, entering bool) {
+	if !entering {
+		_, _ = w.WriteString("</code></pre>\n")
+		return
+	}
+	_, _ = w.WriteString(`<pre class="chroma"`)
+	if ctx.Attributes() != nil {
+		if v, ok := ctx.Attributes().GetString("data-line"); ok {
+			fmt.Fprintf(w, ` data-line="%s"`, v)
+		}
+	}
+	if lang, ok := ctx.Language(); ok && len(lang) > 0 {
+		fmt.Fprintf(w, ` data-lang="%s"`, util.EscapeHTML(lang))
+	}
+	_, _ = w.WriteString("><code>")
+}
+
+// RegisterFuncs renders wiki link nodes.
+func (m *Markdown) RegisterFuncs(r renderer.NodeRendererFuncRegisterer) {
+	r.Register(kindWiki, func(w util.BufWriter, _ []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		wn := n.(*wikiNode)
+		label := wn.Alias
+		if label == "" {
+			label = wn.Target
+		}
+		if rel, ok := resolveWiki(m.files, wn.Target); ok {
+			fmt.Fprintf(w, `<a class="wikilink" href="%s">%s</a>`, notesHref(rel), util.EscapeHTML([]byte(label)))
+		} else {
+			t := strings.TrimSuffix(strings.SplitN(wn.Target, "#", 2)[0], ".md")
+			fmt.Fprintf(w, `<a class="wikilink missing" title="Note does not exist yet" href="%s">%s</a>`,
+				notesHref(t+".md"), util.EscapeHTML([]byte(label)))
+		}
+		return ast.WalkSkipChildren, nil
+	})
+}
+
+var schemeRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*:`)
+
+// Transform adds data-line to block elements and rewrites relative links
+// and image sources.
+func (m *Markdown) Transform(doc *ast.Document, reader text.Reader, _ parser.Context) {
+	src := reader.Source()
+	starts := lineStarts(src)
+	lineOf := func(off int) int {
+		lo, hi := 0, len(starts)-1
+		for lo < hi {
+			mid := (lo + hi + 1) / 2
+			if starts[mid] <= off {
+				lo = mid
+			} else {
+				hi = mid - 1
+			}
+		}
+		return lo + 1
+	}
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		switch v := n.(type) {
+		case *ast.Heading, *ast.Paragraph, *ast.List, *ast.ListItem, *ast.Blockquote,
+			*ast.FencedCodeBlock, *ast.CodeBlock, *east.Table:
+			if off, ok := firstOffset(n); ok {
+				if f, isFence := n.(*ast.FencedCodeBlock); isFence {
+					// point at the opening fence line, not the first content line
+					if f.Info != nil {
+						off = f.Info.Segment.Start
+					} else if l := lineOf(off); l > 1 {
+						off = starts[l-2]
+					}
+				}
+				n.SetAttributeString("data-line", []byte(strconv.Itoa(lineOf(off))))
+			}
+		case *ast.Image:
+			if rel, ok := m.relTarget(string(v.Destination)); ok {
+				v.Destination = []byte(fileHref(rel))
+			}
+		case *ast.Link:
+			dest := string(v.Destination)
+			if rel, ok := m.relTarget(dest); ok {
+				if strings.HasSuffix(strings.ToLower(rel), ".md") {
+					v.Destination = []byte(notesHref(rel))
+				} else {
+					v.Destination = []byte(fileHref(rel))
+				}
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+}
+
+func lineStarts(src []byte) []int {
+	starts := []int{0}
+	for i, b := range src {
+		if b == '\n' {
+			starts = append(starts, i+1)
+		}
+	}
+	return starts
+}
+
+func firstOffset(n ast.Node) (int, bool) {
+	if n.Type() == ast.TypeBlock && n.Lines().Len() > 0 {
+		return n.Lines().At(0).Start, true
+	}
+	if t, ok := n.(*ast.Text); ok {
+		return t.Segment.Start, true
+	}
+	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
+		if off, ok := firstOffset(c); ok {
+			return off, true
+		}
+	}
+	return 0, false
+}
+
+// relTarget resolves a relative link destination against the current note,
+// returning a path relative to the notes folder.
+func (m *Markdown) relTarget(dest string) (string, bool) {
+	if dest == "" || strings.HasPrefix(dest, "#") || strings.HasPrefix(dest, "//") || schemeRe.MatchString(dest) {
+		return "", false
+	}
+	if i := strings.IndexAny(dest, "?#"); i >= 0 {
+		dest = dest[:i]
+	}
+	if u, err := url.PathUnescape(dest); err == nil {
+		dest = u
+	}
+	var rel string
+	if strings.HasPrefix(dest, "/") {
+		rel = path.Clean(dest)[1:]
+	} else {
+		rel = path.Join(path.Dir(m.note), dest)
+	}
+	if rel == "" || rel == "." || strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+	return rel, true
+}
+
+var calloutRe = regexp.MustCompile(`(<blockquote)([^>]*)>\s*<p([^>]*)>\[!([A-Za-z]+)\][^\S\n]*(?:<br>\s*|\n)?(?:</p>\s*)?`)
+
+// Render converts markdown to HTML and extracts a title.
+func (m *Markdown) Render(src []byte) (string, error) {
+	var buf bytes.Buffer
+	if err := m.md.Convert(src, &buf); err != nil {
+		return "", err
+	}
+	out := calloutRe.ReplaceAllStringFunc(buf.String(), func(s string) string {
+		g := calloutRe.FindStringSubmatch(s)
+		kind := strings.ToLower(g[4])
+		body := ""
+		if !strings.HasSuffix(strings.TrimSpace(s), "</p>") {
+			body = "<p" + g[3] + ">"
+		}
+		return fmt.Sprintf(`<blockquote class="callout callout-%s"%s><div class="callout-title">%s</div>%s`,
+			kind, g[2], strings.ToUpper(kind[:1])+kind[1:], body)
+	})
+	return out, nil
+}
+
+// ── Syntax highlighting CSS ──────────────────────────────────────
+
+var chromaRuleRe = regexp.MustCompile(`(?m)^(/\*.*?\*/ )?\.chroma`)
+
+func ChromaCSS() string {
+	var out strings.Builder
+	for _, t := range []struct{ theme, style string }{{"dark", "github-dark"}, {"light", "github"}} {
+		style := styles.Get(t.style)
+		if style == nil {
+			style = styles.Fallback
+		}
+		var b bytes.Buffer
+		f := chromahtml.New(chromahtml.WithClasses(true))
+		_ = f.WriteCSS(&b, style)
+		css := chromaRuleRe.ReplaceAllString(b.String(), `${1}:root[data-theme="`+t.theme+`"] .chroma`)
+		out.WriteString(css)
+		out.WriteString("\n")
+	}
+	return out.String()
+}
