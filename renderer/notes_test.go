@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestStore(t *testing.T, files map[string]string) *Store {
@@ -191,5 +193,127 @@ func TestRenderSample(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\n%s", want, out)
 		}
+	}
+}
+
+func TestRenderInlineTask(t *testing.T) {
+	m := NewMarkdown(newTestStore(t, map[string]string{"Some Note.md": "x", "projects/spec.md": "x"}), "")
+	cases := []struct{ src, want string }{
+		{"hi _(Sep 30 21:39)_", `hi <em>(Sep 30 21:39)</em>`},
+		{"**bold** and ~~gone~~ and `a<b`", `<strong>bold</strong> and <del>gone</del> and <code>a&lt;b</code>`},
+		{"see [[Some Note]]", `see <a class="wikilink" href="#/note/Some%20Note.md">Some Note</a>`},
+		{"see [[Missing|later]]", `see <a class="wikilink missing" title="Note does not exist yet" href="#/note/Missing.md">later</a>`},
+		{"read [the spec](spec.md) first", `read <a href="#/note/projects/spec.md">the spec</a> first`},
+		{"visit https://example.com", `visit <a href="https://example.com">https://example.com</a>`},
+		{"# not a heading", `# not a heading`},
+		{"> not a quote", `&gt; not a quote`},
+		{"<script>x</script> y", `<!-- raw HTML omitted -->x<!-- raw HTML omitted --> y`},
+	}
+	for _, c := range cases {
+		got := m.RenderInline("projects/todo.md", c.src)
+		if got != c.want {
+			t.Errorf("RenderInline(%q)\n got %q\nwant %q", c.src, got, c.want)
+		}
+	}
+}
+
+func TestTasksAPIIncludesHTML(t *testing.T) {
+	s := newTestStore(t, map[string]string{
+		"inbox.md":     "# Inbox\n- [ ] hi _(Sep 30 21:39)_ and [[Some Note]]\n- [ ] see [docs](https://example.com/a?b=1&c=2)\n",
+		"Some Note.md": "# Some *Note*\n",
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/tasks", nil)
+	req.Host = "127.0.0.1:7777"
+	NewServer(s, 0).Handler().ServeHTTP(rec, req)
+	var resp struct {
+		Tasks []Task `json:"tasks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("%v: %s", err, rec.Body)
+	}
+	tasks := resp.Tasks
+	if len(tasks) != 2 {
+		t.Fatalf("unexpected tasks: %+v", tasks)
+	}
+	if tasks[0].Text != "hi _(Sep 30 21:39)_ and [[Some Note]]" {
+		t.Errorf("text should stay raw: %q", tasks[0].Text)
+	}
+	if want := `hi <em>(Sep 30 21:39)</em> and <a class="wikilink" href="#/note/Some%20Note.md">Some Note</a>`; tasks[0].HTML != want {
+		t.Errorf("html = %q, want %q", tasks[0].HTML, want)
+	}
+	if want := `see <a href="https://example.com/a?b=1&amp;c=2">docs</a>`; tasks[1].HTML != want {
+		t.Errorf("html = %q, want %q", tasks[1].HTML, want)
+	}
+}
+
+func TestPlainTextTitlesAndSnippets(t *testing.T) {
+	for src, want := range map[string]string{
+		"**Big** [[Plan|plan]]":      "Big plan",
+		"Notes on `go:embed` _now_":  "Notes on go:embed now",
+		"A [link](x.md) and ~~old~~": "A link and old",
+		`Escaped \*stars\*`:          "Escaped *stars*",
+		"plain":                      "plain",
+	} {
+		if got := PlainText(src); got != want {
+			t.Errorf("PlainText(%q) = %q, want %q", src, got, want)
+		}
+	}
+	s := newTestStore(t, map[string]string{
+		"a.md": "# The *Big* Plan\n\nlinks to [[b]]\n",
+		"b.md": "# B\n\n- [ ] ship **the** `widget`\n",
+	})
+	if got := Title("a.md", []byte("# The *Big* Plan\n")); got != "The Big Plan" {
+		t.Errorf("Title = %q", got)
+	}
+	if bl := s.Backlinks("b.md"); len(bl) != 1 || bl[0]["title"] != "The Big Plan" {
+		t.Errorf("backlinks = %+v", bl)
+	}
+	if hits := s.Search("widget"); len(hits) != 1 || hits[0].Snippet != "ship the widget" {
+		t.Errorf("search = %+v", hits)
+	}
+}
+
+func TestCustomCSSChangeTriggersReload(t *testing.T) {
+	repo := t.TempDir()
+	target := filepath.Join(repo, "custom.css")
+	if err := os.WriteFile(target, []byte("/* nothing */"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// like install.sh: the config file is a symlink into the repo
+	cfg := t.TempDir()
+	link := filepath.Join(cfg, "custom.css")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(newTestStore(t, nil), 0)
+	srv.css = link
+	stop, err := srv.Watch()
+	if err != nil {
+		t.Skip("no file watching here:", err)
+	}
+	defer stop()
+	ch := make(chan event, 4)
+	srv.mu.Lock()
+	srv.clients[ch] = struct{}{}
+	srv.mu.Unlock()
+	if err := os.WriteFile(target, []byte(":root { --font-size: 20px; }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case e := <-ch:
+		if !strings.Contains(e.Data, `"css":true`) {
+			t.Errorf("event = %+v, want css change", e)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no reload event after editing custom.css")
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/custom.css", nil)
+	req.Host = "127.0.0.1"
+	srv.Handler().ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "--font-size: 20px") {
+		t.Errorf("custom.css served %q", rec.Body)
 	}
 }

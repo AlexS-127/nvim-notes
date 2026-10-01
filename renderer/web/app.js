@@ -122,18 +122,26 @@
   function enableCheckboxes() {
     for (const cb of note.querySelectorAll("input[type=checkbox]")) cb.disabled = false;
   }
+  // Checkboxes toggle the task in its file: in a note via the list item's
+  // source line, in the Tasks view via data-path/data-line on the box.
   note.addEventListener("change", async (e) => {
     const cb = e.target;
     if (cb.type !== "checkbox") return;
-    try {
-      if (cb.dataset.path) { // Tasks view and folder pages
-        await post("/api/toggle", { path: cb.dataset.path, line: Number(cb.dataset.line) });
-      } else {
-        const li = cb.closest("li[data-line]");
-        if (!li || current.view !== "note") return;
-        await post("/api/toggle", { path: current.path, line: Number(li.dataset.line) });
-      }
-    } catch (err) { cb.checked = !cb.checked; }
+    let path, line;
+    if (cb.dataset.path) {
+      path = cb.dataset.path; line = Number(cb.dataset.line);
+      cb.closest(".task").classList.toggle("done", cb.checked);
+    } else {
+      const li = cb.closest("li[data-line]");
+      if (!li || current.view !== "note") return;
+      path = current.path; line = Number(li.dataset.line);
+    }
+    try { await post("/api/toggle", { path, line }); }
+    catch (err) {
+      cb.checked = !cb.checked;
+      const t = cb.closest(".task");
+      if (t) t.classList.toggle("done", cb.checked);
+    }
   });
 
   // ── tasks (shared by the Tasks view and folder pages) ──

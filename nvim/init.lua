@@ -616,3 +616,5 @@ vim.api.nvim_create_autocmd({ "InsertLeave", "FocusLost", "BufLeave" }, {
   end,
 })
 vim.api.nvim_create_autocmd("FocusGained", { command = "silent! checktime" })
+vim.opt.shortmess:append("I")
+

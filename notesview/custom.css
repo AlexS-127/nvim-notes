@@ -1,7 +1,72 @@
-/* Your own styles for the notesview window. install.sh links this file to
-   ~/.config/notesview/custom.css; it loads after the built-in styles, and a
-   reload of the viewer picks up changes. Example:
+/* notesview custom stylesheet
+ *
+ * Tuned for reading study notes: a book-like serif for body text,
+ * a clean sans for headings so sections stand out when you skim,
+ * and a measure (line length) that stays easy on the eyes.
+ *
+ * All fonts here ship with macOS, so nothing needs installing.
+ * Remember: comments in CSS are only slash-star ... star-slash, never //.
+ */
 
-   .note { max-width: 960px; }
-   :root[data-theme="dark"] { --accent: #f0a35e; }
+:root {
+  /* Charter: sturdy, very readable serif built for screens. */
+  --font-body: Charter, "Iowan Old Style", Georgia, serif;
+
+  /* Avenir Next: geometric sans, clearly different from the body text. */
+  --font-heading: Georgia, serif;
+
+  --font-code: "SF Mono", ui-monospace, Menlo, monospace;
+  --font-ui: -apple-system, "Helvetica Neue", sans-serif;
+
+  --font-size: 16px;
+  --line-height: 1.6;
+}
+
+/* About 70 characters per line: wide enough for tables, narrow enough to read. */
+.note, .backlinks { max-width: 44rem; }
+
+/* Headings: firm weight, slightly tightened, with room above to separate sections. */
+.note h1, .note h2, .note h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+.note h2 { margin-top: 2em; }
+.note h3 { margin-top: 1.6em; }
+
+/* Monospace looks larger than serif at the same size, so shrink it to match. */
+.note code { font-size: 0.88em; }
+
+/* Numbers line up in tables (useful for accounting notes). */
+.note table { font-variant-numeric: tabular-nums; }
+
+/* Completed tasks fade back so open ones stand out. */
+.note li:has(> input[type="checkbox"]:checked) { opacity: 0.5; }
+
+
+/* ---------------------------------------------------------------
+ * Alternatives: to try one, remove the slash-star line above it and
+ * the star-slash line below it, then save.
+ * --------------------------------------------------------------- */
+
+/* All sans-serif, closer to a typical app look.
+:root {
+  --font-body: -apple-system, "Helvetica Neue", sans-serif;
+  --font-heading: var(--font-body);
+  --line-height: 1.55;
+}
+*/
+
+/* Bigger and looser, for reading on the big screen or late at night.
+:root {
+  --font-size: 20px;
+  --line-height: 1.7;
+}
+*/
+
+/* JetBrains Mono for code, matching Ghostty (install it first:
+   brew install --cask font-jetbrains-mono).
+:root {
+  --font-code: "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
 */

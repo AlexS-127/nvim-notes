@@ -64,6 +64,38 @@ Folders are the structure; there is nothing to configure.
 - `<Space>nn` asks for a title, then a folder (the capture picker, with "none" for the top level),
   and creates the note there.
 
+## The viewer
+
+- GitHub-flavored markdown, `[[wiki links]]` and `[[Note|alias]]` (missing notes are styled differently),
+  callouts (`> [!NOTE]`, `[!TIP]`, `[!WARNING]`, …), highlighted code blocks, images relative to the note.
+- Live updates over server-sent events; scroll position is kept. Neovim's cursor line drives the scroll.
+- Sidebar tree (`inbox.md` pinned, `daily/` newest first) with title + full-text search,
+  a **Tasks** view of every open `- [ ]` (task text rendered as inline markdown, with a link to
+  its source line), generated folder pages, and backlinks under each note.
+- Clicking a checkbox, in a note or in the Tasks view, toggles it in the file (atomic write, only that line changes).
+- Light and dark themes (follows the system; ◐ toggles). Reading text is set in a Georgia-style serif, with
+  [Source Serif 4](https://github.com/adobe-fonts/source-serif) (SIL OFL 1.1) embedded as the
+  fallback; code stays monospace.
+
+### Fonts and custom CSS
+
+The viewer loads `~/.config/notesview/custom.css` (or `$XDG_CONFIG_HOME/notesview/custom.css`)
+after its own theme, and reloads the page whenever that file changes. `install.sh` symlinks it to
+[`notesview/custom.css`](notesview/custom.css) in this repo, backing up any file already there, so
+your tweaks are version-controlled. It ships with everything commented out; uncomment an example or
+set the theme variables yourself:
+
+```css
+:root {
+  --font-body: Georgia, "Source Serif 4", serif;  /* reading text */
+  --font-heading: var(--font-body);               /* headings */
+  --font-code: ui-monospace, Menlo, Consolas, monospace;
+  --font-ui: -apple-system, "Segoe UI", Roboto, sans-serif;  /* sidebar and buttons */
+  --font-size: 17px;
+  --line-height: 1.65;
+}
+```
+
 ## How tasks work
 
 A task is any list item with a checkbox, anywhere in your notes (fenced code is ignored):
