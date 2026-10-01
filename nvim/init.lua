@@ -60,8 +60,22 @@ vim.pack.add({
 -- ── Theme: Borland (light) / Catppuccin mocha (dark), follows the macOS appearance ─
 require("catppuccin").setup({
   background = { light = "latte", dark = "mocha" },
-  transparent_background = true,   -- keep the terminal's own background (dark only, see below)
+  transparent_background = true,   -- keep the terminal's own background (Ghostty's opacity + blur)
   float = { transparent = true },
+  -- Transparent text surfaces stay transparent, but popups need a solid fill to be
+  -- readable over buffer text, and the dimmest greys need lifting against the blur.
+  custom_highlights = function(C)
+    return {
+      NormalFloat  = { fg = C.text, bg = C.mantle },
+      Pmenu        = { fg = C.text, bg = C.mantle },
+      PmenuSel     = { fg = C.text, bg = C.surface1, bold = true },
+      PmenuSbar    = { bg = C.surface0 },
+      PmenuThumb   = { bg = C.overlay0 },
+      LineNr       = { fg = C.overlay0 },
+      StatusLineNC = { fg = C.overlay1 },
+      WinSeparator = { fg = C.overlay0 },
+    }
+  end,
 })
 local function set_theme(bg)
   vim.o.background = bg
