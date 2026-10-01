@@ -207,9 +207,11 @@ end
 
 -- Picks a category or topic folder (with "none" first). Calls back with the
 -- folder ({ path, tag, name, kind }) or nil for none / Esc / no notesview.
+-- Typing a name that matches nothing and pressing Enter picks a new folder
+-- ({ path, tag, new = true }); the caller creates it.
 local function pick_folder(title, cb)
   local folders = nv_json({ "folders", "--json", "--dir", NOTES })
-  if not folders or #folders == 0 then return cb(nil) end
+  if not folders then return cb(nil) end
   local items = { { text = "none", none = true } }
   for _, f in ipairs(folders) do table.insert(items, { text = f.tag .. " " .. f.path, folder = f }) end
   local chosen, done = nil, false
@@ -229,6 +231,10 @@ local function pick_folder(title, cb)
     end,
     confirm = function(picker, item)
       chosen = item and item.folder or nil
+      if not item then
+        local typed = vim.trim(picker.input and picker.input:get() or "")
+        if typed ~= "" then chosen = { path = typed, tag = typed, name = typed, new = true } end
+      end
       picker:close()
       finish()
     end,
@@ -407,7 +413,7 @@ local function capture_to_inbox()
       ask_due(function(due) save(folder, due) end)
     end
     if parsed.folder and parsed.folder ~= "" then return due_step(nil) end
-    pick_folder("Folder for the task (Esc: none)", function(f) due_step(f and f.tag) end)
+    pick_folder("Folder for the task (type a new name to create it; Esc: none)", function(f) due_step(f and f.tag) end)
   end)
 end
 
@@ -525,7 +531,11 @@ map("n", "<leader>nn", function()
     if not title or vim.trim(title) == "" then return end
     local slug = title:lower():gsub("[^%w]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
     if slug == "" then slug = os.date("note-%Y%m%d-%H%M%S") end
-    pick_folder("Folder for the note (Esc: top level)", function(f)
+    pick_folder("Folder for the note (type a new name to create it; Esc: top level)", function(f)
+      if f and f.new then
+        f.path = f.path:gsub("\\", "/"):gsub("^/+", ""):gsub("/+$", "")
+        vim.fn.mkdir(NOTES .. "/" .. f.path, "p")
+      end
       open_note(NOTES .. "/" .. (f and (f.path .. "/") or "") .. slug .. ".md", title)
     end)
   end)
