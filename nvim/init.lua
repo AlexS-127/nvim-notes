@@ -58,7 +58,11 @@ vim.pack.add({
 }, { confirm = false })
 
 -- ── Theme: Catppuccin (latte/mocha), follows the macOS appearance ─
-require("catppuccin").setup({ background = { light = "latte", dark = "mocha" } })
+require("catppuccin").setup({
+  background = { light = "latte", dark = "mocha" },
+  transparent_background = true,   -- keep the terminal's own background
+  float = { transparent = true },
+})
 local function set_theme(bg)
   vim.o.background = bg
   vim.cmd.colorscheme("catppuccin")
