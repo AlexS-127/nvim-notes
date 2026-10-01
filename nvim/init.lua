@@ -656,3 +656,10 @@ starter.setup({
     starter.gen_hook.aligning("center", "center"),
   },
 })
+
+-- ── Extras (optional power-ups; see nvim/lua/extras/init.lua) ────
+-- Off for one session: NVIM_NOTES_PLAIN=1 nvim. Off for good: delete this block.
+if vim.g.notes_extras ~= false and (vim.env.NVIM_NOTES_PLAIN or "") == "" then
+  local ok, err = pcall(require, "extras")
+  if not ok then vim.notify("extras failed to load: " .. tostring(err), vim.log.levels.WARN) end
+end

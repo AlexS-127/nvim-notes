@@ -272,3 +272,29 @@ Pushing a `v*` tag builds `notesview` for darwin-arm64, darwin-amd64, linux-amd6
 and attaches them to a GitHub release; the tag must match `version` in `renderer/main.go`. When the
 Neovim config starts depending on a new notesview feature, bump both `version` and
 `NOTESVIEW_MIN_VERSION` in `nvim/init.lua`, then tag a release.
+
+## Extras (optional power-ups)
+
+`nvim/lua/extras/init.lua`, loaded by the last lines of `init.lua`. Nothing existing was changed.
+
+| Keys | What |
+|---|---|
+| `<Space>` (wait) | which-key popup lists every shortcut |
+| `s` / `S` | flash: jump to any text / select a syntax node |
+| `gsa` `gsd` `gsr` | surround add / delete / replace (`gsaiw*`) |
+| `<Space>nb` | backlinks to this note |
+| `<Space>nl`, `<C-l>` (insert) | pick a note and insert `[[link]]` |
+| `[[` while typing | completion popup of notes (`<C-y>` accepts) |
+| `<Space>nh` | outline of the note's headings |
+| `<Space>nT` | browse `#tags` |
+| `<Space>nR` or `:NoteRename name` | rename a note and fix every `[[link]]` to it |
+| `[d` / `]d` | previous / next daily note |
+| `<Space>nm` | toggle in-buffer markdown rendering |
+| `<Space>z` | zen mode |
+| `<Space>nu` `<Space>,` `<Space>.` | undo history, buffers, resume last picker |
+
+Also: a statusline with task progress (☑ done/total) and word count, heading folds (`za`, `zR`),
+`:s` live preview, centered search/scroll jumps, and autopairs.
+
+**Turn it off:** `NVIM_NOTES_PLAIN=1 nvim` for one session; delete the "Extras" block at the end of
+`init.lua` for good; or `git checkout main` to drop the whole branch.
