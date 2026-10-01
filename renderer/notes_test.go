@@ -357,3 +357,26 @@ func TestMathRendering(t *testing.T) {
 		}
 	}
 }
+
+func TestMathDelimiters(t *testing.T) {
+	m := NewMarkdown(&Store{}, "a.md")
+	cases := []struct{ in, want string }{
+		{"Inline $x^2$ and $a_i + b_i$.", `<span class="math math-inline">x^2</span> and <span class="math math-inline">a_i + b_i</span>`},
+		{`Paren \(x<y\) here`, `<span class="math math-inline">x&lt;y</span>`},
+		{`Inline \[y\] here`, `<span class="math math-display">y</span>`},
+		{"\\[\n\\frac{a}{b}\n\\]\n", `<div class="math math-display"`},
+		{"wrapped $$a\n+b$$ done", `<span class="math math-inline">a` + "\n" + `+b</span>`},
+		{`price \$5 and $x\$y$`, `<span class="math math-inline">x\$y</span>`},
+		{"Cost is $5 and $10.", "Cost is $5 and $10."},
+		{"a $ b $ c", "a $ b $ c"},
+	}
+	for _, c := range cases {
+		out, err := m.Render([]byte(c.in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, c.want) {
+			t.Errorf("%q: missing %q in:\n%s", c.in, c.want, out)
+		}
+	}
+}
