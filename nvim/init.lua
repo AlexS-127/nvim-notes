@@ -297,7 +297,7 @@ vim.api.nvim_create_autocmd("FileType", {
     bmap("n", "<leader>a", archive_done, "Archive completed tasks")
 
     -- Headings
-    for i = 1, 4 do bmap("n", "<leader>" .. i, function() set_heading(i) end, "Heading " .. i) end
+    for i = 1, 4 do bmap("n", "<leader>" .. i, function() set_heading(i); vim.cmd("startinsert!") end, "Heading " .. i) end
     bmap("n", "<leader>0", function() set_heading(0) end, "Remove heading")
     bmap("n", "<leader>+", function() change_heading(1) end, "Heading level +1")
     bmap("n", "<leader>-", function() change_heading(-1) end, "Heading level -1")
@@ -341,3 +341,4 @@ vim.api.nvim_create_autocmd({ "InsertLeave", "FocusLost", "BufLeave" }, {
 })
 vim.api.nvim_create_autocmd("FocusGained", { command = "silent! checktime" })
 vim.opt.shortmess:append("I")
+
