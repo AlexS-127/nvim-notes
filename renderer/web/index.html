@@ -1,25 +1,42 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>notesview</title>
 <link rel="icon" href="data:,">
+<script>
+  // Before first paint: the saved theme, else the system preference; the saved sidebar state.
+  (function () {
+    var get = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+    var t = get("theme");
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = t;
+    if (get("sidebar") === "collapsed") document.documentElement.classList.add("sidebar-collapsed-pending");
+  })();
+</script>
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/chroma.css">
-<link rel="stylesheet" href="/custom.css">
+<link rel="stylesheet" href="/custom.css" id="custom-css">
 </head>
 <body>
+<script>if (document.documentElement.classList.contains("sidebar-collapsed-pending")) document.body.classList.add("sidebar-collapsed");</script>
+<button id="btn-expand" class="icon-btn" title="Show sidebar (b)" aria-label="Show sidebar">»</button>
 <aside id="sidebar">
   <div class="side-head">
-    <input id="search" type="search" placeholder="Search notes  ( / )" autocomplete="off" spellcheck="false">
+    <div class="side-top">
+      <input id="search" type="search" placeholder="Search notes  ( / )" autocomplete="off" spellcheck="false">
+      <button id="btn-collapse" class="icon-btn" title="Hide sidebar (b)" aria-label="Hide sidebar">«</button>
+    </div>
     <div class="side-actions">
       <button id="btn-tasks" title="Open tasks (t)">Tasks</button>
       <button id="btn-today" title="Today's note (g)">Today</button>
-      <button id="btn-theme" title="Toggle light/dark theme">◐</button>
     </div>
   </div>
   <nav id="tree"></nav>
+  <div class="side-foot">
+    <button id="btn-theme" title="Switch between light and dark">◐ Dark mode</button>
+  </div>
 </aside>
 <main id="main">
   <article id="note" class="note"></article>

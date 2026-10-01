@@ -17,6 +17,11 @@ jobs:
       - name: Test
         working-directory: renderer
         run: go vet ./... && go test ./...
+      - name: Tag matches notesview version
+        working-directory: renderer
+        run: |
+          v="$(go run . --version | awk '{print $2}')"
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME does not match version $v in main.go"; exit 1; }
       - name: Build binaries
         working-directory: renderer
         env:

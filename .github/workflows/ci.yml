@@ -26,6 +26,15 @@ jobs:
         with:
           neovim: true
           version: stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: renderer/go.mod
+      - name: Build notesview
+        working-directory: renderer
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          go build -o "$RUNNER_TEMP/bin/notesview" .
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Install tree-sitter CLI
         run: npm install -g tree-sitter-cli
       - name: Headless config check

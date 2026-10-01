@@ -63,18 +63,21 @@ func TestTaskGathering(t *testing.T) {
 		"b.md": "no tasks here\n",
 		"c.md": "# Gamma\n\n* [ ] star task\n",
 	})
-	got := s.Tasks()
-	if len(got) != 2 {
-		t.Fatalf("want 2 notes with tasks, got %d: %+v", len(got), got)
+	got := s.CollectTasks(TaskQuery{})
+	if len(got) != 3 {
+		t.Fatalf("want 3 open tasks, got %d: %+v", len(got), got)
 	}
-	if got[0].Path != "a.md" || got[0].Title != "Alpha" || len(got[0].Tasks) != 2 {
-		t.Fatalf("unexpected a.md tasks: %+v", got[0])
+	if got[0].File != "a.md" || got[0].Title != "Alpha" || got[0].Line != 2 || got[0].Text != "one" {
+		t.Errorf("unexpected first task: %+v", got[0])
 	}
-	if got[0].Tasks[0].Line != 2 || got[0].Tasks[0].Text != "one" || got[0].Tasks[1].Line != 4 {
-		t.Errorf("wrong lines/text: %+v", got[0].Tasks)
+	if got[1].File != "a.md" || got[1].Line != 4 || got[1].Text != "nested" || got[1].Indent != 2 {
+		t.Errorf("unexpected nested task: %+v", got[1])
 	}
-	if got[1].Path != "c.md" || got[1].Tasks[0].Line != 3 {
-		t.Errorf("unexpected c.md tasks: %+v", got[1])
+	if got[2].File != "c.md" || got[2].Line != 3 {
+		t.Errorf("unexpected c.md task: %+v", got[2])
+	}
+	if all := s.CollectTasks(TaskQuery{All: true}); len(all) != 4 {
+		t.Errorf("--all should include the done task, got %d", len(all))
 	}
 }
 
@@ -194,7 +197,7 @@ func TestRenderSample(t *testing.T) {
 }
 
 func TestRenderInlineTask(t *testing.T) {
-	m := newMarkdown([]string{"Some Note.md", "projects/spec.md"}, "projects/todo.md")
+	m := NewMarkdown(newTestStore(t, map[string]string{"Some Note.md": "x", "projects/spec.md": "x"}), "")
 	cases := []struct{ src, want string }{
 		{"hi _(Sep 30 21:39)_", `hi <em>(Sep 30 21:39)</em>`},
 		{"**bold** and ~~gone~~ and `a<b`", `<strong>bold</strong> and <del>gone</del> and <code>a&lt;b</code>`},
@@ -207,10 +210,7 @@ func TestRenderInlineTask(t *testing.T) {
 		{"<script>x</script> y", `<!-- raw HTML omitted -->x<!-- raw HTML omitted --> y`},
 	}
 	for _, c := range cases {
-		got, err := m.RenderInline(c.src)
-		if err != nil {
-			t.Fatal(err)
-		}
+		got := m.RenderInline("projects/todo.md", c.src)
 		if got != c.want {
 			t.Errorf("RenderInline(%q)\n got %q\nwant %q", c.src, got, c.want)
 		}
@@ -226,14 +226,16 @@ func TestTasksAPIIncludesHTML(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/tasks", nil)
 	req.Host = "127.0.0.1:7777"
 	NewServer(s, 0).Handler().ServeHTTP(rec, req)
-	var groups []NoteTasks
-	if err := json.Unmarshal(rec.Body.Bytes(), &groups); err != nil {
+	var resp struct {
+		Tasks []Task `json:"tasks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("%v: %s", err, rec.Body)
 	}
-	if len(groups) != 1 || len(groups[0].Tasks) != 2 {
-		t.Fatalf("unexpected tasks: %+v", groups)
+	tasks := resp.Tasks
+	if len(tasks) != 2 {
+		t.Fatalf("unexpected tasks: %+v", tasks)
 	}
-	tasks := groups[0].Tasks
 	if tasks[0].Text != "hi _(Sep 30 21:39)_ and [[Some Note]]" {
 		t.Errorf("text should stay raw: %q", tasks[0].Text)
 	}
@@ -273,34 +275,37 @@ func TestPlainTextTitlesAndSnippets(t *testing.T) {
 }
 
 func TestCustomCSSChangeTriggersReload(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
 	repo := t.TempDir()
 	target := filepath.Join(repo, "custom.css")
 	if err := os.WriteFile(target, []byte("/* nothing */"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// like install.sh: the config file is a symlink into the repo
-	if err := os.MkdirAll(filepath.Join(cfg, "notesview"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(target, customCSSPath()); err != nil {
+	cfg := t.TempDir()
+	link := filepath.Join(cfg, "custom.css")
+	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
 	srv := NewServer(newTestStore(t, nil), 0)
+	srv.css = link
+	stop, err := srv.Watch()
+	if err != nil {
+		t.Skip("no file watching here:", err)
+	}
+	defer stop()
 	ch := make(chan event, 4)
+	srv.mu.Lock()
 	srv.clients[ch] = struct{}{}
-	go srv.WatchCustomCSS(10 * time.Millisecond)
-	time.Sleep(50 * time.Millisecond)
+	srv.mu.Unlock()
 	if err := os.WriteFile(target, []byte(":root { --font-size: 20px; }"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case e := <-ch:
-		if e.Name != "css" {
-			t.Errorf("event = %q, want css", e.Name)
+		if !strings.Contains(e.Data, `"css":true`) {
+			t.Errorf("event = %+v, want css change", e)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("no reload event after editing custom.css")
 	}
 

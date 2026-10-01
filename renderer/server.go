@@ -31,6 +31,7 @@ type event struct {
 type Server struct {
 	store *Store
 	port  int
+	css   string // path of custom.css, watched for live reloads
 
 	mu         sync.Mutex
 	clients    map[chan event]struct{}
@@ -43,8 +44,17 @@ type showMsg struct {
 	Line int    `json:"line"`
 }
 
+// configDir is ~/.config/notesview (or $XDG_CONFIG_HOME/notesview), home of custom.css.
+func configDir() string {
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "notesview")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "notesview")
+}
+
 func NewServer(store *Store, port int) *Server {
-	return &Server{store: store, port: port, clients: map[chan event]struct{}{}}
+	return &Server{store: store, port: port, css: filepath.Join(configDir(), "custom.css"), clients: map[chan event]struct{}{}}
 }
 
 func (s *Server) broadcast(e event) {
@@ -70,7 +80,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/custom.css", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css")
 		w.Header().Set("Cache-Control", "no-cache")
-		if b, err := os.ReadFile(customCSSPath()); err == nil {
+		if b, err := os.ReadFile(s.css); err == nil {
 			w.Write(b)
 		}
 	})
@@ -83,7 +93,15 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, map[string]any{"viewers": n, "dir": s.store.Root, "current": s.current})
 	})
 	mux.HandleFunc("/api/tree", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.store.Tree()) })
-	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.tasks()) })
+	mux.HandleFunc("/api/tasks", s.handleTasks)
+	mux.HandleFunc("/api/folders", func(w http.ResponseWriter, r *http.Request) {
+		list := s.store.Folders().List
+		if list == nil {
+			list = []Folder{}
+		}
+		writeJSON(w, list)
+	})
+	mux.HandleFunc("/api/folder", s.handleFolder)
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.store.Search(r.URL.Query().Get("q")))
 	})
@@ -91,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, map[string]string{"path": "daily/" + time.Now().Format("2006-01-02") + ".md"})
 	})
 	mux.HandleFunc("/api/note", s.handleNote)
+	mux.HandleFunc("/api/daily", s.post(s.handleDaily))
 	mux.HandleFunc("/api/toggle", s.post(s.handleToggle))
 	mux.HandleFunc("/api/show", s.post(s.handleShow))
 	mux.HandleFunc("/api/scroll", s.post(s.handleScroll))
@@ -170,22 +189,42 @@ func (s *Server) handleNote(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// tasks returns every open task with its text also rendered as inline HTML,
-// links resolved relative to the task's own note.
-func (s *Server) tasks() []NoteTasks {
-	groups := s.store.Tasks()
-	m := newMarkdown(s.store.Files(), "")
-	for gi := range groups {
-		g := &groups[gi]
-		m.note = g.Path
-		for ti := range g.Tasks {
-			t := &g.Tasks[ti]
-			if h, err := m.RenderInline(t.Text); err == nil {
-				t.HTML = h
-			}
-		}
+// handleTasks returns open tasks with date groups and inline-rendered text.
+func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	tasks := s.store.CollectTasks(TaskQuery{Now: now})
+	s.renderTasks(tasks)
+	writeJSON(w, map[string]any{"today": now.Format(isoDate), "groups": GroupOrder, "tasks": tasks})
+}
+
+func (s *Server) renderTasks(tasks []Task) {
+	md := NewMarkdown(s.store, "")
+	for i := range tasks {
+		tasks[i].HTML = md.RenderInline(tasks[i].File, tasks[i].Display)
 	}
-	return groups
+}
+
+// handleFolder returns the generated page for a category or topic folder.
+func (s *Server) handleFolder(w http.ResponseWriter, r *http.Request) {
+	f, ok := s.store.Folders().Resolve(r.URL.Query().Get("path"))
+	if !ok {
+		http.Error(w, "no such folder", http.StatusNotFound)
+		return
+	}
+	now := time.Now()
+	page := s.store.FolderPage(f, now)
+	s.renderTasks(page.Tasks)
+	writeJSON(w, map[string]any{"today": now.Format(isoDate), "folder": page})
+}
+
+// handleDaily creates today's daily note (with carry-over) if needed.
+func (s *Server) handleDaily(w http.ResponseWriter, r *http.Request) {
+	res, err := s.store.EnsureDaily(time.Now(), true)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, res)
 }
 
 type toggleReq struct {
@@ -305,11 +344,14 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Watch pushes a "change" event whenever files under the notes folder change.
-func (s *Server) Watch() error {
+// Watch pushes a "change" event whenever files under the notes folder or
+// custom.css changes. The event says whether the folder structure changed
+// (tree) or custom.css did (css). Stop with the
+// returned function.
+func (s *Server) Watch() (func(), error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	addAll := func(root string) {
 		filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
@@ -322,27 +364,67 @@ func (s *Server) Watch() error {
 			return nil
 		})
 	}
+	// resync drops watches on folders that are gone (renamed or removed) and
+	// adds any folder that is new, so the watch list always matches the disk.
+	resync := func() {
+		for _, p := range w.WatchList() {
+			if !within(s.store.Root, p) {
+				continue
+			}
+			if _, err := os.Stat(p); err != nil {
+				_ = w.Remove(p)
+			}
+		}
+		addAll(s.store.Root)
+	}
 	addAll(s.store.Root)
+	// custom.css is usually a symlink into the repo: watch both folders.
+	cfgDirs := map[string]bool{filepath.Dir(s.css): true}
+	if real, err := filepath.EvalSymlinks(s.css); err == nil {
+		cfgDirs[filepath.Dir(real)] = true
+	}
+	for d := range cfgDirs {
+		if !within(s.store.Root, d) {
+			_ = w.Add(d)
+		}
+	}
+	isConfigFile := func(p string) bool {
+		b := filepath.Base(p)
+		return cfgDirs[filepath.Dir(p)] && b == filepath.Base(s.css)
+	}
+	done := make(chan struct{})
 	go func() {
-		var timer *time.Timer
+		var fire <-chan time.Time
+		tree, cfgChanged := false, false
 		for {
 			select {
+			case <-done:
+				return
 			case ev, ok := <-w.Events:
 				if !ok {
 					return
 				}
-				if strings.HasPrefix(filepath.Base(ev.Name), ".") {
-					continue
-				}
-				if ev.Has(fsnotify.Create) {
-					if st, err := os.Stat(ev.Name); err == nil && st.IsDir() {
-						addAll(ev.Name)
+				if !within(s.store.Root, ev.Name) {
+					if !isConfigFile(ev.Name) {
+						continue
+					}
+					cfgChanged = true
+				} else {
+					if strings.HasPrefix(filepath.Base(ev.Name), ".") {
+						continue
+					}
+					if ev.Has(fsnotify.Create) || ev.Has(fsnotify.Remove) || ev.Has(fsnotify.Rename) {
+						tree = true
 					}
 				}
-				if timer != nil {
-					timer.Stop()
+				fire = time.After(80 * time.Millisecond)
+			case <-fire:
+				fire = nil
+				if tree {
+					resync()
 				}
-				timer = time.AfterFunc(80*time.Millisecond, func() { s.broadcast(event{"change", "{}"}) })
+				s.broadcast(event{"change", fmt.Sprintf(`{"tree":%t,"css":%t}`, tree, cfgChanged)})
+				tree, cfgChanged = false, false
 			case err, ok := <-w.Errors:
 				if !ok {
 					return
@@ -351,46 +433,13 @@ func (s *Server) Watch() error {
 			}
 		}
 	}()
-	return nil
-}
-
-// customCSSPath is the user stylesheet loaded after the built-in theme:
-// $XDG_CONFIG_HOME/notesview/custom.css, by default ~/.config/notesview/custom.css.
-func customCSSPath() string {
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "notesview", "custom.css")
-}
-
-// WatchCustomCSS pushes a "css" event (viewers reload) when custom.css is
-// created, edited or removed. It polls instead of using fsnotify because the
-// file is usually a symlink into the repo, whose target's directory is not
-// the one the link lives in; os.Stat follows the link wherever it points.
-func (s *Server) WatchCustomCSS(every time.Duration) {
-	stamp := func() string {
-		st, err := os.Stat(customCSSPath())
-		if err != nil {
-			return ""
-		}
-		return fmt.Sprint(st.Size(), st.ModTime().UnixNano())
-	}
-	last := stamp()
-	for range time.Tick(every) {
-		if now := stamp(); now != last {
-			last = now
-			s.broadcast(event{"css", "{}"})
-		}
-	}
+	return func() { close(done); w.Close() }, nil
 }
 
 func (s *Server) ListenAndServe() error {
-	if err := s.Watch(); err != nil {
+	if _, err := s.Watch(); err != nil {
 		log.Println("file watching disabled:", err)
 	}
-	go s.WatchCustomCSS(500 * time.Millisecond)
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

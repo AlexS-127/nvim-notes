@@ -2,10 +2,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,11 +37,27 @@ func defaultPort() int {
 	return 7777
 }
 
+// version is the notesview release. Release builds override it with
+// -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
+// relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
+var version = "0.2.0"
+
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  notesview serve [--dir DIR] [--port N]
-  notesview open  [PATH | --tasks] [--line N] [--dir DIR] [--port N]
-  notesview scroll PATH --line N [--port N]`)
+  notesview serve    [--dir DIR] [--port N]
+  notesview open     [PATH | --tasks] [--line N] [--dir DIR] [--port N]
+  notesview scroll   PATH --line N [--port N]
+  notesview tasks    [--json] [--all] [--dir DIR]      list open tasks
+  notesview date     TEXT…                             convert @tomorrow, @fri, @oct6, @10/6, @+3d in TEXT
+  notesview due      [--json] WHEN                     resolve one due date ("fri" → 2026-10-02, Fri Oct 2)
+  notesview capture  [-i] [--folder TAG] [--due WHEN] [--dir DIR] [TEXT…]
+                                                       add "- [ ] TEXT" to inbox.md (-i asks step by step;
+                                                       --parse only reports what TEXT already answers)
+  notesview folders  [--json] [--dir DIR]              list category and topic folders
+  notesview resolve  [--json] [--dir DIR] TARGET       what a [[TARGET]] link points to
+  notesview daily    [--date YYYY-MM-DD] [--dir DIR]   create a daily note (today's with carry-over)
+  notesview doctor                                     check the installation
+  notesview --version`)
 	os.Exit(2)
 }
 
@@ -48,6 +66,15 @@ func main() {
 		usage()
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	switch cmd {
+	case "--version", "-version", "-v", "version":
+		fmt.Println("notesview", version)
+		return
+	case "-h", "--help", "help":
+		usage()
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor":
+		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
+	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	dir := fs.String("dir", defaultDir(), "notes folder")
 	port := fs.Int("port", defaultPort(), "port (127.0.0.1 only)")
@@ -82,6 +109,146 @@ func main() {
 	default:
 		usage()
 	}
+}
+
+// runCommand runs the note commands that work on files directly (no
+// server needed). Flags come first; everything after them (or after "--")
+// is the text, taken verbatim. It returns the exit code.
+func runCommand(cmd string, args []string, stdout, stderr io.Writer) int {
+	return runCommandIO(cmd, args, os.Stdin, stdout, stderr)
+}
+
+func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", defaultDir(), "notes folder")
+	asJSON := fs.Bool("json", false, "print JSON")
+	all := fs.Bool("all", false, "include done and moved tasks")
+	dateFlag := fs.String("date", "", "date (YYYY-MM-DD), default today")
+	folder := fs.String("folder", "", "folder tag or path for the captured task")
+	due := fs.String("due", "", "due date for the captured task (fri, oct6, +3d, …)")
+	interactive := fs.Bool("i", false, "capture step by step")
+	parse := fs.Bool("parse", false, "capture: only report which steps the text already answers (JSON)")
+	now := time.Now()
+	fail := func(err error) int {
+		fmt.Fprintln(stderr, "notesview:", err)
+		return 1
+	}
+	if cmd == "date" { // no flags: the text may well start with "- [ ]"
+		if len(args) > 0 && args[0] == "--" {
+			args = args[1:]
+		}
+		fmt.Fprintln(stdout, ConvertNaturalDates(strings.Join(args, " "), now))
+		return 0
+	}
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	text := strings.Join(fs.Args(), " ")
+	switch cmd {
+	case "doctor":
+		return runDoctor(stdout)
+	case "due":
+		d, ok := ParseDue(text, now)
+		if !ok {
+			if *asJSON {
+				printJSON(stdout, map[string]any{"ok": false, "input": text})
+			}
+			return fail(fmt.Errorf("can't read due date %q (try fri, tomorrow, oct6, 10/6, +3d)", text))
+		}
+		if *asJSON {
+			return printJSON(stdout, map[string]any{"ok": true, "date": d.Format(isoDate), "label": DueLabel(d)})
+		}
+		fmt.Fprintf(stdout, "%s\t%s\n", d.Format(isoDate), DueLabel(d))
+		return 0
+	}
+	store, err := NewStore(*dir)
+	if err != nil {
+		return fail(err)
+	}
+	switch cmd {
+	case "tasks":
+		tasks := store.CollectTasks(TaskQuery{All: *all, Now: now})
+		if *asJSON {
+			return printJSON(stdout, tasks)
+		}
+		for _, t := range tasks {
+			d := ""
+			if t.Due != "" {
+				d = " (due " + t.Due + ")"
+			}
+			fmt.Fprintf(stdout, "%s:%d: [%s/%s] %s%s\n", t.File, t.Line, t.Label(), t.Group, t.Display, d)
+		}
+	case "folders":
+		list := store.Folders().List
+		if *asJSON {
+			if list == nil {
+				list = []Folder{}
+			}
+			return printJSON(stdout, list)
+		}
+		for _, f := range list {
+			fmt.Fprintf(stdout, "#%-30s %s\n", f.Tag, f.Path)
+		}
+	case "resolve":
+		r := store.ResolveLink(text)
+		if *asJSON {
+			return printJSON(stdout, r)
+		}
+		fmt.Fprintln(stdout, r.Kind, r.Path)
+	case "capture":
+		if *parse {
+			return printJSON(stdout, ParseCaptureText(text, store.Folders(), now))
+		}
+		var line string
+		if *interactive {
+			in := bufio.NewReader(stdin)
+			ui := &captureUI{in: in, out: stdout, pick: terminalPicker(in, stdout)}
+			line, err = runCaptureInteractive(store, text, ui, now)
+			if err == errCancelled {
+				fmt.Fprintln(stdout, "Nothing captured.")
+				return 1
+			}
+		} else {
+			line, err = store.Capture(CaptureOpts{Text: text, Folder: *folder, Due: *due}, now)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		if *asJSON {
+			return printJSON(stdout, map[string]string{"line": line, "path": filepath.Join(store.Root, "inbox.md")})
+		}
+		fmt.Fprintln(stdout, "Added to inbox:", line)
+	case "daily":
+		date := now
+		if *dateFlag != "" {
+			if date, err = time.ParseInLocation(isoDate, *dateFlag, time.Local); err != nil {
+				return fail(fmt.Errorf("--date: %w", err))
+			}
+		}
+		// carry-over only happens when today's note is created
+		res, err := store.EnsureDaily(date, date.Format(isoDate) == now.Format(isoDate))
+		if err != nil {
+			return fail(err)
+		}
+		if res.Warning != "" {
+			fmt.Fprintln(stderr, "notesview: warning:", res.Warning)
+		}
+		if *asJSON {
+			return printJSON(stdout, res)
+		}
+		fmt.Fprintln(stdout, filepath.Join(store.Root, filepath.FromSlash(res.Path)))
+	}
+	return 0
+}
+
+func printJSON(w io.Writer, v any) int {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return 1
+	}
+	return 0
 }
 
 func fatal(err error) {

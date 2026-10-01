@@ -66,10 +66,12 @@ func (wikiParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Nod
 // ── Markdown pipeline ────────────────────────────────────────────
 
 type Markdown struct {
-	files  []string
-	md     goldmark.Markdown
-	inline goldmark.Markdown
-	note   string // current note, slash path relative to the notes folder
+	store   *Store
+	files   []string
+	folders *FolderIndex
+	md      goldmark.Markdown
+	inline  goldmark.Markdown
+	note    string // current note, slash path relative to the notes folder
 }
 
 func escPath(p string) string { return (&url.URL{Path: p}).EscapedPath() }
@@ -78,12 +80,10 @@ func notesHref(rel string) string { return "#/note/" + escPath(rel) }
 
 func fileHref(rel string) string { return "/files/" + escPath(rel) }
 
-func NewMarkdown(store *Store, note string) *Markdown {
-	return newMarkdown(store.Files(), note)
-}
+func folderHref(tag string) string { return "#/folder/" + escPath(tag) }
 
-func newMarkdown(files []string, note string) *Markdown {
-	m := &Markdown{files: files, note: note}
+func NewMarkdown(store *Store, note string) *Markdown {
+	m := &Markdown{store: store, files: store.Files(), folders: store.Folders(), note: note}
 	m.md = goldmark.New(
 		goldmark.WithExtensions(
 			extension.GFM, // tables, strikethrough, task lists, autolinks
@@ -156,6 +156,9 @@ func (m *Markdown) RegisterFuncs(r renderer.NodeRendererFuncRegisterer) {
 		}
 		if rel, ok := resolveWiki(m.files, wn.Target); ok {
 			fmt.Fprintf(w, `<a class="wikilink" href="%s">%s</a>`, notesHref(rel), util.EscapeHTML([]byte(label)))
+		} else if f, ok := m.folders.Resolve(wn.Target); ok { // [[act-200]] → the folder's page
+			fmt.Fprintf(w, `<a class="wikilink folder" title="Folder %s" href="%s">%s</a>`,
+				util.EscapeHTML([]byte(f.Path)), folderHref(f.Tag), util.EscapeHTML([]byte(label)))
 		} else {
 			t := strings.TrimSuffix(strings.SplitN(wn.Target, "#", 2)[0], ".md")
 			fmt.Fprintf(w, `<a class="wikilink missing" title="Note does not exist yet" href="%s">%s</a>`,
@@ -269,6 +272,24 @@ func (m *Markdown) relTarget(dest string) (string, bool) {
 	return rel, true
 }
 
+// movedRe finds list items written as "- [>] …" (tasks carried over to a
+// later daily note), with or without a wrapping paragraph.
+var movedRe = regexp.MustCompile(`(<li[^>]*?)>(\s*<p[^>]*>)?\[&gt;\][^\S\n]*`)
+
+var paraRe = regexp.MustCompile(`(?s)^\s*<p[^>]*>(.*?)</p>\s*$`)
+
+// RenderInline renders one line of markdown (a task's text) for the note
+// rel, without the surrounding paragraph. The whole line is parsed as one
+// paragraph, so a leading "#" or ">" stays literal text.
+func (m *Markdown) RenderInline(rel, text string) string {
+	m.note = rel
+	var buf bytes.Buffer
+	if err := m.inline.Convert([]byte(strings.TrimSpace(text)), &buf); err != nil {
+		return string(util.EscapeHTML([]byte(text)))
+	}
+	return paraRe.ReplaceAllString(buf.String(), "$1")
+}
+
 var calloutRe = regexp.MustCompile(`(<blockquote)([^>]*)>\s*<p([^>]*)>\[!([A-Za-z]+)\][^\S\n]*(?:<br>\s*|\n)?(?:</p>\s*)?`)
 
 // Render converts markdown to HTML and extracts a title.
@@ -287,19 +308,8 @@ func (m *Markdown) Render(src []byte) (string, error) {
 		return fmt.Sprintf(`<blockquote class="callout callout-%s"%s><div class="callout-title">%s</div>%s`,
 			kind, g[2], strings.ToUpper(kind[:1])+kind[1:], body)
 	})
+	out = movedRe.ReplaceAllString(out, `$1 class="task-moved">$2<span class="moved-box" title="Moved to a later note">›</span> `)
 	return out, nil
-}
-
-var paraRe = regexp.MustCompile(`(?s)^\s*<p[^>]*>(.*?)</p>\s*$`)
-
-// RenderInline converts one line of markdown (such as a task's text) to
-// inline HTML, without the surrounding paragraph.
-func (m *Markdown) RenderInline(src string) (string, error) {
-	var buf bytes.Buffer
-	if err := m.inline.Convert([]byte(strings.TrimSpace(src)), &buf); err != nil {
-		return "", err
-	}
-	return paraRe.ReplaceAllString(buf.String(), "$1"), nil
 }
 
 // plainMD parses inline markdown for PlainText; it has no renderer hooks.
@@ -349,6 +359,10 @@ func PlainText(src string) string {
 
 var chromaRuleRe = regexp.MustCompile(`(?m)^(/\*.*?\*/ )?\.chroma`)
 
+// ChromaCSS returns token colours for both themes. Rules are scoped with
+// :where() so they weigh no more than a plain ".chroma .k" selector and
+// custom.css (loaded last) can override them. Backgrounds come from the
+// --code-bg theme variable in app.css, not from the chroma style.
 func ChromaCSS() string {
 	var out strings.Builder
 	for _, t := range []struct{ theme, style string }{{"dark", "github-dark"}, {"light", "github"}} {
@@ -359,9 +373,18 @@ func ChromaCSS() string {
 		var b bytes.Buffer
 		f := chromahtml.New(chromahtml.WithClasses(true))
 		_ = f.WriteCSS(&b, style)
-		css := chromaRuleRe.ReplaceAllString(b.String(), `${1}:root[data-theme="`+t.theme+`"] .chroma`)
-		out.WriteString(css)
-		out.WriteString("\n")
+		for _, line := range strings.Split(b.String(), "\n") {
+			if !chromaRuleRe.MatchString(line) { // e.g. the unscoped ".bg" rule
+				continue
+			}
+			line = chromaRuleRe.ReplaceAllString(line, `${1}:where(:root[data-theme="`+t.theme+`"]) .chroma`)
+			if strings.Contains(line, "/* PreWrapper */") {
+				line = chromaBgRe.ReplaceAllString(line, "")
+			}
+			out.WriteString(line + "\n")
+		}
 	}
 	return out.String()
 }
+
+var chromaBgRe = regexp.MustCompile(`\s*background-color:[^;}]*;?`)
