@@ -170,6 +170,28 @@ All task rules live in `notesview` (`notesview tasks --json`), so the viewer's T
   shown greyed out in Neovim and the viewer. Tasks with a category or a due date stay where they
   are; the Tasks view shows them by date. New daily notes start with `## Tasks` and `## Notes`.
 
+## Activity
+
+The **Activity** view (sidebar button, or `a` in the viewer) turns your tasks into a scoreboard:
+
+- **Running total** of completed tasks (counts up when you open it), this week's count, a **streak**
+  of consecutive days with a task done, today's done and made counts, and a **rank bar** with
+  milestones at 10, 25, 50, 100, 250, 500 and 1000 tasks.
+- A **calendar** of the last year, like a commit graph: *Done + made*, *Done* or *Made* per day.
+- **Weekly:** average tasks per day for 12 weeks (done and made stacked).
+- **Daily:** average per weekday (Mon to Sun) over those weeks, to show which days you get most done.
+- **Distribution:** a histogram of tasks done per day, one entry per finished day since your first
+  completion (zero days count, today doesn't until it's over), with the median and +1 sigma marked,
+  and how many tasks today still needs to beat the median and reach 1 sigma.
+- Ticking a task in the viewer throws confetti, with a toast when you pass a milestone.
+
+Completion dates come from a stamp added when you tick a task, in the viewer or with `<Space>x`:
+`- [x] read ch 5 ✅ 2026-10-01` (unticking removes it). Ticking a box by hand-editing the file
+leaves no stamp. Tasks done before stamps existed count toward the total but not the calendar.
+"Made" uses the capture timestamp (`_(Oct 01 10:12)_`), or the date of the daily note the task was
+written in; tasks carried over from an earlier daily note are not counted as new.
+The data is at `/api/activity`.
+
 ## Capture
 
 Capture adds `- [ ] text #folder-tag @due _(timestamp)_` to `inbox.md` in three steps:
@@ -297,7 +319,7 @@ The window opens as a tab-less app window if Chrome, Chromium, Brave or Edge is 
   sidebar (`b`, or « / ») is remembered. `~/.config/notesview/custom.css` loads last and overrides
   the theme: `:root { --accent: … }` changes both themes, `:root[data-theme="dark"] { … }` just one.
 
-Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `g` today's daily note (created if needed) · `b` sidebar.
+Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `a` activity · `g` today's daily note (created if needed) · `b` sidebar.
 
 ## Development
 

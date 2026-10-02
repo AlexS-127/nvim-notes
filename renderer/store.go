@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // ErrOutside is returned when a requested path escapes the notes folder.
@@ -204,9 +205,9 @@ func (s *Store) ToggleCheckbox(rel string, line int) error {
 	l := lines[line-1]
 	switch {
 	case taskOpenRe.MatchString(l):
-		l = taskOpenRe.ReplaceAllString(l, "${1}[x]")
+		l = stampDone(taskOpenRe.ReplaceAllString(l, "${1}[x]"), time.Now())
 	case taskDoneRe.MatchString(l):
-		l = taskDoneRe.ReplaceAllString(l, "${1}[ ]")
+		l = unstampDone(taskDoneRe.ReplaceAllString(l, "${1}[ ]"))
 	default:
 		return fmt.Errorf("line %d is not a task", line)
 	}

@@ -50,6 +50,7 @@
     const [p, q] = h.split("?");
     const line = Number(new URLSearchParams(q || "").get("line")) || 0;
     if (p === "/tasks") return { view: "tasks", line: 0 };
+    if (p === "/activity") return { view: "activity", line: 0 };
     if (p.startsWith("/note/")) return { view: "note", path: dec(p.slice(6)), line };
     if (p.startsWith("/folder/")) return { view: "folder", path: dec(p.slice(8)), line: 0 };
     return null;
@@ -77,6 +78,8 @@
     markActive();
     if (r.view === "tasks") {
       await renderTasks();
+    } else if (r.view === "activity") {
+      await renderActivity(keepScroll);
     } else if (r.view === "folder") {
       await renderFolder(r.path);
     } else {
@@ -146,8 +149,10 @@
       if (!li || current.view !== "note") return;
       path = current.path; line = Number(li.dataset.line);
     }
-    try { await post("/api/toggle", { path, line }); }
-    catch (err) {
+    try {
+      await post("/api/toggle", { path, line });
+      if (cb.checked) celebrate(cb);
+    } catch (err) {
       cb.checked = !cb.checked;
       const t = cb.closest(".task");
       if (t) t.classList.toggle("done", cb.checked);
@@ -265,6 +270,204 @@
     hiddenCats = everyOn ? new Set((note._chips || []).map((c) => c.key)) : new Set();
     saveHidden();
   });
+
+  // ── activity: calendar heatmap, streaks, milestones and the weekly chart ──
+  const MILESTONES = [[10, "Getting going"], [25, "On a roll"], [50, "Task slayer"], [100, "Centurion"], [250, "Unstoppable"], [500, "Legend"], [1000, "Mythic"]];
+  const FULLDAY = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const DOW = ["Mon", "", "Wed", "", "Fri", "", ""];
+  const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const dayOf = (iso) => new Date(iso + "T00:00:00");
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const fmtAvg = (n) => (Math.round(n * 10) / 10).toString();
+  let actMetric = store.get("actMetric", "both");
+
+  function levelOf(n) { return n <= 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4; }
+  const metricVal = (d) => !d ? 0 : actMetric === "done" ? d.done : actMetric === "created" ? d.created : d.done + d.created;
+
+  function heatmapSvg(a) {
+    const today = dayOf(a.today), C = 12, G = 3, left = 28, top = 18;
+    const start = new Date(today); start.setDate(start.getDate() - ((start.getDay() + 6) % 7) - 52 * 7);
+    let cells = "", months = "", lastMonth = -1;
+    for (let w = 0; w < 53; w++) {
+      for (let r = 0; r < 7; r++) {
+        const d = new Date(start); d.setDate(d.getDate() + w * 7 + r);
+        if (d > today) continue;
+        const iso = isoOf(d), st = a.days[iso] || { done: 0, created: 0 };
+        if (r === 0 && d.getMonth() !== lastMonth && d.getDate() <= 7) {
+          months += `<text x="${left + w * (C + G)}" y="10" class="hm-label">${d.toLocaleDateString(undefined, { month: "short" })}</text>`;
+          lastMonth = d.getMonth();
+        }
+        cells += `<rect class="hm-cell l${levelOf(metricVal(st))}${iso === a.today ? " today" : ""}" x="${left + w * (C + G)}" y="${top + r * (C + G)}" width="${C}" height="${C}" rx="3" data-d="${iso}" data-done="${st.done}" data-created="${st.created}"/>`;
+      }
+    }
+    const dows = DOW.map((n, r) => n ? `<text x="0" y="${top + r * (C + G) + 10}" class="hm-label">${n}</text>` : "").join("");
+    const W = left + 53 * (C + G);
+    return `<svg class="heatmap" viewBox="0 0 ${W} ${top + 7 * (C + G)}" role="img" aria-label="Calendar of tasks done and created over the last year">${months}${dows}${cells}</svg>`;
+  }
+
+  function weeklySvg(a) {
+    const W = 640, H = 220, L = 34, B = 26, T = 14, n = a.weeks.length, slot = (W - L) / n, bw = Math.min(30, slot * .62);
+    const max = Math.max(1, ...a.weeks.map((w) => w.avg_done + w.avg_created));
+    const top = Math.max(1, Math.ceil(max)), y = (v) => T + (H - T - B) * (1 - v / top);
+    let g = "";
+    for (let i = 0; i <= top; i += Math.max(1, Math.ceil(top / 4))) g += `<line class="wk-grid" x1="${L}" x2="${W}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${i}</text>`;
+    const bars = a.weeks.map((w, i) => {
+      const x = L + i * slot + (slot - bw) / 2, last = i === n - 1;
+      const dh = (H - T - B) * w.avg_done / top, ch = (H - T - B) * w.avg_created / top;
+      const base = y(0);
+      const doneRect = dh > 0 ? `<rect class="wk-done${last ? " live" : ""}" x="${x}" y="${base - dh}" width="${bw}" height="${dh}" rx="4"/>` : "";
+      const madeRect = ch > 0 ? `<rect class="wk-made${last ? " live" : ""}" x="${x}" y="${base - dh - ch - (dh > 0 ? 2 : 0)}" width="${bw}" height="${ch}" rx="4"/>` : "";
+      const label = dayOf(w.start).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      return `<g class="wk" data-i="${i}"><rect class="wk-hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T}"/>${doneRect}${madeRect}` +
+        `<text class="hm-label" x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${i === n - 1 ? "now" : label}</text></g>`;
+    }).join("");
+    return `<svg class="weekly" viewBox="0 0 ${W} ${H}" role="img" aria-label="Average tasks per day, by week">${g}${bars}</svg>`;
+  }
+
+  function weekdaySvg(a) {
+    const W = 640, H = 190, L = 34, B = 26, T = 14, n = 7, slot = (W - L) / n, bw = Math.min(38, slot * .62);
+    const max = Math.max(1, ...a.weekdays.map((w) => w.avg_done + w.avg_created));
+    const top = Math.max(1, Math.ceil(max)), y = (v) => T + (H - T - B) * (1 - v / top), base = y(0);
+    let g = "";
+    for (let i = 0; i <= top; i += Math.max(1, Math.ceil(top / 4))) g += `<line class="wk-grid" x1="${L}" x2="${W}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${i}</text>`;
+    const bars = a.weekdays.map((w, i) => {
+      const x = L + i * slot + (slot - bw) / 2, dh = (H - T - B) * w.avg_done / top, ch = (H - T - B) * w.avg_created / top, best = i === a.best_weekday;
+      return `<g class="wd" data-i="${i}"><rect class="wk-hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T}"/>` +
+        (dh > 0 ? `<rect class="wk-done${best ? " best" : ""}" x="${x}" y="${base - dh}" width="${bw}" height="${dh}" rx="4"/>` : "") +
+        (ch > 0 ? `<rect class="wk-made" x="${x}" y="${base - dh - ch - (dh > 0 ? 2 : 0)}" width="${bw}" height="${ch}" rx="4"/>` : "") +
+        `<text class="hm-label${best ? " best" : ""}" x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${w.name}</text></g>`;
+    }).join("");
+    return `<svg class="weekly" viewBox="0 0 ${W} ${H}" role="img" aria-label="Average tasks done and made per day of the week">${g}${bars}</svg>`;
+  }
+
+  function countUp(el, to, animate) {
+    if (!animate || matchMedia("(prefers-reduced-motion: reduce)").matches || to < 1) { el.textContent = to; return; }
+    const t0 = performance.now(), dur = 900;
+    const step = (t) => { const k = Math.min(1, (t - t0) / dur); el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  }
+
+  function distSvg(d) {
+    const cap = 12, W = 640, H = 200, L = 34, B = 26, T = 22, n = Math.min(d.counts.length, cap + 1);
+    const counts = d.counts.slice(0, n).map((c, i) => (i === cap ? d.counts.slice(cap).reduce((x, y) => x + y, 0) : c));
+    const slot = (W - L) / Math.max(n, 6), bw = Math.min(34, slot * .7);
+    const top = Math.max(1, ...counts), y = (v) => T + (H - T - B) * (1 - v / top), base = y(0);
+    const cx = (v) => L + slot * (Math.min(v, cap) + .5);
+    let g = "";
+    for (let i = 0; i <= top; i += Math.max(1, Math.ceil(top / 4))) g += `<line class="wk-grid" x1="${L}" x2="${W}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${i}</text>`;
+    const bars = counts.map((c, i) => {
+      const h = base - y(c), x = cx(i) - bw / 2, isToday = Math.min(d.today, cap) === i;
+      return `<g class="ds" data-n="${i}"><rect class="wk-hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T}"/>` +
+        (c > 0 ? `<rect class="wk-done${isToday ? " best" : " dim"}" x="${x}" y="${y(c)}" width="${bw}" height="${h}" rx="4"/>` : "") +
+        `<text class="hm-label${isToday ? " best" : ""}" x="${cx(i)}" y="${H - 8}" text-anchor="middle">${i === cap ? cap + "+" : i}</text></g>`;
+    }).join("");
+    const mark = (v, label, cls, dy) => `<line class="ds-mark ${cls}" x1="${cx(v)}" x2="${cx(v)}" y1="${T - 4}" y2="${base}"/><text class="hm-label ds-lbl" x="${cx(v) + 4}" y="${T + dy}">${label}</text>`;
+    return `<svg class="weekly" viewBox="0 0 ${W} ${H}" role="img" aria-label="Histogram of tasks done per day">${g}${bars}${mark(d.median, "median", "med", 6)}${d.sigma > 0 ? mark(d.mean + d.sigma, "1 sigma", "sig", 6) : ""}</svg>`;
+  }
+
+  function distText(d) {
+    if (d.days < 2) return "Needs a couple of finished days to compare against.";
+    const med = d.to_median > 0 ? `${plural(d.to_median, "task")} away from being better than the median` : "already better than the median";
+    const sig = d.to_sigma > 0 ? `${plural(d.to_sigma, "task")} away from 1 sigma` : "already past 1 sigma";
+    return `${med}, ${sig}`.replace(/^./, (c) => c.toUpperCase());
+  }
+
+  async function renderActivity(keepScroll) {
+    const a = await api("/api/activity");
+    note.className = "note activity";
+    backlinks.hidden = true;
+    document.title = "Activity — notesview";
+    const wk = a.weeks[a.weeks.length - 1];
+    const today = a.days[a.today] || { done: 0, created: 0 };
+    const next = MILESTONES.find(([m]) => m > a.total_done), prior = [...MILESTONES].reverse().find(([m]) => m <= a.total_done);
+    const rank = prior ? prior[1] : "Fresh start";
+    const pct = next ? Math.round(100 * (a.total_done - (prior ? prior[0] : 0)) / (next[0] - (prior ? prior[0] : 0))) : 100;
+    const streakMsg = a.streak > 0 ? (today.done > 0 ? "Keep it going tomorrow" : "Finish one today to keep it") : "Finish a task to start one";
+
+    note.innerHTML = `<h1>Activity</h1>
+      <div class="act-tiles">
+        <div class="tile hero"><small>Tasks completed</small><div class="big" id="act-total">${a.total_done}</div>
+          <span class="sub">+${wk.done} this week${a.total_created ? ` · ${a.total_created} created in all` : ""}</span></div>
+        <div class="tile"><small>Streak</small><div class="big">🔥 ${a.streak}<em>${a.streak === 1 ? "day" : "days"}</em></div>
+          <span class="sub">${streakMsg} · best ${a.best_streak}</span></div>
+        <div class="tile"><small>Today</small><div class="big">${today.done}<em>done</em></div>
+          <span class="sub">${today.created} made</span></div>
+      </div>
+      <div class="level"><span class="rank">${esc(rank)}</span>
+        <div class="bar${next ? "" : " full"}"><i style="width:${pct}%"></i></div>
+        <span class="sub">${next ? `${next[0] - a.total_done} more to <b>${esc(next[1])}</b> (${next[0]})` : "Top rank reached"}</span></div>
+      <div class="act-head"><div class="task-filter act-metric">
+        ${[["both", "Done + made"], ["done", "Done"], ["created", "Made"]].map(([k, l]) => `<button data-metric="${k}" class="${actMetric === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="hm-wrap">${heatmapSvg(a)}</div>
+      <div class="hm-legend">Less ${[0, 1, 2, 3, 4].map((l) => `<i class="hm-cell l${l}"></i>`).join("")} More</div>
+      <h2>Weekly</h2>
+      <div class="wk-legend"><span><i class="sw done"></i>Done</span><span><i class="sw made"></i>Made</span></div>
+      <div class="wk-wrap">${weeklySvg(a)}</div>
+      <h2>Daily</h2>
+      <div class="wk-wrap">${weekdaySvg(a)}</div>
+      <h2>Distribution</h2>
+      <p class="act-note" style="margin:-2px 0 4px">${esc(distText(a.distribution))}</p>
+      ${a.distribution.days ? `<div class="wk-wrap">${distSvg(a.distribution)}</div>` : ""}
+      ${a.earlier ? `<p class="act-note">${plural(a.earlier, "task")} completed before tracking began count toward your total but not the calendar.</p>` : ""}`;
+    countUp($("#act-total"), a.total_done, !keepScroll);
+    note._activity = a;
+  }
+
+  // metric switch, tooltips
+  const tip = document.createElement("div");
+  tip.className = "act-tip"; tip.hidden = true; document.body.appendChild(tip);
+  const showTip = (e, html) => { tip.innerHTML = html; tip.hidden = false; const w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX - w / 2)) + "px"; tip.style.top = e.clientY - tip.offsetHeight - 14 + "px"; };
+  note.addEventListener("mousemove", (e) => {
+    const c = e.target.closest && e.target.closest(".hm-cell[data-d]"), w = e.target.closest && e.target.closest("g.wk"), wd = e.target.closest && e.target.closest("g.wd"), ds = e.target.closest && e.target.closest("g.ds");
+    if (c) {
+      const d = Number(c.dataset.done), m = Number(c.dataset.created);
+      showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}`);
+    } else if (w && note._activity) {
+      const k = note._activity.weeks[Number(w.dataset.i)];
+      showTip(e, `<b>Week of ${dayOf(k.start).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</b><br>${fmtAvg(k.avg_done)} done / day (${k.done} in ${plural(k.days, "day")})<br>${fmtAvg(k.avg_created)} made / day (${k.created})<br>Running total ${k.total}`);
+    } else if (wd && note._activity) {
+      const k = note._activity.weekdays[Number(wd.dataset.i)];
+      showTip(e, `<b>${FULLDAY[Number(wd.dataset.i)]}s</b><br>${fmtAvg(k.avg_done)} done on average (${k.done} over ${plural(k.count, "day")})<br>${fmtAvg(k.avg_created)} made on average (${k.created})`);
+    } else if (ds && note._activity) {
+      const d = note._activity.distribution, n = Number(ds.dataset.n), cap = 12;
+      const days = n === cap ? d.counts.slice(cap).reduce((x, y) => x + y, 0) : d.counts[n] || 0;
+      showTip(e, `<b>${n === cap ? cap + "+" : n} ${n === 1 ? "task" : "tasks"} a day</b><br>${plural(days, "day")} of ${d.days}`);
+    } else tip.hidden = true;
+  });
+  note.addEventListener("mouseleave", () => { tip.hidden = true; });
+  note.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest(".act-metric button");
+    if (b) { actMetric = b.dataset.metric; store.set("actMetric", actMetric); show(current, true); }
+  });
+
+  // ── rewards: confetti when a task is ticked; a toast for milestones ──
+  function celebrate(cb) {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const r = cb.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const colors = ["var(--accent)", "var(--c-tip)", "var(--c-warning)", "var(--c-important)", "var(--c-danger)"];
+    for (let i = 0; i < 16; i++) {
+      const p = document.createElement("i");
+      p.className = "confetti";
+      p.style.cssText = `left:${cx}px;top:${cy}px;background:${colors[i % colors.length]}`;
+      document.body.appendChild(p);
+      const a = Math.random() * Math.PI * 2, d = 24 + Math.random() * 40;
+      p.animate([{ transform: "translate(0,0) scale(1)", opacity: 1 },
+        { transform: `translate(${Math.cos(a) * d}px,${Math.sin(a) * d - 18}px) rotate(${Math.random() * 360}deg) scale(1)`, opacity: 1, offset: .6 },
+        { transform: `translate(${Math.cos(a) * d * 1.1}px,${Math.sin(a) * d + 24}px) rotate(${Math.random() * 540}deg) scale(.6)`, opacity: 0 }],
+        { duration: 700 + Math.random() * 250, easing: "cubic-bezier(.2,.7,.4,1)" }).onfinish = () => p.remove();
+    }
+    api("/api/activity").then((a) => {
+      const m = MILESTONES.find(([n]) => n === a.total_done);
+      if (m) toast(`${a.total_done} tasks done: ${m[1]}`);
+    }).catch(() => {});
+  }
+  function toast(msg) {
+    const el = document.createElement("div");
+    el.className = "toast"; el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.classList.add("out"), 2600);
+    setTimeout(() => el.remove(), 3100);
+  }
 
   // ── folder pages (generated, nothing on disk) ──
   async function renderFolder(path) {
@@ -390,6 +593,7 @@
     }
   });
   $("#btn-tasks").onclick = () => { location.hash = "#/tasks"; };
+  $("#btn-activity").onclick = () => { location.hash = "#/activity"; };
   $("#btn-today").onclick = goToday;
   // creates today's daily note (with carry-over) if it doesn't exist yet
   async function goToday() { const t = await post("/api/daily", {}); go(t.path); }
@@ -407,6 +611,7 @@
         search.focus(); search.select();
         break;
       case "t": location.hash = "#/tasks"; break;
+      case "a": location.hash = "#/activity"; break;
       case "g": goToday(); break;
       case "b": toggleSidebar(); break;
       default: return;
@@ -415,7 +620,7 @@
 
   // ── live updates ──
   function connect() {
-    const es = new EventSource("/events");
+    const es = new EventSource("/events" + (new URLSearchParams(location.search).get("app") === "1" ? "?app=1" : ""));
     es.addEventListener("change", (e) => {
       let m = {};
       try { m = JSON.parse(e.data); } catch (err) {}

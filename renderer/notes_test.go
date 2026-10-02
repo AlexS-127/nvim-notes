@@ -118,9 +118,10 @@ func TestToggleChangesOnlyOneLine(t *testing.T) {
 			t.Fatalf("after toggling line %d:\n got %q\nwant %q", line, b, want)
 		}
 	}
-	check(2, "# T\r\n- [x] a\r\n- [x] b\n  - [ ] c\nlast line no newline")
-	check(3, "# T\r\n- [x] a\r\n- [ ] b\n  - [ ] c\nlast line no newline")
-	check(4, "# T\r\n- [x] a\r\n- [ ] b\n  - [x] c\nlast line no newline")
+	st := " ✅ " + time.Now().Format(isoDate)
+	check(2, "# T\r\n- [x] a"+st+"\r\n- [x] b\n  - [ ] c\nlast line no newline")
+	check(3, "# T\r\n- [x] a"+st+"\r\n- [ ] b\n  - [ ] c\nlast line no newline")
+	check(4, "# T\r\n- [x] a"+st+"\r\n- [ ] b\n  - [x] c"+st+"\nlast line no newline")
 	if err := s.ToggleCheckbox("n.md", 1); err == nil {
 		t.Error("toggling a non-task line should fail")
 	}
@@ -319,7 +320,7 @@ func TestCustomCSSChangeTriggersReload(t *testing.T) {
 	defer stop()
 	ch := make(chan event, 4)
 	srv.mu.Lock()
-	srv.clients[ch] = struct{}{}
+	srv.clients[ch] = true
 	srv.mu.Unlock()
 	if err := os.WriteFile(target, []byte(":root { --font-size: 20px; }"), 0o644); err != nil {
 		t.Fatal(err)

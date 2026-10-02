@@ -44,6 +44,7 @@ type Task struct {
 	TopicName    string   `json:"topic_name,omitempty"`
 	Tags         []string `json:"tags"`
 	Group        string   `json:"group"`
+	DoneDate     string   `json:"done,omitempty"` // ✅ YYYY-MM-DD stamp, set when the task is ticked
 	HTML         string   `json:"html,omitempty"` // Display rendered as inline markdown (viewer only)
 }
 
@@ -139,8 +140,9 @@ func ParseTasks(rel string, src []byte, idx *FolderIndex) []Task {
 		if !ok {
 			continue
 		}
-		t := Task{File: rel, Title: title, Line: i + 1, Indent: indent, State: state, Text: text}
+		t := Task{File: rel, Title: title, Line: i + 1, Indent: indent, State: state}
 		var shown string // the tag that placed it, hidden from Display
+		t.DoneDate, text = splitDoneStamp(text)
 		t.Due, t.Tags = scanTask(text)
 		f, ok := idx.ForPath(rel)
 		if !ok {
@@ -158,6 +160,7 @@ func ParseTasks(rel string, src []byte, idx *FolderIndex) []Task {
 			t.setFolder(f)
 		}
 		parents = append(parents, parent{indent, f, ok})
+		t.Text = text
 		t.Display = displayText(text, t.Due, shown)
 		out = append(out, t)
 	}

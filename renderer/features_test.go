@@ -139,7 +139,7 @@ func TestWatcherReportsTreeChanges(t *testing.T) {
 	defer stop()
 	ch := make(chan event, 16)
 	srv.mu.Lock()
-	srv.clients[ch] = struct{}{}
+	srv.clients[ch] = true
 	srv.mu.Unlock()
 	wait := func(what string) event {
 		t.Helper()

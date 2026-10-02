@@ -34,7 +34,7 @@ type Server struct {
 	css   string // path of custom.css, watched for live reloads
 
 	mu         sync.Mutex
-	clients    map[chan event]struct{}
+	clients    map[chan event]bool // value: connected from a window we launched (?app=1)
 	current    showMsg
 	lastLaunch time.Time
 }
@@ -54,7 +54,7 @@ func configDir() string {
 }
 
 func NewServer(store *Store, port int) *Server {
-	return &Server{store: store, port: port, css: filepath.Join(configDir(), "custom.css"), clients: map[chan event]struct{}{}}
+	return &Server{store: store, port: port, css: filepath.Join(configDir(), "custom.css"), clients: map[chan event]bool{}}
 }
 
 func (s *Server) broadcast(e event) {
@@ -105,6 +105,10 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("/api/tree", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.store.Tree()) })
 	mux.HandleFunc("/api/tasks", s.handleTasks)
+	mux.HandleFunc("/api/activity", func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now()
+		writeJSON(w, BuildActivity(s.store.CollectTasks(TaskQuery{All: true, Now: now}), now, 12))
+	})
 	mux.HandleFunc("/api/folders", func(w http.ResponseWriter, r *http.Request) {
 		list := s.store.Folders().List
 		if list == nil {
@@ -285,7 +289,7 @@ func (s *Server) handleShow(w http.ResponseWriter, r *http.Request) {
 	req.Path = rel
 	s.mu.Lock()
 	s.current = req
-	launch := len(s.clients) == 0 && time.Since(s.lastLaunch) > 8*time.Second
+	launch := !s.hasAppClient() && time.Since(s.lastLaunch) > 8*time.Second
 	if launch {
 		s.lastLaunch = time.Now()
 	}
@@ -326,6 +330,17 @@ func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
+// hasAppClient reports whether a viewer window we launched is connected; stray
+// tabs (an old browser tab, a stale connection) don't count. Caller holds s.mu.
+func (s *Server) hasAppClient() bool {
+	for _, app := range s.clients {
+		if app {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
@@ -336,7 +351,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	ch := make(chan event, 16)
 	s.mu.Lock()
-	s.clients[ch] = struct{}{}
+	s.clients[ch] = r.URL.Query().Get("app") == "1"
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()

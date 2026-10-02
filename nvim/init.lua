@@ -283,8 +283,16 @@ end
 
 local function toggle_checkbox_line(line)
   if line:match("^%s*[-*+] %[>%]") then return line end   -- moved to a later note: leave it
-  if line:match("^%s*[-*+] %[ %]") then return (line:gsub("%[ %]", "[x]", 1)) end
-  if line:match("^%s*[-*+] %[[xX]%]") then return (line:gsub("%[[xX]%]", "[ ]", 1)) end
+  -- ticking stamps the day (✅ YYYY-MM-DD) for the viewer's Activity view; unticking removes it
+  if line:match("^%s*[-*+] %[ %]") then
+    local l = line:gsub("%[ %]", "[x]", 1)
+    if not l:find("✅ %d%d%d%d%-%d%d%-%d%d") then l = l:gsub("%s+$", "") .. " ✅ " .. os.date("%Y-%m-%d") end
+    return l
+  end
+  if line:match("^%s*[-*+] %[[xX]%]") then
+    local l = line:gsub("%[[xX]%]", "[ ]", 1)
+    return (l:gsub("%s*✅ %d%d%d%d%-%d%d%-%d%d", ""))
+  end
   if line:match("^%s*[-*+] ") then return (line:gsub("^(%s*[-*+] )", "%1[ ] ", 1)) end
   return (line:gsub("^(%s*)", "%1- [ ] ", 1))
 end
