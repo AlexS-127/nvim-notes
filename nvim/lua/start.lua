@@ -123,6 +123,16 @@ function M.setup()
   vim.keymap.set("n", "<leader>H", function() starter.open() end, { desc = "Home (start page)" })
   vim.api.nvim_create_user_command("Home", function() starter.open() end, {})
 
+  -- The start buffer is named after creation; swap-file setup for "ministarter://..." sometimes
+  -- fails (E303) and aborts the page. It never needs a swap file, so switch it off just before naming.
+  vim.api.nvim_create_autocmd("BufFilePre", {
+    callback = function(ev)
+      if vim.api.nvim_buf_get_name(ev.buf) == "" and vim.bo[ev.buf].buftype == "" then
+        vim.bo[ev.buf].swapfile = false
+      end
+    end,
+  })
+
   vim.api.nvim_create_autocmd("FocusGained", { callback = load_tasks })  -- fresh tasks when you come back
 
   -- mini.starter turns letters into a search query; give them back as direct keys.
