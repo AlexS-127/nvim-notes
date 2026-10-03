@@ -407,7 +407,7 @@ func TestInteractiveCapture(t *testing.T) {
 	s := sampleNotes(t, nil)
 
 	// a topic and a natural date, with a typo first
-	line, out, err := run(s, "", "read ch 6\nsomeday\nfri\n\n", "act-200/chapter-6")
+	line, out, err := run(s, "", "read ch 6\nsomeday\nfri\n\n\n", "act-200/chapter-6")
 	if err != nil || line != "- [ ] read ch 6 #act-200/chapter-6 @2026-10-02 _(Oct 01 12:00)_" {
 		t.Errorf("topic capture: %q %v\n%s", line, err, out)
 	}
@@ -415,18 +415,18 @@ func TestInteractiveCapture(t *testing.T) {
 		t.Errorf("prompts:\n%s", out)
 	}
 	// a category, changing the date at the confirmation
-	line, out, _ = run(s, "", "email prof\ntomorrow\noct6\n\n", "act-200")
-	if line != "- [ ] email prof #act-200 @2026-10-06 _(Oct 01 12:00)_" {
+	line, out, _ = run(s, "", "email prof\ntomorrow\noct6\n\n7\n3\n", "act-200")
+	if line != "- [ ] email prof #act-200 @2026-10-06 !3 _(Oct 01 12:00)_" {
 		t.Errorf("category capture: %q\n%s", line, out)
 	}
 	// skip both (Esc in the picker, empty date); prefilled text
-	line, out, _ = run(s, "call mom", "\n", "")
+	line, out, _ = run(s, "call mom", "\n\n", "")
 	if line != "- [ ] call mom _(Oct 01 12:00)_" || !strings.Contains(out, "Task: call mom") || !strings.Contains(out, "Folder: none") {
 		t.Errorf("skip both: %q\n%s", line, out)
 	}
 	// text that already has a tag and date skips those steps
-	line, out, _ = run(s, "pay rent #personal @mon", "", "SHOULD NOT BE ASKED")
-	if line != "- [ ] pay rent #personal @2026-10-05 _(Oct 01 12:00)_" || strings.Contains(out, "Due (") {
+	line, out, _ = run(s, "pay rent #personal @mon !2", "", "SHOULD NOT BE ASKED")
+	if line != "- [ ] pay rent #personal @2026-10-05 !2 _(Oct 01 12:00)_" || strings.Contains(out, "Due (") || strings.Contains(out, "Difficulty (") {
 		t.Errorf("pre-answered: %q\n%s", line, out)
 	}
 	// Ctrl+D at the first prompt saves nothing
@@ -477,15 +477,21 @@ func TestCLICommands(t *testing.T) {
 		t.Errorf("capture: %q", out)
 	}
 	t.Setenv("PATH", "") // no fzf: the numbered list reads the folder from stdin
-	if out, code := run("water plants\n\n\n", "capture", "-i", "--dir", dir); code != 0 || !strings.Contains(out, "Added to inbox: - [ ] water plants _(") {
+	if out, code := run("water plants\n\n\n\n", "capture", "-i", "--dir", dir); code != 0 || !strings.Contains(out, "Added to inbox: - [ ] water plants _(") {
 		t.Errorf("capture -i: %q", out)
+	}
+	if out, code := run("", "capture", "--dir", dir, "--difficulty", "2", "--", "lab report"); code != 0 || !strings.Contains(out, "lab report !2 _(") {
+		t.Errorf("capture --difficulty: %q", out)
+	}
+	if _, code := run("", "capture", "--dir", dir, "--difficulty", "4", "--", "x"); code == 0 {
+		t.Error("difficulty 4 should fail")
 	}
 	if out, _ := run("", "capture", "--parse", "--dir", dir, "--", "x @fri #ACT-200 #urgent"); !strings.Contains(out, `"folder":"act-200"`) || !strings.Contains(out, `"due":"`+today.AddDate(0, 0, 0).Format("2006")) {
 		t.Errorf("capture --parse: %q", out)
 	}
 	out, _ = run("", "tasks", "--json", "--dir", dir)
 	var tasks []Task
-	if err := json.Unmarshal([]byte(out), &tasks); err != nil || len(tasks) != 5 {
+	if err := json.Unmarshal([]byte(out), &tasks); err != nil || len(tasks) != 6 {
 		t.Fatalf("tasks --json: %q %v", out, err)
 	}
 	out, _ = run("", "folders", "--json", "--dir", dir)
@@ -534,5 +540,19 @@ func TestTasksFolderAndDailyAPI(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"created":true`) {
 		t.Errorf("daily: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDifficulty(t *testing.T) {
+	src := []byte("- [ ] essay !3 @2026-10-06\n- [ ] wow!2 and `!1` code\n- [ ] big !10\n- [x] easy !1 ✅ 2026-10-01\n")
+	got := ParseTasks("a.md", src, nil)
+	want := []struct {
+		diff    int
+		display string
+	}{{3, "essay"}, {0, "wow!2 and `!1` code"}, {0, "big !10"}, {1, "easy"}}
+	for i, w := range want {
+		if got[i].Difficulty != w.diff || got[i].Display != w.display {
+			t.Errorf("task %d: difficulty %d display %q, want %d %q", i, got[i].Difficulty, got[i].Display, w.diff, w.display)
+		}
 	}
 }

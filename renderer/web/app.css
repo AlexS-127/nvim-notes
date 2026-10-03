@@ -198,6 +198,8 @@ body.sidebar-collapsed .note.tasks { padding-left: 56px; }
 a.tag-folder:hover { border-color: var(--accent); }
 .tag-folder.colored { background: color-mix(in srgb, var(--tc) 16%, transparent); color: var(--tc); border-color: color-mix(in srgb, var(--tc) 40%, transparent); }
 a.tag-folder.colored:hover { border-color: var(--tc); }
+.diff { font-size: 10px; letter-spacing: 1px; white-space: nowrap; color: var(--muted); vertical-align: 1px; }
+.diff-3 { color: var(--overdue); }
 .due { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .due.overdue { color: var(--overdue); font-weight: 600; }
 .task a.src { font-size: 12px; color: var(--muted); text-decoration: none; white-space: nowrap; max-width: 16em;

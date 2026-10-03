@@ -16,7 +16,7 @@ vim.g.maplocalleader = " "
 local NOTES = vim.fn.expand((vim.env.NOTES_DIR and vim.env.NOTES_DIR ~= "") and vim.env.NOTES_DIR or "~/notes")
 local uv = vim.uv or vim.loop
 -- Oldest notesview this config works with. Bump together with `version` in renderer/main.go.
-local NOTESVIEW_MIN_VERSION = "0.2.0"
+local NOTESVIEW_MIN_VERSION = "0.4.0"
 
 -- ── Options ──────────────────────────────────────────────────────
 local o = vim.opt
@@ -490,6 +490,18 @@ local function ask_due(cb)
   end)
 end
 
+local function ask_difficulty(cb)
+  vim.ui.input({ prompt = "Difficulty (1-3, 3 hardest — empty to skip): " }, function(answer)
+    answer = vim.trim((answer or ""):gsub("^!", ""))
+    if answer == "" then return cb("") end
+    if not answer:match("^[123]$") then
+      vim.notify(('Difficulty must be 1, 2 or 3, not "%s"'):format(answer), vim.log.levels.WARN)
+      return ask_difficulty(cb)
+    end
+    cb(answer)
+  end)
+end
+
 local function capture_to_inbox()
   vim.ui.input({ prompt = "Task: " }, function(text)
     if not text or vim.trim(text) == "" then return end
@@ -503,10 +515,17 @@ local function capture_to_inbox()
     end
     local parsed = nv_json({ "capture", "--parse", "--dir", NOTES, "--", text }) or {}
     local function save(folder, due)
-      local out, err = nv_sync({ "capture", "--dir", NOTES, "--folder", folder or "", "--due", due or "", "--", text })
-      if not out then return vim.notify("Capture failed: " .. err, vim.log.levels.ERROR) end
-      vim.cmd("checktime")
-      vim.notify(vim.trim(out))
+      local function write(diff)
+        local args = { "capture", "--dir", NOTES, "--folder", folder or "", "--due", due or "" }
+        if diff ~= "" then vim.list_extend(args, { "--difficulty", diff }) end
+        vim.list_extend(args, { "--", text })
+        local out, err = nv_sync(args)
+        if not out then return vim.notify("Capture failed: " .. err, vim.log.levels.ERROR) end
+        vim.cmd("checktime")
+        vim.notify(vim.trim(out))
+      end
+      if parsed.difficulty and parsed.difficulty ~= 0 then return write("") end
+      ask_difficulty(write)
     end
     local function due_step(folder)
       if parsed.due and parsed.due ~= "" then return save(folder, "") end

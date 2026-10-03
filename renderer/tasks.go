@@ -37,8 +37,9 @@ type Task struct {
 	Text         string   `json:"text"`    // everything after the checkbox
 	Display      string   `json:"display"` // text without the due date and folder tag
 	Due          string   `json:"due,omitempty"`
-	Tag          string   `json:"tag,omitempty"`      // folder tag: act-200 or act-200/chapter-5
-	Category     string   `json:"category,omitempty"` // act-200
+	Difficulty   int      `json:"difficulty,omitempty"` // !1 (easy) to !3 (hardest); 0 when unset
+	Tag          string   `json:"tag,omitempty"`        // folder tag: act-200 or act-200/chapter-5
+	Category     string   `json:"category,omitempty"`   // act-200
 	CategoryName string   `json:"category_name,omitempty"`
 	Topic        string   `json:"topic,omitempty"` // chapter-5
 	TopicName    string   `json:"topic_name,omitempty"`
@@ -68,6 +69,7 @@ var (
 	// checkboxRe matches a list item with a checkbox: indent, state char, text.
 	checkboxRe = regexp.MustCompile(`^(\s*)[-*+] \[([ xX>])\](?:[ \t]+(.*?))?\s*$`)
 	dueRe      = regexp.MustCompile(`(^|[\s(\[])@(\d{4}-\d{2}-\d{2})\b`)
+	diffRe     = regexp.MustCompile(`(^|[\s(\[])!([123])\b`)
 	tagRe      = regexp.MustCompile(`(^|[\s(\[])#([\p{L}\p{N}][\p{L}\p{N}_/-]*)`)
 	inlineCode = regexp.MustCompile("`[^`]*`")
 	spacesRe   = regexp.MustCompile(`[ \t]{2,}`)
@@ -160,8 +162,12 @@ func ParseTasks(rel string, src []byte, idx *FolderIndex) []Task {
 			t.setFolder(f)
 		}
 		parents = append(parents, parent{indent, f, ok})
+		t.Difficulty = scanDifficulty(text)
 		t.Text = text
 		t.Display = displayText(text, t.Due, shown)
+		if t.Difficulty > 0 {
+			t.Display = stripDifficulty(t.Display)
+		}
 		out = append(out, t)
 	}
 	return out
@@ -182,6 +188,24 @@ func scanTask(text string) (due string, tags []string) {
 		}
 	}
 	return due, tags
+}
+
+// scanDifficulty finds a !1, !2 or !3 marker (3 is hardest), ignoring `code`.
+func scanDifficulty(text string) int {
+	scan := inlineCode.ReplaceAllStringFunc(text, func(s string) string { return strings.Repeat(" ", len(s)) })
+	if m := diffRe.FindStringSubmatch(scan); m != nil {
+		return int(m[2][0] - '0')
+	}
+	return 0
+}
+
+// stripDifficulty removes the difficulty marker, which the views show as a badge.
+func stripDifficulty(text string) string {
+	d := strings.TrimSpace(spacesRe.ReplaceAllString(diffRe.ReplaceAllString(text, "$1"), " "))
+	if d == "" {
+		return text
+	}
+	return d
 }
 
 // displayText drops the due date and folder tag, which the views show as

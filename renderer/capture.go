@@ -73,18 +73,39 @@ func askDue(ui *captureUI, now time.Time) (string, error) {
 	}
 }
 
+// askDifficulty loops until the answer is empty (none) or 1-3.
+func askDifficulty(ui *captureUI) (int, error) {
+	prompt := "Difficulty (1-3, 3 hardest — empty to skip): "
+	for {
+		answer, err := ui.ask(prompt)
+		if err != nil {
+			return 0, err
+		}
+		answer = strings.TrimSpace(strings.TrimPrefix(answer, "!"))
+		if answer == "" {
+			return 0, nil
+		}
+		if n, err := strconv.Atoi(answer); err == nil && n >= 1 && n <= 3 {
+			return n, nil
+		}
+		prompt = fmt.Sprintf("  Can't read %q. Difficulty (1-3, empty to skip): ", answer)
+	}
+}
+
 // CaptureParse says which capture steps the task text already answers:
 // a #tag naming a folder, an @date (natural dates are converted first).
 type CaptureParse struct {
 	Text   string `json:"text"`
-	Folder string `json:"folder"` // folder tag, or ""
-	Due    string `json:"due"`    // YYYY-MM-DD, or ""
+	Folder string `json:"folder"`     // folder tag, or ""
+	Due    string `json:"due"`        // YYYY-MM-DD, or ""
+	Diff   int    `json:"difficulty"` // 1-3, or 0
 }
 
 func ParseCaptureText(text string, idx *FolderIndex, now time.Time) CaptureParse {
 	p := CaptureParse{Text: ConvertNaturalDates(strings.TrimSpace(text), now)}
 	var tags []string
 	p.Due, tags = scanTask(p.Text)
+	p.Diff = scanDifficulty(p.Text)
 	for _, tag := range tags {
 		if f, ok := idx.ForTag(tag); ok {
 			p.Folder = f.Tag
@@ -129,7 +150,13 @@ func runCaptureInteractive(store *Store, prefill string, ui *captureUI, now time
 			return "", err
 		}
 	}
-	return store.Capture(CaptureOpts{Text: text, Folder: folder, Due: due}, now)
+	diff := parsed.Diff
+	if diff == 0 {
+		if diff, err = askDifficulty(ui); err != nil {
+			return "", err
+		}
+	}
+	return store.Capture(CaptureOpts{Text: text, Folder: folder, Due: due, Diff: diff}, now)
 }
 
 // terminalPicker picks a folder with fzf, or from a numbered list when fzf

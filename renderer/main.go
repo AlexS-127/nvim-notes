@@ -40,7 +40,7 @@ func defaultPort() int {
 // version is the notesview release. Release builds override it with
 // -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
 // relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
-var version = "0.3.0"
+var version = "0.4.0"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
@@ -50,7 +50,7 @@ func usage() {
   notesview tasks    [--json] [--all] [--dir DIR]      list open tasks
   notesview date     TEXT…                             convert @tomorrow, @fri, @oct6, @10/6, @+3d in TEXT
   notesview due      [--json] WHEN                     resolve one due date ("fri" → 2026-10-02, Fri Oct 2)
-  notesview capture  [-i] [--folder TAG] [--due WHEN] [--dir DIR] [TEXT…]
+  notesview capture  [-i] [--folder TAG] [--due WHEN] [--difficulty 1-3] [--dir DIR] [TEXT…]
                                                        add "- [ ] TEXT" to inbox.md (-i asks step by step;
                                                        --parse only reports what TEXT already answers)
   notesview folders  [--json] [--dir DIR]              list category and topic folders
@@ -129,6 +129,7 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 	dateFlag := fs.String("date", "", "date (YYYY-MM-DD), default today")
 	folder := fs.String("folder", "", "folder tag or path for the captured task")
 	due := fs.String("due", "", "due date for the captured task (fri, oct6, +3d, …)")
+	diff := fs.Int("difficulty", 0, "difficulty for the captured task (1-3, 3 hardest)")
 	interactive := fs.Bool("i", false, "capture step by step")
 	parse := fs.Bool("parse", false, "capture: only report which steps the text already answers (JSON)")
 	now := time.Now()
@@ -241,7 +242,7 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 				return 1
 			}
 		} else {
-			line, err = store.Capture(CaptureOpts{Text: text, Folder: *folder, Due: *due}, now)
+			line, err = store.Capture(CaptureOpts{Text: text, Folder: *folder, Due: *due, Diff: *diff}, now)
 		}
 		if err != nil {
 			return fail(err)

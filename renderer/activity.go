@@ -77,6 +77,8 @@ type DayStat struct {
 	Done    int `json:"done"`
 	Created int `json:"created"`
 	Study   int `json:"study"` // seconds of quiz time
+	// DoneBy counts completed tasks by difficulty: [0] has none set, [1]-[3] are !1-!3.
+	DoneBy [4]int `json:"-"`
 }
 
 type WeekStat struct {
@@ -196,6 +198,7 @@ func BuildActivity(tasks []Task, now time.Time, nWeeks int) Activity {
 			} else {
 				d := a.Days[t.DoneDate]
 				d.Done++
+				d.DoneBy[t.Difficulty]++
 				a.Days[t.DoneDate] = d
 			}
 		}

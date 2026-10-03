@@ -119,19 +119,23 @@ func TestAddStudy(t *testing.T) {
 }
 
 func TestScoreFor(t *testing.T) {
-	if s := scoreFor(0, 0, 0, 0, false); s.Total != 0 {
+	if s := scoreFor([4]int{}, 0, 0, 0, false); s.Total != 0 {
 		t.Errorf("empty day: %+v", s)
 	}
 	// 3 done (15) + 2 made (4) + 10 min quiz (20) - 2 overdue (20)
-	s := scoreFor(3, 2, 600, 2, true)
+	s := scoreFor([4]int{3}, 2, 600, 2, true)
 	if s.DonePts != 15 || s.CreatedPts != 4 || s.StudyPts != 20 || s.OverduePts != -20 || s.Total != 19 || !s.Live {
 		t.Errorf("score: %+v", s)
 	}
+	// done points depend on difficulty: 1 plain (5) + 2 easy (6) + 1 medium (6) + 1 hard (10)
+	if s := scoreFor([4]int{1, 2, 1, 1}, 0, 0, 0, false); s.Done != 5 || s.DonePts != 27 {
+		t.Errorf("difficulty points: %+v", s)
+	}
 	// each part is capped (100 + 30 + 100), the penalty at -100, and the total never goes below 0
-	if s := scoreFor(20, 20, 3*3600, 0, false); s.Total != 230 {
+	if s := scoreFor([4]int{20}, 20, 3*3600, 0, false); s.Total != 230 {
 		t.Errorf("max: %+v", s)
 	}
-	if s := scoreFor(1, 0, 0, 50, false); s.OverduePts != -100 || s.Total != 0 {
+	if s := scoreFor([4]int{1}, 0, 0, 50, false); s.OverduePts != -100 || s.Total != 0 {
 		t.Errorf("penalty cap and floor: %+v", s)
 	}
 }
@@ -176,7 +180,7 @@ func TestRecordScore(t *testing.T) {
 	if len(p) != 2 || p[1].Total != 10 || p[1].At != "2026-10-01T10:00:00" {
 		t.Errorf("change: %+v", p)
 	}
-	if h := scoreHints(); h.Done != "5 each, up to 100" || h.Study != "2 a minute, up to 100" {
+	if h := scoreHints(); h.Done != "5 each (difficulty 1: 3, 2: 6, 3: 10), up to 100" || h.Study != "2 a minute, up to 100" {
 		t.Errorf("hints: %+v", h)
 	}
 }

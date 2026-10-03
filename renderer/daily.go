@@ -233,6 +233,7 @@ type CaptureOpts struct {
 	Text   string // the task (natural @dates in it are converted)
 	Folder string // folder tag or path; "" or "none" for no folder
 	Due    string // natural or ISO due date; "" for none
+	Diff   int    // difficulty 1-3; 0 for none (or whatever the text already says)
 }
 
 // BuildCapture turns the answers into the task line (without the "- [ ] "
@@ -275,6 +276,14 @@ func buildCapture(o CaptureOpts, idx *FolderIndex, now time.Time) (text string, 
 			text = strings.Replace(text, "@"+old, "@"+iso, 1)
 		} else {
 			text += " @" + iso
+		}
+	}
+	if o.Diff != 0 {
+		if o.Diff < 1 || o.Diff > 3 {
+			return "", nil, fmt.Errorf("difficulty must be 1, 2 or 3 (got %d)", o.Diff)
+		}
+		if scanDifficulty(text) == 0 {
+			text += fmt.Sprintf(" !%d", o.Diff)
 		}
 	}
 	return text, create, nil

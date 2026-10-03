@@ -204,7 +204,7 @@
   function taskRow(t, today) {
     const due = t.due ? `<span class="due${t.group === "overdue" ? " overdue" : ""}">${esc(fmtDue(t.due, today))}</span>` : "";
     return `<div class="task"><input type="checkbox" data-path="${esc(t.file)}" data-line="${t.line}">` +
-      `<span class="task-text">${t.html || esc(t.display)}</span>${folderLabel(t)}${due || `<span class="due"></span>`}` +
+      `<span class="task-text">${t.html || esc(t.display)}${t.difficulty ? ` <span class="diff diff-${t.difficulty}" title="Difficulty ${t.difficulty} of 3">${"●".repeat(t.difficulty)}${"○".repeat(3 - t.difficulty)}</span>` : ""}</span>${folderLabel(t)}${due || `<span class="due"></span>`}` +
       `<a class="src" href="#/note/${enc(t.file)}?line=${t.line}" title="${esc(t.file)}:${t.line}">${esc(titleCase(t.title))}</a></div>`;
   }
 

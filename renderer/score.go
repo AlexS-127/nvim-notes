@@ -20,8 +20,14 @@ import (
 // A task is overdue at the end of a day when its due date is that day or earlier and it
 // was still open then. For today that is a projection: the tasks that would count against
 // you if the day ended now. The total never goes below zero.
+var scoreDonePts = [4]int{
+	5,  // task with no difficulty
+	3,  // difficulty 1 (easy)
+	6,  // difficulty 2
+	10, // difficulty 3 (hardest)
+}
+
 const (
-	scoreDonePts    = 5   // points per task completed
 	scoreDoneCap    = 100 // most points tasks completed can give
 	scoreCreatedPts = 2   // points per task created
 	scoreCreatedCap = 30  // most points tasks created can give
@@ -43,7 +49,8 @@ type ScoreHints struct {
 
 func scoreHints() ScoreHints {
 	return ScoreHints{
-		Done:    fmt.Sprintf("%d each, up to %d", scoreDonePts, scoreDoneCap),
+		Done: fmt.Sprintf("%d each (difficulty 1: %d, 2: %d, 3: %d), up to %d",
+			scoreDonePts[0], scoreDonePts[1], scoreDonePts[2], scoreDonePts[3], scoreDoneCap),
 		Created: fmt.Sprintf("%d each, up to %d", scoreCreatedPts, scoreCreatedCap),
 		Study:   fmt.Sprintf("%g a minute, up to %d", scoreQuizPerMin, scoreQuizCap),
 		Overdue: fmt.Sprintf("−%d each, up to −%d", scoreOverduePts, scoreOverdueCap),
@@ -73,9 +80,14 @@ func capInt(v, limit int) int {
 }
 
 // scoreFor turns one day's counts into a score.
-func scoreFor(done, created, studySecs, overdue int, live bool) Score {
+func scoreFor(doneBy [4]int, created, studySecs, overdue int, live bool) Score {
+	done, donePts := 0, 0
+	for d, n := range doneBy {
+		done += n
+		donePts += n * scoreDonePts[d]
+	}
 	s := Score{Live: live, Done: done, Created: created, Study: studySecs, Overdue: overdue}
-	s.DonePts = capInt(done*scoreDonePts, scoreDoneCap)
+	s.DonePts = capInt(donePts, scoreDoneCap)
 	s.CreatedPts = capInt(created*scoreCreatedPts, scoreCreatedCap)
 	s.StudyPts = capInt(int(math.Round(float64(studySecs)/60*scoreQuizPerMin)), scoreQuizCap)
 	s.OverduePts = -capInt(overdue*scoreOverduePts, scoreOverdueCap)
@@ -126,7 +138,7 @@ func (a *Activity) AddScores(tasks []Task, now time.Time) {
 			continue // a task stamped in the future
 		}
 		d := a.Days[k]
-		a.Scores[k] = scoreFor(d.Done, d.Created, d.Study, overdueAtEndOf(tasks, k, now, carried), k == a.Today)
+		a.Scores[k] = scoreFor(d.DoneBy, d.Created, d.Study, overdueAtEndOf(tasks, k, now, carried), k == a.Today)
 	}
 }
 
