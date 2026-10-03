@@ -21,7 +21,7 @@ import (
 // was still open then. For today that is a projection: the tasks that would count against
 // you if the day ended now. The total never goes below zero.
 var scoreDonePts = [4]int{
-	5,  // task with no difficulty
+	3,  // task with no difficulty
 	3,  // difficulty 1 (easy)
 	6,  // difficulty 2
 	10, // difficulty 3 (hardest)
