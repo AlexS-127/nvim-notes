@@ -287,7 +287,8 @@
   const studyLevel = (sec) => { const m = sec / 60; return sec <= 0 ? 0 : m < 5 ? 1 : m < 15 ? 2 : m < 30 ? 3 : 4; };
   const scoreLevel = (n) => (n <= 0 ? 0 : n < 25 ? 1 : n < 50 ? 2 : n < 75 ? 3 : 4);
   const metricVal = (d) => !d ? 0 : actMetric === "done" ? d.done : actMetric === "created" ? d.created : d.done + d.created;
-  const cellLevel = (d) => actMetric === "quiz" ? studyLevel(d ? d.study || 0 : 0) : actMetric === "score" ? scoreLevel(d ? d.score || 0 : 0) : levelOf(metricVal(d));
+  const wordsLevel = (n) => (n <= 0 ? 0 : n < 100 ? 1 : n < 300 ? 2 : n < 600 ? 3 : 4);
+  const cellLevel = (d) => actMetric === "words" ? wordsLevel(d ? d.words || 0 : 0) : actMetric === "quiz" ? studyLevel(d ? d.study || 0 : 0) : actMetric === "score" ? scoreLevel(d ? d.score || 0 : 0) : levelOf(metricVal(d));
 
   function heatmapSvg(a) {
     const today = dayOf(a.today), C = 12, G = 3, left = 28, top = 18;
@@ -302,7 +303,7 @@
           months += `<text x="${left + w * (C + G)}" y="10" class="hm-label">${d.toLocaleDateString(undefined, { month: "short" })}</text>`;
           lastMonth = d.getMonth();
         }
-        cells += `<rect class="hm-cell l${cellLevel(st)}${iso === a.today ? " today" : ""}" x="${left + w * (C + G)}" y="${top + r * (C + G)}" width="${C}" height="${C}" rx="3" data-d="${iso}" data-done="${st.done}" data-created="${st.created}" data-study="${st.study || 0}" data-score="${st.score}"/>`;
+        cells += `<rect class="hm-cell l${cellLevel(st)}${iso === a.today ? " today" : ""}" x="${left + w * (C + G)}" y="${top + r * (C + G)}" width="${C}" height="${C}" rx="3" data-d="${iso}" data-done="${st.done}" data-created="${st.created}" data-study="${st.study || 0}" data-words="${st.words || 0}" data-score="${st.score}"/>`;
       }
     }
     const dows = DOW.map((n, r) => n ? `<text x="0" y="${top + r * (C + G) + 10}" class="hm-label">${n}</text>` : "").join("");
@@ -383,6 +384,7 @@
       ["Tasks completed", sc.done, hints.done, sc.done_pts],
       ["Tasks created", sc.created, hints.created, sc.created_pts],
       ["Quiz time", fmtStudy(sc.study), hints.study, sc.study_pts],
+      ["New words", (sc.words || 0).toLocaleString(), hints.words, sc.words_pts || 0],
       ["Overdue tasks", sc.overdue, hints.overdue, sc.overdue_pts],
     ];
     return rows.map(([l, n, rule, pts]) => `<tr class="${pts < 0 ? "neg" : ""}"><td class="el" title="${esc(rule)}">${l}</td><td class="n">${n}</td><td class="pts">${pts < 0 ? "−" + -pts : pts}</td></tr>`).join("");
@@ -455,13 +457,15 @@
           <span class="sub">${today.created} made</span></div>
         <div class="tile"><small>Quiz time</small><div class="big">${fmtStudy(a.study_today)}<em>today</em></div>
           <span class="sub">${fmtStudy(a.study_week)} this week · ${fmtStudy(a.study_total)} in all</span></div>
+        <div class="tile"><small>New words</small><div class="big">${(a.words_today || 0).toLocaleString()}<em>today</em></div>
+          <span class="sub">${(a.words_week || 0).toLocaleString()} this week · ${(a.words_total || 0).toLocaleString()} in all</span></div>
       </div>
       <div class="level"><span class="rank">${esc(rank)}</span>
         <div class="bar${next ? "" : " full"}"><i style="width:${pct}%"></i></div>
         <span class="sub">${next ? `${next[0] - a.total_done} more to <b>${esc(next[1])}</b> (${next[0]})` : "Top rank reached"}</span></div>
       ${scoreSection(a)}
       <div class="act-head"><div class="task-filter act-metric">
-        ${[["both", "Done + made"], ["done", "Done"], ["created", "Made"], ["quiz", "Quiz time"], ["score", "Score"]].map(([k, l]) => `<button data-metric="${k}" class="${actMetric === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+        ${[["both", "Done + made"], ["done", "Done"], ["created", "Made"], ["quiz", "Quiz time"], ["words", "New words"], ["score", "Score"]].map(([k, l]) => `<button data-metric="${k}" class="${actMetric === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
       <div class="hm-wrap">${heatmapSvg(a)}</div>
       <div class="hm-legend">Less ${[0, 1, 2, 3, 4].map((l) => `<i class="hm-cell l${l}"></i>`).join("")} More</div>
       <h2>Weekly</h2>
@@ -487,7 +491,7 @@
       showTip(e, `<b>${sd.dataset.tip}</b><br>Score ${sd.dataset.v}`);
     } else if (c) {
       const d = Number(c.dataset.done), m = Number(c.dataset.created);
-      showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}${Number(c.dataset.study) ? `<br>${fmtStudy(Number(c.dataset.study))} of quiz` : ""}${Number(c.dataset.score) ? `<br>Score ${c.dataset.score}/100` : ""}`);
+      showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}${Number(c.dataset.study) ? `<br>${fmtStudy(Number(c.dataset.study))} of quiz` : ""}${Number(c.dataset.words) ? `<br>${Number(c.dataset.words).toLocaleString()} new words` : ""}${Number(c.dataset.score) ? `<br>Score ${c.dataset.score}/100` : ""}`);
     } else if (w && note._activity) {
       const k = note._activity.weeks[Number(w.dataset.i)];
       showTip(e, `<b>Week of ${dayOf(k.start).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</b><br>${fmtAvg(k.avg_done)} done / day (${k.done} in ${plural(k.days, "day")})<br>${fmtAvg(k.avg_created)} made / day (${k.created})<br>Running total ${k.total}`);

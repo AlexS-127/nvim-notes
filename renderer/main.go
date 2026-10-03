@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -56,6 +57,8 @@ func usage() {
   notesview folders  [--json] [--dir DIR]              list category and topic folders
   notesview resolve  [--json] [--dir DIR] TARGET       what a [[TARGET]] link points to
   notesview daily    [--date YYYY-MM-DD] [--dir DIR]   create a daily note (today's with carry-over)
+  notesview words    [track|untrack DIR…] [--dir DIR]  list, add or remove the folders whose new words count
+                                                       (DIR is relative to the notes folder, or one note)
   notesview doctor                                     check the installation
   notesview themes                                     list themes (* = current)
   notesview theme    NAME                              choose a theme (writes config.json)
@@ -74,7 +77,7 @@ func main() {
 		return
 	case "-h", "--help", "help":
 		usage()
-	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme":
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "words":
 		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
@@ -251,6 +254,44 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 			return printJSON(stdout, map[string]string{"line": line, "path": filepath.Join(store.Root, "inbox.md")})
 		}
 		fmt.Fprintln(stdout, "Added to inbox:", line)
+	case "words":
+		tracked := store.TrackedWords()
+		if len(fs.Args()) > 0 {
+			sub, rest := fs.Args()[0], fs.Args()[1:]
+			if (sub != "track" && sub != "untrack") || len(rest) == 0 {
+				return fail(fmt.Errorf("usage: notesview words [track|untrack DIR…]"))
+			}
+			set := map[string]bool{}
+			for _, t := range tracked {
+				set[t] = true
+			}
+			for _, d := range rest {
+				d = strings.Trim(filepath.ToSlash(filepath.Clean(d)), "/")
+				if sub == "track" {
+					if _, err := os.Stat(filepath.Join(store.Root, filepath.FromSlash(d))); err != nil {
+						if _, err := os.Stat(filepath.Join(store.Root, filepath.FromSlash(d)+".md")); err != nil {
+							return fail(fmt.Errorf("%s: no such folder or note in %s", d, store.Root))
+						}
+					}
+					set[d] = true
+				} else {
+					delete(set, d)
+				}
+			}
+			tracked = tracked[:0]
+			for d := range set {
+				tracked = append(tracked, d)
+			}
+			sort.Strings(tracked)
+			if err := store.SetTrackedWords(tracked); err != nil {
+				return fail(err)
+			}
+		}
+		if *asJSON {
+			return printJSON(stdout, map[string]any{"tracked": tracked, "per_day": store.WordsPerDay()})
+		}
+		per := store.WordsPerDay()
+		fmt.Fprintf(stdout, "tracked: %s\ntoday: %d new words\n", strings.Join(tracked, ", "), per[now.Format(isoDate)])
 	case "daily":
 		date := now
 		if *dateFlag != "" {

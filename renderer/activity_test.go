@@ -129,28 +129,28 @@ func quizPts(seconds int) int {
 }
 
 func TestScoreFor(t *testing.T) {
-	if s := scoreFor([4]int{}, 0, 0, 0, false); s.Total != 0 {
+	if s := scoreFor([4]int{}, 0, 0, 0, 0, false); s.Total != 0 {
 		t.Errorf("empty day: %+v", s)
 	}
 	// 3 done + 2 made + 10 min quiz - 2 overdue
 	wantDone, wantMade, wantQuiz, wantOver := 3*scoreDonePts[0], 2*scoreCreatedPts, quizPts(600), -2*scoreOverduePts
-	s := scoreFor([4]int{3}, 2, 600, 2, true)
+	s := scoreFor([4]int{3}, 2, 600, 0, 2, true)
 	if s.DonePts != wantDone || s.CreatedPts != wantMade || s.StudyPts != wantQuiz || s.OverduePts != wantOver ||
 		s.Total != max(0, wantDone+wantMade+wantQuiz+wantOver) || !s.Live {
 		t.Errorf("score: %+v", s)
 	}
 	// done points depend on difficulty: 1 plain + 2 easy + 1 medium + 1 hard
 	wantDone = scoreDonePts[0] + 2*scoreDonePts[1] + scoreDonePts[2] + scoreDonePts[3]
-	if s := scoreFor([4]int{1, 2, 1, 1}, 0, 0, 0, false); s.Done != 5 || s.DonePts != min(scoreDoneCap, wantDone) {
+	if s := scoreFor([4]int{1, 2, 1, 1}, 0, 0, 0, 0, false); s.Done != 5 || s.DonePts != min(scoreDoneCap, wantDone) {
 		t.Errorf("difficulty points: %+v", s)
 	}
 	// each part is capped, the penalty is capped, and the total never goes below 0
-	s = scoreFor([4]int{1000}, 1000, 1000*3600, 0, false)
-	if s.DonePts != scoreDoneCap || s.CreatedPts != scoreCreatedCap || s.StudyPts != scoreQuizCap ||
-		s.Total != scoreDoneCap+scoreCreatedCap+scoreQuizCap {
+	s = scoreFor([4]int{1000}, 1000, 1000*3600, 1000*scoreWordsPer*scoreWordsCap, 0, false)
+	if s.DonePts != scoreDoneCap || s.CreatedPts != scoreCreatedCap || s.StudyPts != scoreQuizCap || s.WordsPts != scoreWordsCap ||
+		s.Total != scoreDoneCap+scoreCreatedCap+scoreQuizCap+scoreWordsCap {
 		t.Errorf("max: %+v", s)
 	}
-	if s := scoreFor([4]int{1}, 0, 0, 1000, false); s.OverduePts != -scoreOverdueCap || s.Total != 0 {
+	if s := scoreFor([4]int{1}, 0, 0, 0, 1000, false); s.OverduePts != -scoreOverdueCap || s.Total != 0 {
 		t.Errorf("penalty cap and floor: %+v", s)
 	}
 }

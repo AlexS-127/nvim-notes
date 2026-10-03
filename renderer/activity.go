@@ -77,6 +77,7 @@ type DayStat struct {
 	Done    int `json:"done"`
 	Created int `json:"created"`
 	Study   int `json:"study"` // seconds of quiz time
+	Words   int `json:"words"` // new words written in tracked folders, see words.go
 	// DoneBy counts completed tasks by difficulty: [0] has none set, [1]-[3] are !1-!3.
 	DoneBy [4]int `json:"-"`
 }
@@ -131,6 +132,9 @@ type Activity struct {
 	StudyToday   int                `json:"study_today"`  // seconds of quiz time today
 	StudyWeek    int                `json:"study_week"`   // seconds this week (Monday on)
 	StudyTotal   int                `json:"study_total"`
+	WordsToday   int                `json:"words_today"` // new words in tracked folders today
+	WordsWeek    int                `json:"words_week"`
+	WordsTotal   int                `json:"words_total"`
 	Scores       map[string]Score   `json:"scores"`      // productivity score per day, see score.go
 	ScoreLine    []ScorePoint       `json:"score_line"`  // today's score as it changed
 	ScoreHints   ScoreHints         `json:"score_hints"` // hover text for the breakdown

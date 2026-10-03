@@ -33,6 +33,8 @@ const (
 	scoreCreatedCap = 30  // most points tasks created can give
 	scoreQuizPerMin = 2.0 // points per minute of quiz time
 	scoreQuizCap    = 100 // most points quiz time can give
+	scoreWordsPer   = 20  // new words per point
+	scoreWordsCap   = 60  // most points new words can give
 	scoreOverduePts = 10  // points lost per overdue task
 	scoreOverdueCap = 100 // most points overdue tasks can cost
 
@@ -44,6 +46,7 @@ type ScoreHints struct {
 	Done    string `json:"done"`
 	Created string `json:"created"`
 	Study   string `json:"study"`
+	Words   string `json:"words"`
 	Overdue string `json:"overdue"`
 }
 
@@ -53,6 +56,7 @@ func scoreHints() ScoreHints {
 			scoreDonePts[0], scoreDonePts[1], scoreDonePts[2], scoreDonePts[3], scoreDoneCap),
 		Created: fmt.Sprintf("%d each, up to %d", scoreCreatedPts, scoreCreatedCap),
 		Study:   fmt.Sprintf("%g a minute, up to %d", scoreQuizPerMin, scoreQuizCap),
+		Words:   fmt.Sprintf("1 per %d words in tracked folders, up to %d", scoreWordsPer, scoreWordsCap),
 		Overdue: fmt.Sprintf("−%d each, up to −%d", scoreOverduePts, scoreOverdueCap),
 	}
 }
@@ -64,11 +68,13 @@ type Score struct {
 	Done    int  `json:"done"`
 	Created int  `json:"created"`
 	Study   int  `json:"study"` // seconds of quiz time
+	Words   int  `json:"words"` // new words in tracked folders
 	Overdue int  `json:"overdue"`
 	// points each part contributed (Overdue is zero or negative)
 	DonePts    int `json:"done_pts"`
 	CreatedPts int `json:"created_pts"`
 	StudyPts   int `json:"study_pts"`
+	WordsPts   int `json:"words_pts"`
 	OverduePts int `json:"overdue_pts"`
 }
 
@@ -80,18 +86,19 @@ func capInt(v, limit int) int {
 }
 
 // scoreFor turns one day's counts into a score.
-func scoreFor(doneBy [4]int, created, studySecs, overdue int, live bool) Score {
+func scoreFor(doneBy [4]int, created, studySecs, words, overdue int, live bool) Score {
 	done, donePts := 0, 0
 	for d, n := range doneBy {
 		done += n
 		donePts += n * scoreDonePts[d]
 	}
-	s := Score{Live: live, Done: done, Created: created, Study: studySecs, Overdue: overdue}
+	s := Score{Live: live, Done: done, Created: created, Study: studySecs, Words: words, Overdue: overdue}
 	s.DonePts = capInt(donePts, scoreDoneCap)
 	s.CreatedPts = capInt(created*scoreCreatedPts, scoreCreatedCap)
 	s.StudyPts = capInt(int(math.Round(float64(studySecs)/60*scoreQuizPerMin)), scoreQuizCap)
+	s.WordsPts = capInt(words/scoreWordsPer, scoreWordsCap)
 	s.OverduePts = -capInt(overdue*scoreOverduePts, scoreOverdueCap)
-	total := s.DonePts + s.CreatedPts + s.StudyPts + s.OverduePts
+	total := s.DonePts + s.CreatedPts + s.StudyPts + s.WordsPts + s.OverduePts
 	s.Total = max(0, total)
 	return s
 }
@@ -138,7 +145,7 @@ func (a *Activity) AddScores(tasks []Task, now time.Time) {
 			continue // a task stamped in the future
 		}
 		d := a.Days[k]
-		a.Scores[k] = scoreFor(d.DoneBy, d.Created, d.Study, overdueAtEndOf(tasks, k, now, carried), k == a.Today)
+		a.Scores[k] = scoreFor(d.DoneBy, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried), k == a.Today)
 	}
 }
 
@@ -193,6 +200,8 @@ func (s *Store) FullActivity(now time.Time, nWeeks int) Activity {
 	tasks := s.CollectTasks(TaskQuery{All: true, Now: now})
 	a := BuildActivity(tasks, now, nWeeks)
 	a.AddStudy(s.StudySeconds(), now)
+	s.RecordWords(now)
+	a.AddWords(s.WordsPerDay(), now)
 	a.AddScores(tasks, now)
 	a.ScoreHints = scoreHints()
 	a.ScoreLine = s.RecordScore(now, a.Scores[a.Today].Total)
