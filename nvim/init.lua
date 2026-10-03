@@ -1,6 +1,16 @@
 -- ~/.config/nvim/init.lua — markdown notes (Neovim 0.12+, no plugin manager)
 -- Leader is <Space>. Notes live in $NOTES_DIR (default ~/notes). Press <Space>? to search all shortcuts.
 
+-- Ghostty starts nvim without a login shell, so PATH can be empty: add the usual places.
+do
+  local extra = { vim.fn.expand("~/.local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin" }
+  local cur = vim.env.PATH or ""
+  for _, d in ipairs(extra) do
+    if not (":" .. cur .. ":"):find(":" .. d .. ":", 1, true) then cur = cur == "" and d or (cur .. ":" .. d) end
+  end
+  vim.env.PATH = cur
+end
+
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 local NOTES = vim.fn.expand((vim.env.NOTES_DIR and vim.env.NOTES_DIR ~= "") and vim.env.NOTES_DIR or "~/notes")
@@ -250,7 +260,7 @@ local function folder_notes_picker(r)
     table.insert(items, { text = n.title .. " " .. n.path, file = NOTES .. "/" .. n.path, title = n.title, rel = n.path })
   end
   Snacks.picker.pick({
-    title = "📁 " .. r.path,
+    title = r.path,
     items = items,
     format = function(item) return { { item.title }, { "  " .. item.rel, "Comment" } } end,
     preview = "file",
@@ -548,7 +558,7 @@ local function open_tasks_picker()
       task = t, label = label, when = when[t.group] or "",
     })
   end
-  if #items == 0 then return vim.notify("No open tasks 🎉") end
+  if #items == 0 then return vim.notify("No open tasks") end
   Snacks.picker.pick({
     title = "Open tasks (by due date)",
     items = items,
@@ -760,41 +770,8 @@ vim.api.nvim_create_autocmd({ "InsertLeave", "FocusLost", "BufLeave" }, {
 vim.api.nvim_create_autocmd("FocusGained", { command = "silent! checktime" })
 vim.opt.shortmess:append("I")
 
-local starter = require("mini.starter")
-local notes = vim.fn.expand("~/notes") 
-
-local function greeting()
-  local h = tonumber(os.date("%H"))
-  local part = h < 5 and "night" or h < 12 and "morning" or h < 18 and "afternoon" or "evening"
-  return ("good %s, alex\n%s"):format(part, os.date("%A, %B %d"))
-end
-
-local function open_tasks()
-  local f = io.open(notes .. "/inbox.md")
-  if not f then return "" end
-  local n = 0
-  for line in f:lines() do
-    if line:match("^%s*[-*+] %[ %]") then n = n + 1 end
-  end
-  f:close()
-  return n .. " open tasks in inbox"
-end
-
-starter.setup({
-  header = greeting,
-  footer = open_tasks,
-  items = {
-    { name = "Inbox", action = "edit " .. notes .. "/inbox.md", section = "Notes" },
-    { name = "Notes folder", action = "edit " .. notes, section = "Notes" },
-    starter.sections.recent_files(5, true),
-    starter.sections.recent_files(5, false),
-    starter.sections.builtin_actions(),
-  },
-  content_hooks = {
-    starter.gen_hook.adding_bullet("» "),
-    starter.gen_hook.aligning("center", "center"),
-  },
-})
+-- ── Startup page (lua/start.lua) ─────────────────────────────────
+require("start").setup()
 
 -- ── Competitive programming / LeetCode (lua/cp.lua) ──────────────
 local ok, err = pcall(require, "cp")
