@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -118,24 +120,37 @@ func TestAddStudy(t *testing.T) {
 	}
 }
 
+// Expected values are derived from the tunable constants in score.go, so retuning
+// the score does not break these tests; they check the rules, not the numbers.
+func clampInt(v, lo, hi int) int { return max(lo, min(hi, v)) }
+
+func quizPts(seconds int) int {
+	return min(scoreQuizCap, int(float64(seconds)/60*scoreQuizPerMin))
+}
+
 func TestScoreFor(t *testing.T) {
 	if s := scoreFor([4]int{}, 0, 0, 0, false); s.Total != 0 {
 		t.Errorf("empty day: %+v", s)
 	}
-	// 3 done (15) + 2 made (4) + 10 min quiz (20) - 2 overdue (20)
+	// 3 done + 2 made + 10 min quiz - 2 overdue
+	wantDone, wantMade, wantQuiz, wantOver := 3*scoreDonePts[0], 2*scoreCreatedPts, quizPts(600), -2*scoreOverduePts
 	s := scoreFor([4]int{3}, 2, 600, 2, true)
-	if s.DonePts != 15 || s.CreatedPts != 4 || s.StudyPts != 20 || s.OverduePts != -20 || s.Total != 19 || !s.Live {
+	if s.DonePts != wantDone || s.CreatedPts != wantMade || s.StudyPts != wantQuiz || s.OverduePts != wantOver ||
+		s.Total != max(0, wantDone+wantMade+wantQuiz+wantOver) || !s.Live {
 		t.Errorf("score: %+v", s)
 	}
-	// done points depend on difficulty: 1 plain (5) + 2 easy (6) + 1 medium (6) + 1 hard (10)
-	if s := scoreFor([4]int{1, 2, 1, 1}, 0, 0, 0, false); s.Done != 5 || s.DonePts != 27 {
+	// done points depend on difficulty: 1 plain + 2 easy + 1 medium + 1 hard
+	wantDone = scoreDonePts[0] + 2*scoreDonePts[1] + scoreDonePts[2] + scoreDonePts[3]
+	if s := scoreFor([4]int{1, 2, 1, 1}, 0, 0, 0, false); s.Done != 5 || s.DonePts != min(scoreDoneCap, wantDone) {
 		t.Errorf("difficulty points: %+v", s)
 	}
-	// each part is capped (100 + 30 + 100), the penalty at -100, and the total never goes below 0
-	if s := scoreFor([4]int{20}, 20, 3*3600, 0, false); s.Total != 230 {
+	// each part is capped, the penalty is capped, and the total never goes below 0
+	s = scoreFor([4]int{1000}, 1000, 1000*3600, 0, false)
+	if s.DonePts != scoreDoneCap || s.CreatedPts != scoreCreatedCap || s.StudyPts != scoreQuizCap ||
+		s.Total != scoreDoneCap+scoreCreatedCap+scoreQuizCap {
 		t.Errorf("max: %+v", s)
 	}
-	if s := scoreFor([4]int{1}, 0, 0, 50, false); s.OverduePts != -100 || s.Total != 0 {
+	if s := scoreFor([4]int{1}, 0, 0, 1000, false); s.OverduePts != -scoreOverdueCap || s.Total != 0 {
 		t.Errorf("penalty cap and floor: %+v", s)
 	}
 }
@@ -153,11 +168,12 @@ func TestAddScores(t *testing.T) {
 	a := BuildActivity(tasks, now, 2)
 	a.AddStudy(s.StudySeconds(), now)
 	a.AddScores(tasks, now)
-	if got := a.Scores["2026-09-30"]; got.Done != 1 || got.Overdue != 1 || got.Total != 0 { // 5 for a, -10 for b, floored at 0
+	if got := a.Scores["2026-09-30"]; got.Done != 1 || got.Overdue != 1 || got.Total != clampInt(scoreDonePts[0]-scoreOverduePts, 0, 1<<30) { // a done, b overdue, floored at 0
 		t.Errorf("9/30: %+v", got)
 	}
-	// 5 for c, 40 for quiz, -10 for b
-	if got := a.Scores["2026-10-01"]; !got.Live || got.Total != 35 || got.Overdue != 1 {
+	// c done, 20 min quiz, b overdue
+	want := max(0, scoreDonePts[0]+quizPts(1200)-scoreOverduePts)
+	if got := a.Scores["2026-10-01"]; !got.Live || got.Total != want || got.Overdue != 1 {
 		t.Errorf("today: %+v", got)
 	}
 	if _, ok := a.Scores["2026-09-29"]; ok {
@@ -180,7 +196,9 @@ func TestRecordScore(t *testing.T) {
 	if len(p) != 2 || p[1].Total != 10 || p[1].At != "2026-10-01T10:00:00" {
 		t.Errorf("change: %+v", p)
 	}
-	if h := scoreHints(); h.Done != "5 each (difficulty 1: 3, 2: 6, 3: 10), up to 100" || h.Study != "2 a minute, up to 100" {
+	h := scoreHints()
+	if !strings.Contains(h.Done, fmt.Sprintf("up to %d", scoreDoneCap)) || !strings.Contains(h.Study, fmt.Sprintf("up to %d", scoreQuizCap)) ||
+		!strings.Contains(h.Overdue, fmt.Sprint(scoreOverduePts)) {
 		t.Errorf("hints: %+v", h)
 	}
 }
