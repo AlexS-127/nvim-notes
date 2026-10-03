@@ -21,16 +21,16 @@ import (
 // was still open then. For today that is a projection: the tasks that would count against
 // you if the day ended now. The total never goes below zero.
 const (
-	scoreDonePts    = 10  // points per task completed
-	scoreDoneCap    = 50  // most points tasks completed can give
+	scoreDonePts    = 5   // points per task completed
+	scoreDoneCap    = 100 // most points tasks completed can give
 	scoreCreatedPts = 2   // points per task created
-	scoreCreatedCap = 10  // most points tasks created can give
-	scoreQuizPerMin = 1.0 // points per minute of quiz time
-	scoreQuizCap    = 40  // most points quiz time can give
-	scoreOverduePts = 5   // points lost per overdue task
-	scoreOverdueCap = 30  // most points overdue tasks can cost
+	scoreCreatedCap = 30  // most points tasks created can give
+	scoreQuizPerMin = 2.0 // points per minute of quiz time
+	scoreQuizCap    = 100 // most points quiz time can give
+	scoreOverduePts = 10  // points lost per overdue task
+	scoreOverdueCap = 100 // most points overdue tasks can cost
 
-	scoreRecordEvery = 30 * time.Second // how often the viewer records today's score for the graph
+	scoreRecordEvery = 10 * time.Second // how often the viewer records today's score for the graph
 )
 
 // ScoreHints is the text shown when hovering each part of the breakdown.

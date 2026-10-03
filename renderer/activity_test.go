@@ -176,7 +176,7 @@ func TestRecordScore(t *testing.T) {
 	if len(p) != 2 || p[1].Total != 10 || p[1].At != "2026-10-01T10:00:00" {
 		t.Errorf("change: %+v", p)
 	}
-	if h := scoreHints(); h.Done != "10 each, up to 50" || h.Study != "1 a minute, up to 40" {
+	if h := scoreHints(); h.Done != "5 each, up to 100" || h.Study != "2 a minute, up to 100" {
 		t.Errorf("hints: %+v", h)
 	}
 }
