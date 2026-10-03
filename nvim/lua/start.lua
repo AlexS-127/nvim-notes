@@ -98,7 +98,7 @@ local actions = {
   { "f", "Find note", function() feed("<leader>nf") end },
   { "g", "Search notes", function() feed("<leader>ng") end },
   { "r", "Restart renderer (rebuild)", restart_renderer },
-  { "q", "Quit", function() vim.cmd("qa") end },
+  { "q", "Terminal", function() vim.cmd("qa") end },
 }
 
 local function action_items()
