@@ -361,7 +361,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}()
 	fmt.Fprint(w, ": connected\n\n")
 	fl.Flush()
-	tick := time.NewTicker(20 * time.Second)
+	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
 	for {
 		select {
