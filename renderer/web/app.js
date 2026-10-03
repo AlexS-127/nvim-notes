@@ -426,7 +426,7 @@
     const sc = a.scores[a.today];
     return `<div class="score-card">
         <div class="score-num" id="act-score">${sc.total}<small>Score</small></div>
-        <table class="score-calc"><thead><tr><th>Element</th><th>Quantity</th><th>Points</th></tr></thead><tbody>${scoreRows(sc, a.score_hints)}</tbody></table>
+        <table class="score-calc"><tbody>${scoreRows(sc, a.score_hints)}</tbody></table>
       </div>
       <div class="act-head"><div class="task-filter score-mode">
         ${[["today", "Today"], ["daily", "Daily"]].map(([k, l]) => `<button data-mode="${k}" class="${scoreMode === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
