@@ -281,11 +281,11 @@
   const fmtStudy = (sec) => { const m = Math.round(sec / 60); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
   const fmtAvg = (n) => (Math.round(n * 10) / 10).toString();
   let actMetric = store.get("actMetric", "both");
+  let scoreMode = store.get("scoreMode", "today");
 
   function levelOf(n) { return n <= 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4; }
   const studyLevel = (sec) => { const m = sec / 60; return sec <= 0 ? 0 : m < 5 ? 1 : m < 15 ? 2 : m < 30 ? 3 : 4; };
   const scoreLevel = (n) => (n <= 0 ? 0 : n < 25 ? 1 : n < 50 ? 2 : n < 75 ? 3 : 4);
-  const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : "0");
   const metricVal = (d) => !d ? 0 : actMetric === "done" ? d.done : actMetric === "created" ? d.created : d.done + d.created;
   const cellLevel = (d) => actMetric === "quiz" ? studyLevel(d ? d.study || 0 : 0) : actMetric === "score" ? scoreLevel(d ? d.score || 0 : 0) : levelOf(metricVal(d));
 
@@ -377,35 +377,60 @@
     return `${med}, ${sig}`.replace(/^./, (c) => c.toUpperCase());
   }
 
-  // the calculation behind one day's score, one row per part
-  function scoreRows(sc) {
+  // today's breakdown: element, quantity, points; hovering an element shows its rule
+  function scoreRows(sc, hints) {
     const rows = [
-      ["Tasks completed", sc.done, "10 each, up to 50", sc.done_pts],
-      ["Tasks created", sc.created, "2 each, up to 10", sc.created_pts],
-      ["Quiz time", fmtStudy(sc.study), "1 a minute, up to 40", sc.study_pts],
-      [sc.live ? "Overdue (if the day ended now)" : "Overdue at end of day", sc.overdue, "−5 each, up to −30", sc.overdue_pts],
+      ["Tasks completed", sc.done, hints.done, sc.done_pts],
+      ["Tasks created", sc.created, hints.created, sc.created_pts],
+      ["Quiz time", fmtStudy(sc.study), hints.study, sc.study_pts],
+      ["Overdue tasks", sc.overdue, hints.overdue, sc.overdue_pts],
     ];
-    return rows.map(([l, n, rule, pts]) => `<tr class="${pts < 0 ? "neg" : ""}"><td>${l}</td><td class="n">${n}</td><td class="rule">${rule}</td><td class="pts">${signed(pts)}</td></tr>`).join("");
+    return rows.map(([l, n, rule, pts]) => `<tr class="${pts < 0 ? "neg" : ""}"><td class="el" title="${esc(rule)}">${l}</td><td class="n">${n}</td><td class="pts">${pts < 0 ? "−" + -pts : pts}</td></tr>`).join("");
+  }
+
+  const hhmm = (d) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+  // score line graph. "today": a step line through the day; "daily": one point per day.
+  function scoreLineSvg(a, mode) {
+    const W = 640, H = 200, L = 34, R = 10, B = 26, T = 14;
+    let pts, xs, labels;
+    if (mode === "today") {
+      const day0 = dayOf(a.today).getTime(), span = 24 * 3600e3, now = Date.now();
+      pts = a.score_line.map((p) => ({ t: new Date(p.at).getTime(), v: p.total, tip: `${hhmm(new Date(p.at))}` }));
+      if (pts.length) pts.push({ t: Math.max(now, pts[pts.length - 1].t), v: pts[pts.length - 1].v, end: true });
+      xs = (t) => L + (W - L - R) * Math.min(1, Math.max(0, (t - day0) / span));
+      labels = [0, 6, 12, 18, 24].map((h) => [xs(day0 + h * 3600e3), h === 24 ? "" : hhmm(new Date(day0 + h * 3600e3))]);
+    } else {
+      const keys = Object.keys(a.scores).sort(), start = dayOf(keys[0]), today = dayOf(a.today), days = [];
+      for (let d = new Date(Math.max(start, new Date(today.getFullYear(), today.getMonth(), today.getDate() - 59))); d <= today; d.setDate(d.getDate() + 1)) days.push(isoOf(d));
+      pts = days.map((k, i) => ({ t: i, v: (a.scores[k] || {}).total || 0, tip: dayOf(k).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }), k }));
+      const n = Math.max(1, days.length - 1);
+      xs = (i) => L + (W - L - R) * (days.length > 1 ? i / n : .5);
+      const every = Math.max(1, Math.ceil(days.length / 7));
+      labels = days.map((k, i) => (i % every === 0 || i === days.length - 1) && (days.length - 1 - i >= every / 2 || i === days.length - 1) ? [xs(i), dayOf(k).toLocaleDateString(undefined, { month: "short", day: "numeric" })] : null).filter(Boolean);
+    }
+    const top = Math.max(10, Math.ceil(Math.max(0, ...pts.map((p) => p.v)) / 10) * 10), y = (v) => T + (H - T - B) * (1 - v / top), base = y(0);
+    let g = "";
+    for (let i = 0; i <= top; i += top / 4) g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${Math.round(i)}</text>`;
+    const xl = labels.map(([x, l]) => `<text class="hm-label" x="${x}" y="${H - 8}" text-anchor="middle">${l}</text>`).join("");
+    if (!pts.length) return `<svg class="weekly" viewBox="0 0 ${W} ${H}">${g}${xl}<text class="hm-label" x="${W / 2}" y="${H / 2}" text-anchor="middle">No score recorded yet today</text></svg>`;
+    let d = "";
+    pts.forEach((p, i) => { d += i === 0 ? `M${xs(p.t)} ${y(p.v)}` : mode === "today" ? `H${xs(p.t)}V${y(p.v)}` : `L${xs(p.t)} ${y(p.v)}`; });
+    const last = pts[pts.length - 1];
+    const area = `${d}V${base}H${xs(pts[0].t)}Z`;
+    const dots = pts.filter((p) => !p.end).map((p) => `<circle class="sc-dot" cx="${xs(p.t)}" cy="${y(p.v)}" r="${mode === "today" ? 3 : 3.5}" data-tip="${esc(p.tip)}" data-v="${p.v}"/>`).join("");
+    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Productivity score">${g}${xl}<path class="sc-area" d="${area}"/><path class="sc-path" d="${d}"/>${dots}<circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/></svg>`;
   }
 
   function scoreSection(a) {
     const sc = a.scores[a.today];
-    const days = Object.keys(a.scores).sort().reverse().slice(0, 14);
-    const rows = days.map((k) => {
-      const x = a.scores[k];
-      const label = k === a.today ? "Today" : dayOf(k).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-      return `<tr><td>${label}${x.live ? ' <em class="live">live</em>' : ""}</td><td class="n">${x.done}</td><td class="n">${x.created}</td><td class="n">${fmtStudy(x.study)}</td>` +
-        `<td class="n${x.overdue ? " neg" : ""}">${x.overdue}</td><td class="bar"><i class="l${scoreLevel(x.total)}" style="width:${x.total}%"></i></td><td class="n tot">${x.total}</td></tr>`;
-    }).join("");
-    return `<h2>Productivity score</h2>
-      <div class="score-card">
-        <div class="score-main"><div class="score-num" id="act-score">${sc.total}<em>/100</em></div>
-          <span class="sub">Today so far${sc.overdue ? ` · ${plural(sc.overdue, "overdue task")} cost${sc.overdue === 1 ? "s" : ""} you ${-sc.overdue_pts}` : ""}</span></div>
-        <table class="score-calc"><tbody>${scoreRows(sc)}</tbody>
-          <tfoot><tr><td colspan="3">Score (0 to 100)</td><td class="pts">${sc.total}</td></tr></tfoot></table>
+    return `<div class="score-card">
+        <div class="score-num" id="act-score">${sc.total}<small>Score</small></div>
+        <table class="score-calc"><thead><tr><th>Element</th><th>Quantity</th><th>Points</th></tr></thead><tbody>${scoreRows(sc, a.score_hints)}</tbody></table>
       </div>
-      <p class="act-note" style="margin:6px 0 4px">Updates as you work. A task counts as overdue at the end of a day when it was due that day or earlier and still open; for today that is what would count if the day ended now.</p>
-      <table class="score-days"><thead><tr><th>Day</th><th>Done</th><th>Made</th><th>Quiz</th><th>Overdue</th><th colspan="2">Score</th></tr></thead><tbody>${rows}</tbody></table>`;
+      <div class="act-head"><div class="task-filter score-mode">
+        ${[["today", "Today"], ["daily", "Daily"]].map(([k, l]) => `<button data-mode="${k}" class="${scoreMode === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="wk-wrap">${scoreLineSvg(a, scoreMode)}</div>`;
   }
 
   async function renderActivity(keepScroll) {
@@ -457,8 +482,10 @@
   tip.className = "act-tip"; tip.hidden = true; document.body.appendChild(tip);
   const showTip = (e, html) => { tip.innerHTML = html; tip.hidden = false; const w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX - w / 2)) + "px"; tip.style.top = e.clientY - tip.offsetHeight - 14 + "px"; };
   note.addEventListener("mousemove", (e) => {
-    const c = e.target.closest && e.target.closest(".hm-cell[data-d]"), w = e.target.closest && e.target.closest("g.wk"), wd = e.target.closest && e.target.closest("g.wd"), ds = e.target.closest && e.target.closest("g.ds");
-    if (c) {
+    const c = e.target.closest && e.target.closest(".hm-cell[data-d]"), w = e.target.closest && e.target.closest("g.wk"), wd = e.target.closest && e.target.closest("g.wd"), ds = e.target.closest && e.target.closest("g.ds"), sd = e.target.closest && e.target.closest(".sc-dot");
+    if (sd) {
+      showTip(e, `<b>${sd.dataset.tip}</b><br>Score ${sd.dataset.v}`);
+    } else if (c) {
       const d = Number(c.dataset.done), m = Number(c.dataset.created);
       showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}${Number(c.dataset.study) ? `<br>${fmtStudy(Number(c.dataset.study))} of quiz` : ""}${Number(c.dataset.score) ? `<br>Score ${c.dataset.score}/100` : ""}`);
     } else if (w && note._activity) {
@@ -477,6 +504,8 @@
   note.addEventListener("click", (e) => {
     const b = e.target.closest && e.target.closest(".act-metric button");
     if (b) { actMetric = b.dataset.metric; store.set("actMetric", actMetric); show(current, true); }
+    const m = e.target.closest && e.target.closest(".score-mode button");
+    if (m) { scoreMode = m.dataset.mode; store.set("scoreMode", scoreMode); show(current, true); }
   });
 
   // ── rewards: confetti when a task is ticked; a toast for milestones ──

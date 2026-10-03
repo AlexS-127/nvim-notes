@@ -1,40 +1,59 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
+	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
-// The productivity score is out of 100 and is worked out from the same data as the
-// rest of the Activity view, so nothing extra is stored. It is recomputed on every
-// request, which makes today's score live: it moves as tasks are ticked, written
-// or quizzed.
+// The productivity score is worked out from the same data as the rest of the Activity
+// view and recomputed on every request, which makes today's score live: it moves as tasks
+// are ticked, written or quizzed. Edit the numbers in the block below to retune it; the
+// breakdown's hover text on the Activity page is generated from them.
 //
-//	completed  10 points per task done that day        (at most 50)
-//	created     2 points per task made that day        (at most 10)
-//	quiz        1 point per minute of quiz time        (at most 40)
-//	overdue    -5 points per task overdue at day's end (at most -30)
-//
-// A task is overdue at the end of a day when its due date is that day or earlier and
-// it was still open then. For today that is a projection: the tasks that would count
-// against you if the day ended now.
+// A task is overdue at the end of a day when its due date is that day or earlier and it
+// was still open then. For today that is a projection: the tasks that would count against
+// you if the day ended now. The total never goes below zero.
 const (
-	scoreDonePts    = 10
-	scoreDoneCap    = 50
-	scoreCreatedPts = 2
-	scoreCreatedCap = 10
-	scoreQuizPerMin = 1.0
-	scoreQuizCap    = 40
-	scoreOverduePts = 5
-	scoreOverdueCap = 30
-	scoreMax        = 100
+	scoreDonePts    = 10  // points per task completed
+	scoreDoneCap    = 50  // most points tasks completed can give
+	scoreCreatedPts = 2   // points per task created
+	scoreCreatedCap = 10  // most points tasks created can give
+	scoreQuizPerMin = 1.0 // points per minute of quiz time
+	scoreQuizCap    = 40  // most points quiz time can give
+	scoreOverduePts = 5   // points lost per overdue task
+	scoreOverdueCap = 30  // most points overdue tasks can cost
+
+	scoreRecordEvery = 30 * time.Second // how often the viewer records today's score for the graph
 )
+
+// ScoreHints is the text shown when hovering each part of the breakdown.
+type ScoreHints struct {
+	Done    string `json:"done"`
+	Created string `json:"created"`
+	Study   string `json:"study"`
+	Overdue string `json:"overdue"`
+}
+
+func scoreHints() ScoreHints {
+	return ScoreHints{
+		Done:    fmt.Sprintf("%d each, up to %d", scoreDonePts, scoreDoneCap),
+		Created: fmt.Sprintf("%d each, up to %d", scoreCreatedPts, scoreCreatedCap),
+		Study:   fmt.Sprintf("%g a minute, up to %d", scoreQuizPerMin, scoreQuizCap),
+		Overdue: fmt.Sprintf("−%d each, up to −%d", scoreOverduePts, scoreOverdueCap),
+	}
+}
 
 // Score is one day's score and the calculation behind it.
 type Score struct {
-	Total   int  `json:"total"` // 0-100
-	Live    bool `json:"live"`  // today: still changing, overdue is a projection
+	Total   int  `json:"total"`
+	Live    bool `json:"live"` // today: still changing, overdue is a projection
 	Done    int  `json:"done"`
 	Created int  `json:"created"`
 	Study   int  `json:"study"` // seconds of quiz time
@@ -61,7 +80,7 @@ func scoreFor(done, created, studySecs, overdue int, live bool) Score {
 	s.StudyPts = capInt(int(math.Round(float64(studySecs)/60*scoreQuizPerMin)), scoreQuizCap)
 	s.OverduePts = -capInt(overdue*scoreOverduePts, scoreOverdueCap)
 	total := s.DonePts + s.CreatedPts + s.StudyPts + s.OverduePts
-	s.Total = max(0, min(scoreMax, total))
+	s.Total = max(0, total)
 	return s
 }
 
@@ -109,4 +128,61 @@ func (a *Activity) AddScores(tasks []Task, now time.Time) {
 		d := a.Days[k]
 		a.Scores[k] = scoreFor(d.Done, d.Created, d.Study, overdueAtEndOf(tasks, k, now, carried), k == a.Today)
 	}
+}
+
+// ScorePoint is today's score at one moment, for the line graph.
+type ScorePoint struct {
+	At    string `json:"at"` // local time, 2006-01-02T15:04:05
+	Total int    `json:"total"`
+}
+
+const (
+	scoreLog   = ".score_log.jsonl"
+	scoreStamp = "2006-01-02T15:04:05"
+)
+
+var scoreLogMu sync.Mutex
+
+// RecordScore appends today's score to the log when it differs from the last one
+// recorded today (or is the day's first), and returns today's points so far.
+func (s *Store) RecordScore(now time.Time, total int) []ScorePoint {
+	scoreLogMu.Lock()
+	defer scoreLogMu.Unlock()
+	path := filepath.Join(s.Root, scoreLog)
+	day := now.Format(isoDate)
+	points := []ScorePoint{}
+	if f, err := os.Open(path); err == nil {
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			var p struct {
+				At    string `json:"at"`
+				Score int    `json:"score"`
+			}
+			if json.Unmarshal(sc.Bytes(), &p) == nil && strings.HasPrefix(p.At, day) {
+				points = append(points, ScorePoint{p.At, p.Score})
+			}
+		}
+		f.Close()
+	}
+	if n := len(points); n == 0 || points[n-1].Total != total {
+		at := now.Format(scoreStamp)
+		line, _ := json.Marshal(map[string]any{"at": at, "score": total})
+		if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			f.Write(append(line, '\n'))
+			f.Close()
+			points = append(points, ScorePoint{at, total})
+		}
+	}
+	return points
+}
+
+// FullActivity is everything the Activity view shows, today's score recorded as a side effect.
+func (s *Store) FullActivity(now time.Time, nWeeks int) Activity {
+	tasks := s.CollectTasks(TaskQuery{All: true, Now: now})
+	a := BuildActivity(tasks, now, nWeeks)
+	a.AddStudy(s.StudySeconds(), now)
+	a.AddScores(tasks, now)
+	a.ScoreHints = scoreHints()
+	a.ScoreLine = s.RecordScore(now, a.Scores[a.Today].Total)
+	return a
 }

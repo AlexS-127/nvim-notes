@@ -107,10 +107,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tasks", s.handleTasks)
 	mux.HandleFunc("/api/activity", func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
-		tasks := s.store.CollectTasks(TaskQuery{All: true, Now: now})
-		a := BuildActivity(tasks, now, 12)
-		a.AddStudy(s.store.StudySeconds(), now)
-		a.AddScores(tasks, now)
+		a := s.store.FullActivity(now, 12)
 		writeJSON(w, a)
 	})
 	mux.HandleFunc("/api/folders", func(w http.ResponseWriter, r *http.Request) {
@@ -476,6 +473,12 @@ func (s *Server) ListenAndServe() error {
 	if _, err := s.Watch(); err != nil {
 		log.Println("file watching disabled:", err)
 	}
+	go func() { // keep the score graph filled in even when nothing is open
+		for {
+			s.store.FullActivity(time.Now(), 1)
+			time.Sleep(scoreRecordEvery)
+		}
+	}()
 	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

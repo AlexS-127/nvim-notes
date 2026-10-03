@@ -160,3 +160,23 @@ func TestAddScores(t *testing.T) {
 		t.Error("a day with no activity should not be scored")
 	}
 }
+
+func TestRecordScore(t *testing.T) {
+	now := time.Date(2026, 10, 1, 9, 0, 0, 0, time.Local)
+	s := newTestStore(t, map[string]string{
+		scoreLog: `{"at":"2026-09-30T20:00:00","score":40}` + "\n",
+	})
+	if p := s.RecordScore(now, 0); len(p) != 1 || p[0].Total != 0 { // yesterday's entry is not today's
+		t.Fatalf("first of the day: %+v", p)
+	}
+	if p := s.RecordScore(now.Add(time.Minute), 0); len(p) != 1 { // unchanged: nothing new
+		t.Errorf("unchanged score recorded again: %+v", p)
+	}
+	p := s.RecordScore(now.Add(time.Hour), 10)
+	if len(p) != 2 || p[1].Total != 10 || p[1].At != "2026-10-01T10:00:00" {
+		t.Errorf("change: %+v", p)
+	}
+	if h := scoreHints(); h.Done != "10 each, up to 50" || h.Study != "1 a minute, up to 40" {
+		t.Errorf("hints: %+v", h)
+	}
+}

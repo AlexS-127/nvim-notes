@@ -129,7 +129,9 @@ type Activity struct {
 	StudyToday   int                `json:"study_today"`  // seconds of quiz time today
 	StudyWeek    int                `json:"study_week"`   // seconds this week (Monday on)
 	StudyTotal   int                `json:"study_total"`
-	Scores       map[string]Score   `json:"scores"` // productivity score per day, see score.go
+	Scores       map[string]Score   `json:"scores"`      // productivity score per day, see score.go
+	ScoreLine    []ScorePoint       `json:"score_line"`  // today's score as it changed
+	ScoreHints   ScoreHints         `json:"score_hints"` // hover text for the breakdown
 }
 
 // quizLog is where quiz.py appends one JSON line per session: {"date","seconds",...}.

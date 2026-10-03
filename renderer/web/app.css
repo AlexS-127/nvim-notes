@@ -254,24 +254,21 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 .wk-legend { display: flex; gap: 16px; color: var(--muted); font: 12.5px var(--font-ui); margin-bottom: 4px; }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
 .sw.done { background: var(--accent); } .sw.made { background: color-mix(in srgb, var(--accent) 38%, var(--bg)); }
-.score-card { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; font-family: var(--font-ui); }
-.score-num { font-size: 52px; font-weight: 650; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
-.score-num em { font-style: normal; font-size: 15px; font-weight: 400; color: var(--muted); margin-left: 4px; }
-.score-main { display: flex; flex-direction: column; gap: 6px; }
-.score-calc, .score-days { border-collapse: collapse; font: 13px var(--font-ui); width: 100%; }
-.score-calc td, .score-days td, .score-days th { padding: 4px 8px; border: 0; border-bottom: 1px solid var(--border); text-align: left; }
-.score-calc tfoot td { font-weight: 650; border-bottom: 0; }
-.score-calc .n, .score-days .n { text-align: right; font-variant-numeric: tabular-nums; }
-.score-calc .rule { color: var(--muted); font-size: 12px; }
-.score-calc .pts { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-.score-calc tr.neg .pts, .score-days .neg { color: var(--c-danger); }
-.score-days { margin-top: 8px; }
-.score-days th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 500; }
-.score-days td.bar { width: 28%; padding-right: 0; }
-.score-days td.bar i { display: block; height: 8px; border-radius: 4px; background: var(--accent); opacity: .85; min-width: 2px; }
-.score-days td.bar i.l0 { opacity: .25; } .score-days td.bar i.l1 { opacity: .45; } .score-days td.bar i.l2 { opacity: .6; }
-.score-days .tot { font-weight: 650; width: 2.5em; }
-.score-days em.live { font-style: normal; font-size: 10.5px; color: var(--accent); text-transform: uppercase; letter-spacing: .05em; }
+.score-card { display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 20px; font-family: var(--font-ui); }
+.score-num { font-size: 56px; font-weight: 650; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; display: flex; flex-direction: column; gap: 6px; }
+.score-num small { font-size: 11.5px; font-weight: 400; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.score-calc { border-collapse: collapse; font: 13px var(--font-ui); width: 100%; }
+.score-calc td, .score-calc th { padding: 5px 8px; border: 0; border-bottom: 1px solid var(--border); text-align: left; }
+.score-calc tbody tr:last-child td { border-bottom: 0; }
+.score-calc th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 500; }
+.score-calc th:not(:first-child), .score-calc .n, .score-calc .pts { text-align: right; font-variant-numeric: tabular-nums; }
+.score-calc .pts { font-weight: 600; }
+.score-calc .el { cursor: help; }
+.score-calc tr.neg .pts { color: var(--c-danger); }
+.sc-path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.sc-area { fill: var(--accent); opacity: .12; stroke: none; }
+.sc-dot { fill: var(--bg); stroke: var(--accent); stroke-width: 2; }
+.sc-now { fill: var(--accent); }
 .act-note { color: var(--muted); font: 12.5px var(--font-ui); margin-top: 14px; }
 .act-tip { position: fixed; z-index: 30; pointer-events: none; background: var(--fg); color: var(--bg); padding: 6px 9px; border-radius: 7px; font: 12px/1.45 var(--font-ui); box-shadow: 0 4px 14px rgba(0,0,0,.25); }
 .confetti { position: fixed; z-index: 40; width: 7px; height: 7px; border-radius: 2px; pointer-events: none; }
