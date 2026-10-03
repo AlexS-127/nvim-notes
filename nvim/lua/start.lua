@@ -87,6 +87,35 @@ local function restart_renderer()
   end)
 end
 
+-- ── Vocab quiz: hand the real terminal to notes/quiz.py (outside nvim), come back Home after ──
+local function run_quiz()
+  local script = NOTES .. "/quiz.py"
+  if vim.fn.filereadable(script) == 0 then return vim.notify("quiz not found: " .. script, vim.log.levels.ERROR) end
+  -- `:!` children get piped stdio and no controlling terminal (no /dev/tty), so input() would hit EOF
+  -- at once. Find nvim's own tty device, point the quiz at it, leave the alternate screen, switch to
+  -- cooked mode, turn focus/mouse reporting off (else cmd-tab types ^[[I / ^[[O), then restart nvim.
+  -- (The server process has no tty; its parent, the TUI, does.)
+  local tty = vim.trim(vim.fn.system({ "ps", "-o", "tty=", "-p", tostring(uv.os_getppid()) }))
+  if tty == "" or tty:find("?", 1, true) then return vim.notify("quiz: can't find the terminal", vim.log.levels.ERROR) end
+  tty = "/dev/" .. (tty:match("^tty") and tty or "tty" .. tty)
+  local cmd = table.concat({
+    "T=" .. vim.fn.shellescape(tty),
+    "saved=$(stty -g <$T)",
+    "printf '\\033[?1049l\\033[?1004l\\033[?1000l\\033[?1002l\\033[?1003l\\033[?1006l' >$T",
+    "stty sane <$T",
+    "python3 " .. vim.fn.shellescape(script) .. " <$T >$T 2>&1",
+    "stty \"$saved\" <$T",
+    "printf '\\033[?1049h\\033[?1004h" .. (vim.o.mouse ~= "" and "\\033[?1002h\\033[?1006h" or "") .. "' >$T",
+  }, "; ")
+  vim.cmd("silent !" .. vim.fn.escape(cmd, "%#!"))
+  -- Restart nvim so the normal start page comes up clean (redrawing in place after the quiz looks off).
+  if not pcall(vim.cmd, 'restart lua require("mini.starter").open()') then
+    vim.cmd("redraw!")
+    load_tasks()
+    pcall(require("mini.starter").open)
+  end
+end
+
 -- ── One-key actions ──────────────────────────────────────────────
 local actions = {
   { "t", "Task list", function() feed("<leader>no") end },
@@ -97,6 +126,7 @@ local actions = {
   { "n", "New note", function() feed("<leader>nn") end },
   { "f", "Find note", function() feed("<leader>nf") end },
   { "g", "Search notes", function() feed("<leader>ng") end },
+  { "s", "Study (vocab quiz)", run_quiz },
   { "r", "Restart renderer (rebuild)", restart_renderer },
   { "q", "Terminal", function() vim.cmd("qa") end },
 }
