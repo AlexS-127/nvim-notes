@@ -187,8 +187,8 @@ func Title(rel string, src []byte) string {
 	return strings.TrimSuffix(path.Base(rel), path.Ext(rel))
 }
 
-// ToggleCheckbox flips the checkbox on one 1-based line, rewriting the file
-// atomically and leaving every other byte untouched.
+// ToggleCheckbox flips the checkbox on one 1-based line and moves the task to
+// (or back out of) the Done section, rewriting the file atomically.
 func (s *Store) ToggleCheckbox(rel string, line int) error {
 	full, err := s.Resolve(rel)
 	if err != nil {
@@ -198,21 +198,22 @@ func (s *Store) ToggleCheckbox(rel string, line int) error {
 	if err != nil {
 		return err
 	}
-	lines := strings.SplitAfter(string(data), "\n")
+	lines, lf := splitLines(string(data))
 	if line < 1 || line > len(lines) {
 		return fmt.Errorf("line %d out of range", line)
 	}
 	l := lines[line-1]
 	switch {
 	case taskOpenRe.MatchString(l):
-		l = stampDone(taskOpenRe.ReplaceAllString(l, "${1}[x]"), time.Now())
+		lines[line-1] = stampDone(taskOpenRe.ReplaceAllString(l, "${1}[x]"), time.Now())
+		lines = moveToDone(lines, line-1)
 	case taskDoneRe.MatchString(l):
-		l = unstampDone(taskDoneRe.ReplaceAllString(l, "${1}[ ]"))
+		lines[line-1] = unstampDone(taskDoneRe.ReplaceAllString(l, "${1}[ ]"))
+		lines = moveFromDone(lines, line-1)
 	default:
 		return fmt.Errorf("line %d is not a task", line)
 	}
-	lines[line-1] = l
-	return writeAtomic(full, []byte(strings.Join(lines, "")))
+	return writeAtomic(full, []byte(joinLines(lines, lf)))
 }
 
 var (

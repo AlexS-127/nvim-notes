@@ -278,11 +278,16 @@
   const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const dayOf = (iso) => new Date(iso + "T00:00:00");
   const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const fmtStudy = (sec) => { const m = Math.round(sec / 60); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
   const fmtAvg = (n) => (Math.round(n * 10) / 10).toString();
   let actMetric = store.get("actMetric", "both");
 
   function levelOf(n) { return n <= 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4; }
+  const studyLevel = (sec) => { const m = sec / 60; return sec <= 0 ? 0 : m < 5 ? 1 : m < 15 ? 2 : m < 30 ? 3 : 4; };
+  const scoreLevel = (n) => (n <= 0 ? 0 : n < 25 ? 1 : n < 50 ? 2 : n < 75 ? 3 : 4);
+  const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : "0");
   const metricVal = (d) => !d ? 0 : actMetric === "done" ? d.done : actMetric === "created" ? d.created : d.done + d.created;
+  const cellLevel = (d) => actMetric === "quiz" ? studyLevel(d ? d.study || 0 : 0) : actMetric === "score" ? scoreLevel(d ? d.score || 0 : 0) : levelOf(metricVal(d));
 
   function heatmapSvg(a) {
     const today = dayOf(a.today), C = 12, G = 3, left = 28, top = 18;
@@ -292,12 +297,12 @@
       for (let r = 0; r < 7; r++) {
         const d = new Date(start); d.setDate(d.getDate() + w * 7 + r);
         if (d > today) continue;
-        const iso = isoOf(d), st = a.days[iso] || { done: 0, created: 0 };
+        const iso = isoOf(d), st = { done: 0, created: 0, ...(a.days[iso] || {}), score: (a.scores[iso] || {}).total || 0 };
         if (r === 0 && d.getMonth() !== lastMonth && d.getDate() <= 7) {
           months += `<text x="${left + w * (C + G)}" y="10" class="hm-label">${d.toLocaleDateString(undefined, { month: "short" })}</text>`;
           lastMonth = d.getMonth();
         }
-        cells += `<rect class="hm-cell l${levelOf(metricVal(st))}${iso === a.today ? " today" : ""}" x="${left + w * (C + G)}" y="${top + r * (C + G)}" width="${C}" height="${C}" rx="3" data-d="${iso}" data-done="${st.done}" data-created="${st.created}"/>`;
+        cells += `<rect class="hm-cell l${cellLevel(st)}${iso === a.today ? " today" : ""}" x="${left + w * (C + G)}" y="${top + r * (C + G)}" width="${C}" height="${C}" rx="3" data-d="${iso}" data-done="${st.done}" data-created="${st.created}" data-study="${st.study || 0}" data-score="${st.score}"/>`;
       }
     }
     const dows = DOW.map((n, r) => n ? `<text x="0" y="${top + r * (C + G) + 10}" class="hm-label">${n}</text>` : "").join("");
@@ -372,6 +377,37 @@
     return `${med}, ${sig}`.replace(/^./, (c) => c.toUpperCase());
   }
 
+  // the calculation behind one day's score, one row per part
+  function scoreRows(sc) {
+    const rows = [
+      ["Tasks completed", sc.done, "10 each, up to 50", sc.done_pts],
+      ["Tasks created", sc.created, "2 each, up to 10", sc.created_pts],
+      ["Quiz time", fmtStudy(sc.study), "1 a minute, up to 40", sc.study_pts],
+      [sc.live ? "Overdue (if the day ended now)" : "Overdue at end of day", sc.overdue, "−5 each, up to −30", sc.overdue_pts],
+    ];
+    return rows.map(([l, n, rule, pts]) => `<tr class="${pts < 0 ? "neg" : ""}"><td>${l}</td><td class="n">${n}</td><td class="rule">${rule}</td><td class="pts">${signed(pts)}</td></tr>`).join("");
+  }
+
+  function scoreSection(a) {
+    const sc = a.scores[a.today];
+    const days = Object.keys(a.scores).sort().reverse().slice(0, 14);
+    const rows = days.map((k) => {
+      const x = a.scores[k];
+      const label = k === a.today ? "Today" : dayOf(k).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+      return `<tr><td>${label}${x.live ? ' <em class="live">live</em>' : ""}</td><td class="n">${x.done}</td><td class="n">${x.created}</td><td class="n">${fmtStudy(x.study)}</td>` +
+        `<td class="n${x.overdue ? " neg" : ""}">${x.overdue}</td><td class="bar"><i class="l${scoreLevel(x.total)}" style="width:${x.total}%"></i></td><td class="n tot">${x.total}</td></tr>`;
+    }).join("");
+    return `<h2>Productivity score</h2>
+      <div class="score-card">
+        <div class="score-main"><div class="score-num" id="act-score">${sc.total}<em>/100</em></div>
+          <span class="sub">Today so far${sc.overdue ? ` · ${plural(sc.overdue, "overdue task")} cost${sc.overdue === 1 ? "s" : ""} you ${-sc.overdue_pts}` : ""}</span></div>
+        <table class="score-calc"><tbody>${scoreRows(sc)}</tbody>
+          <tfoot><tr><td colspan="3">Score (0 to 100)</td><td class="pts">${sc.total}</td></tr></tfoot></table>
+      </div>
+      <p class="act-note" style="margin:6px 0 4px">Updates as you work. A task counts as overdue at the end of a day when it was due that day or earlier and still open; for today that is what would count if the day ended now.</p>
+      <table class="score-days"><thead><tr><th>Day</th><th>Done</th><th>Made</th><th>Quiz</th><th>Overdue</th><th colspan="2">Score</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
   async function renderActivity(keepScroll) {
     const a = await api("/api/activity");
     note.className = "note activity";
@@ -392,12 +428,15 @@
           <span class="sub">${streakMsg} · best ${a.best_streak}</span></div>
         <div class="tile"><small>Today</small><div class="big">${today.done}<em>done</em></div>
           <span class="sub">${today.created} made</span></div>
+        <div class="tile"><small>Quiz time</small><div class="big">${fmtStudy(a.study_today)}<em>today</em></div>
+          <span class="sub">${fmtStudy(a.study_week)} this week · ${fmtStudy(a.study_total)} in all</span></div>
       </div>
       <div class="level"><span class="rank">${esc(rank)}</span>
         <div class="bar${next ? "" : " full"}"><i style="width:${pct}%"></i></div>
         <span class="sub">${next ? `${next[0] - a.total_done} more to <b>${esc(next[1])}</b> (${next[0]})` : "Top rank reached"}</span></div>
+      ${scoreSection(a)}
       <div class="act-head"><div class="task-filter act-metric">
-        ${[["both", "Done + made"], ["done", "Done"], ["created", "Made"]].map(([k, l]) => `<button data-metric="${k}" class="${actMetric === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+        ${[["both", "Done + made"], ["done", "Done"], ["created", "Made"], ["quiz", "Quiz time"], ["score", "Score"]].map(([k, l]) => `<button data-metric="${k}" class="${actMetric === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
       <div class="hm-wrap">${heatmapSvg(a)}</div>
       <div class="hm-legend">Less ${[0, 1, 2, 3, 4].map((l) => `<i class="hm-cell l${l}"></i>`).join("")} More</div>
       <h2>Weekly</h2>
@@ -421,7 +460,7 @@
     const c = e.target.closest && e.target.closest(".hm-cell[data-d]"), w = e.target.closest && e.target.closest("g.wk"), wd = e.target.closest && e.target.closest("g.wd"), ds = e.target.closest && e.target.closest("g.ds");
     if (c) {
       const d = Number(c.dataset.done), m = Number(c.dataset.created);
-      showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}`);
+      showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}${Number(c.dataset.study) ? `<br>${fmtStudy(Number(c.dataset.study))} of quiz` : ""}${Number(c.dataset.score) ? `<br>Score ${c.dataset.score}/100` : ""}`);
     } else if (w && note._activity) {
       const k = note._activity.weeks[Number(w.dataset.i)];
       showTip(e, `<b>Week of ${dayOf(k.start).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</b><br>${fmtAvg(k.avg_done)} done / day (${k.done} in ${plural(k.days, "day")})<br>${fmtAvg(k.avg_created)} made / day (${k.created})<br>Running total ${k.total}`);

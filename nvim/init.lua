@@ -297,10 +297,92 @@ local function toggle_checkbox_line(line)
   return (line:gsub("^(%s*)", "%1- [ ] ", 1))
 end
 
+-- Ticking moves a task (with its nested lines) to the end of `## Done`; unticking one in
+-- Done moves it back with the open tasks. Mirrors renderer/done.go.
+local function indent_of(l) return #l:match("^[ \t]*") end
+
+local function task_end(lines, i)
+  local e, ind = i + 1, indent_of(lines[i])
+  while e <= #lines and lines[e]:match("%S") and indent_of(lines[e]) > ind do e = e + 1 end
+  return e  -- exclusive
+end
+
+local function done_head(lines)
+  for i, l in ipairs(lines) do if l:match("^##%s+Done%s*$") then return i end end
+end
+
+local function done_end(lines, head)
+  for i = head + 1, #lines do if lines[i]:match("^##?%s") then return i end end
+  return #lines + 1
+end
+
+local function take_block(lines, i)
+  local e, block = task_end(lines, i), {}
+  for k = i, e - 1 do block[#block + 1] = lines[k] end
+  for _ = i, e - 1 do table.remove(lines, i) end
+  return block
+end
+
+local function insert_at(lines, at, block)
+  for k, l in ipairs(block) do table.insert(lines, at + k - 1, l) end
+end
+
+local function move_to_done(lines, i)
+  local head = done_head(lines)
+  if head and i > head and i < done_end(lines, head) then return false end
+  local block = take_block(lines, i)
+  head = done_head(lines)
+  if not head then
+    while #lines > 0 and not lines[#lines]:match("%S") do table.remove(lines) end
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "## Done"
+    insert_at(lines, #lines + 1, block)
+    return true
+  end
+  local at = done_end(lines, head)
+  while at > head + 1 and not lines[at - 1]:match("%S") do at = at - 1 end
+  insert_at(lines, at, block)
+  return true
+end
+
+local function move_from_done(lines, i)
+  local head = done_head(lines)
+  if not head or i < head or i >= done_end(lines, head) then return end
+  local block = take_block(lines, i)
+  head = done_head(lines)
+  local at, k = nil, 1
+  while k < head do
+    if lines[k]:match("^%s*[-*+] %[[ xX>]%]") then at = math.min(task_end(lines, k), head); k = at else k = k + 1 end
+  end
+  if not at then
+    at = head
+    while at > 1 and not lines[at - 1]:match("%S") do at = at - 1 end
+  end
+  insert_at(lines, at, block)
+end
+
 local function toggle_checkbox_range(first, last)
-  local lines = vim.api.nvim_buf_get_lines(0, first - 1, last, false)
-  for i, l in ipairs(lines) do lines[i] = toggle_checkbox_line(l) end
-  vim.api.nvim_buf_set_lines(0, first - 1, last, false, lines)
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local was_done = {}
+  for i = first, last do
+    was_done[i] = lines[i]:match("^%s*[-*+] %[[xX]%]") ~= nil
+    lines[i] = toggle_checkbox_line(lines[i])
+  end
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  for i = last, first, -1 do  -- bottom first so the rows above stay put
+    if lines[i]:match("^%s*[-*+] %[ %]") and was_done[i] then move_from_done(lines, i) end
+  end
+  local i = first
+  while i <= last do  -- top down, so ticked tasks land in Done in the order they were
+    local e = task_end(lines, i)
+    if lines[i]:match("^%s*[-*+] %[[xX]%]") and not was_done[i] and move_to_done(lines, i) then
+      last = last - (e - i)  -- the block left; the next row is now at i
+    else
+      i = i + 1
+    end
+  end
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+  vim.api.nvim_win_set_cursor(0, { math.min(cursor[1], #lines), cursor[2] })
 end
 
 local function set_heading(level)

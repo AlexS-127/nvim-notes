@@ -107,7 +107,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tasks", s.handleTasks)
 	mux.HandleFunc("/api/activity", func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
-		writeJSON(w, BuildActivity(s.store.CollectTasks(TaskQuery{All: true, Now: now}), now, 12))
+		tasks := s.store.CollectTasks(TaskQuery{All: true, Now: now})
+		a := BuildActivity(tasks, now, 12)
+		a.AddStudy(s.store.StudySeconds(), now)
+		a.AddScores(tasks, now)
+		writeJSON(w, a)
 	})
 	mux.HandleFunc("/api/folders", func(w http.ResponseWriter, r *http.Request) {
 		list := s.store.Folders().List

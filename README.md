@@ -183,6 +183,13 @@ The **Activity** view (sidebar button, or `a` in the viewer) turns your tasks in
 - **Distribution:** a histogram of tasks done per day, one entry per finished day since your first
   completion (zero days count, today doesn't until it's over), with the median and +1 sigma marked,
   and how many tasks today still needs to beat the median and reach 1 sigma.
+- **Quiz time:** `quiz.py` logs how long each session took to `notes/.quiz_log.jsonl` (a pause of
+  over 90 seconds on one question counts as 90). The Activity view shows time today, this week and
+  in all, and the calendar tooltip shows each day's quiz minutes.
+- **Done is automatic.** Ticking a task (in the viewer or with `<Space>x`) moves it, with its
+  nested lines, to the end of the note's `## Done` section, creating it if needed. Unticking one
+  in Done moves it back up with the open tasks. New captures land with the open tasks, above
+  `## Done`, instead of at the bottom of the file.
 - Ticking a task in the viewer throws confetti, with a toast when you pass a milestone.
 
 Completion dates come from a stamp added when you tick a task, in the viewer or with `<Space>x`:
@@ -250,7 +257,7 @@ without carry-over). If it is older than the config needs (`NOTESVIEW_MIN_VERSIO
 | `]]` / `[[` | Next / previous heading |
 | `j` / `k` | Move by visual line |
 | `<Space>x` | Toggle checkbox (normal or visual selection; moved `[>]` tasks are left alone) |
-| `<Space>a` | Archive completed tasks under `## Done` |
+| `<Space>a` | Sweep any older completed tasks into `## Done` (ticking already does this) |
 | `<Space>1`–`4` | Set heading level 1–4 and keep typing at the end of the line |
 | `<Space>0` | Remove heading |
 | `<Space>+` / `<Space>-` | Heading level up / down |

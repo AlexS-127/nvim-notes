@@ -105,8 +105,8 @@ func TestTaskOrder(t *testing.T) {
 	}
 }
 
-func TestToggleChangesOnlyOneLine(t *testing.T) {
-	orig := "# T\r\n- [ ] a\r\n- [x] b\n  - [ ] c\nlast line no newline"
+func TestToggleMovesToDone(t *testing.T) {
+	orig := "# T\r\n- [ ] a\r\n- [x] b\r\n  - [ ] c\r\nlast line no newline"
 	s := newTestStore(t, map[string]string{"n.md": orig})
 	check := func(line int, want string) {
 		t.Helper()
@@ -119,9 +119,10 @@ func TestToggleChangesOnlyOneLine(t *testing.T) {
 		}
 	}
 	st := " ✅ " + time.Now().Format(isoDate)
-	check(2, "# T\r\n- [x] a"+st+"\r\n- [x] b\n  - [ ] c\nlast line no newline")
-	check(3, "# T\r\n- [x] a"+st+"\r\n- [ ] b\n  - [ ] c\nlast line no newline")
-	check(4, "# T\r\n- [x] a"+st+"\r\n- [ ] b\n  - [x] c"+st+"\nlast line no newline")
+	// ticking moves the task to a new Done section, line endings kept
+	check(2, "# T\r\n- [x] b\r\n  - [ ] c\r\nlast line no newline\r\n\r\n## Done\r\n- [x] a"+st)
+	// unticking it moves it back above Done, after the last open task block
+	check(7, "# T\r\n- [x] b\r\n  - [ ] c\r\n- [ ] a\r\nlast line no newline\r\n\r\n## Done")
 	if err := s.ToggleCheckbox("n.md", 1); err == nil {
 		t.Error("toggling a non-task line should fail")
 	}

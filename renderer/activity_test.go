@@ -2,7 +2,6 @@ package main
 
 import (
 	"math"
-	"strings"
 	"testing"
 	"time"
 )
@@ -27,16 +26,21 @@ func TestToggleStamps(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := s.Read("a.md")
-	if !strings.HasPrefix(string(b), "- [x] one ✅ "+time.Now().Format(isoDate)+"\n- [ ] two") {
+	if string(b) != "- [ ] two\n\n## Done\n- [x] one ✅ "+time.Now().Format(isoDate)+"\n" {
 		t.Fatalf("got %q", b)
 	}
-	tasks := s.CollectTasks(TaskQuery{All: true})
-	if tasks[0].DoneDate == "" || tasks[0].Display != "one" {
-		t.Errorf("stamp should be parsed and hidden: %+v", tasks[0])
+	var one Task
+	for _, tk := range s.CollectTasks(TaskQuery{All: true}) {
+		if tk.Display == "one" {
+			one = tk
+		}
 	}
-	s.ToggleCheckbox("a.md", 1)
+	if one.DoneDate == "" {
+		t.Errorf("stamp should be parsed and hidden: %+v", one)
+	}
+	s.ToggleCheckbox("a.md", 4)
 	b, _ = s.Read("a.md")
-	if string(b) != "- [ ] one\n- [ ] two\n" {
+	if string(b) != "- [ ] two\n- [ ] one\n\n## Done\n" {
 		t.Errorf("unticking should remove the stamp: %q", b)
 	}
 }
@@ -95,5 +99,64 @@ func TestDistributionThresholds(t *testing.T) {
 	}
 	if want := int(math.Ceil(d.Mean+d.Sigma)) - 1; d.ToSigma != want {
 		t.Errorf("to sigma %d want %d (mean %.2f sigma %.2f)", d.ToSigma, want, d.Mean, d.Sigma)
+	}
+}
+
+func TestAddStudy(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local) // Thursday
+	s := newTestStore(t, map[string]string{
+		quizLog: `{"date":"2026-10-01","seconds":300}` + "\n" + `not json` + "\n" +
+			`{"date":"2026-10-01","seconds":60}` + "\n" + `{"date":"2026-09-20","seconds":120}` + "\n",
+	})
+	a := BuildActivity(nil, now, 2)
+	a.AddStudy(s.StudySeconds(), now)
+	if a.StudyToday != 360 || a.StudyWeek != 360 || a.StudyTotal != 480 || a.Days["2026-09-20"].Study != 120 {
+		t.Errorf("study: %+v", a)
+	}
+	if a.Streak != 0 {
+		t.Errorf("quiz time alone must not make a task streak: %d", a.Streak)
+	}
+}
+
+func TestScoreFor(t *testing.T) {
+	if s := scoreFor(0, 0, 0, 0, false); s.Total != 0 {
+		t.Errorf("empty day: %+v", s)
+	}
+	// 3 done (30) + 2 made (4) + 10 min quiz (10) - 2 overdue (10)
+	s := scoreFor(3, 2, 600, 2, true)
+	if s.DonePts != 30 || s.CreatedPts != 4 || s.StudyPts != 10 || s.OverduePts != -10 || s.Total != 34 || !s.Live {
+		t.Errorf("score: %+v", s)
+	}
+	// each part is capped, the total tops out at 100, the penalty at -30
+	if s := scoreFor(20, 20, 3*3600, 0, false); s.Total != 100 {
+		t.Errorf("max: %+v", s)
+	}
+	if s := scoreFor(1, 0, 0, 50, false); s.OverduePts != -30 || s.Total != 0 {
+		t.Errorf("penalty cap and floor: %+v", s)
+	}
+}
+
+func TestAddScores(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local)
+	s := newTestStore(t, map[string]string{
+		"inbox.md": "- [x] a ✅ 2026-09-30 @2026-09-29\n" + // done a day late: overdue at the end of 9/29 only
+			"- [ ] b @2026-09-30\n" + // open since: overdue at the end of 9/30 and 10/1
+			"- [x] c ✅ 2026-10-01 @2026-10-05\n" + // not due yet
+			"- [ ] d @2026-10-09\n",
+		quizLog: `{"date":"2026-10-01","seconds":1200}` + "\n",
+	})
+	tasks := s.CollectTasks(TaskQuery{All: true, Now: now})
+	a := BuildActivity(tasks, now, 2)
+	a.AddStudy(s.StudySeconds(), now)
+	a.AddScores(tasks, now)
+	if got := a.Scores["2026-09-30"]; got.Done != 1 || got.Overdue != 1 || got.Total != 5 {
+		t.Errorf("9/30: %+v", got)
+	}
+	// 10 for c, 20 for quiz, -5 for b
+	if got := a.Scores["2026-10-01"]; !got.Live || got.Total != 25 || got.Overdue != 1 {
+		t.Errorf("today: %+v", got)
+	}
+	if _, ok := a.Scores["2026-09-29"]; ok {
+		t.Error("a day with no activity should not be scored")
 	}
 }

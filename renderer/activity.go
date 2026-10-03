@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"math"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -72,6 +76,7 @@ func createdDate(t Task, now time.Time, carried map[string]bool) string {
 type DayStat struct {
 	Done    int `json:"done"`
 	Created int `json:"created"`
+	Study   int `json:"study"` // seconds of quiz time
 }
 
 type WeekStat struct {
@@ -121,6 +126,52 @@ type Activity struct {
 	Weekdays     []WeekdayStat      `json:"weekdays"`
 	Distribution Distribution       `json:"distribution"`
 	BestWeekday  int                `json:"best_weekday"` // index into Weekdays, -1 if nothing done yet
+	StudyToday   int                `json:"study_today"`  // seconds of quiz time today
+	StudyWeek    int                `json:"study_week"`   // seconds this week (Monday on)
+	StudyTotal   int                `json:"study_total"`
+	Scores       map[string]Score   `json:"scores"` // productivity score per day, see score.go
+}
+
+// quizLog is where quiz.py appends one JSON line per session: {"date","seconds",...}.
+const quizLog = ".quiz_log.jsonl"
+
+// StudySeconds sums the quiz log by day. A missing or malformed log is just empty.
+func (s *Store) StudySeconds() map[string]int {
+	out := map[string]int{}
+	f, err := os.Open(filepath.Join(s.Root, quizLog))
+	if err != nil {
+		return out
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		var e struct {
+			Date    string `json:"date"`
+			Seconds int    `json:"seconds"`
+		}
+		if json.Unmarshal(sc.Bytes(), &e) != nil || e.Seconds <= 0 {
+			continue
+		}
+		if _, err := time.Parse(isoDate, e.Date); err == nil {
+			out[e.Date] += e.Seconds
+		}
+	}
+	return out
+}
+
+// AddStudy folds per-day quiz seconds into an Activity built from tasks.
+func (a *Activity) AddStudy(secs map[string]int, now time.Time) {
+	week := weekStart(now)
+	for k, n := range secs {
+		d := a.Days[k]
+		d.Study = n
+		a.Days[k] = d
+		a.StudyTotal += n
+		if t, _ := time.ParseInLocation(isoDate, k, now.Location()); !t.Before(week) && !t.After(now) {
+			a.StudyWeek += n
+		}
+	}
+	a.StudyToday = secs[a.Today]
 }
 
 func weekStart(d time.Time) time.Time {
@@ -132,12 +183,7 @@ func weekStart(d time.Time) time.Time {
 func BuildActivity(tasks []Task, now time.Time, nWeeks int) Activity {
 	a := Activity{Today: now.Format(isoDate), Days: map[string]DayStat{}}
 	// a task carried over to a later daily note is not new there: key = note + text
-	carriedTo := map[string]bool{}
-	for _, t := range tasks {
-		if m := movedToRe.FindStringSubmatch(t.Text); m != nil && t.State == StateMoved {
-			carriedTo["daily/"+m[1]+".md\x00"+strings.TrimSpace(movedTailRe.ReplaceAllString(t.Text, ""))] = true
-		}
-	}
+	carriedTo := carriedTasks(tasks)
 	for _, t := range tasks {
 		if t.State == StateOpen {
 			a.Open++

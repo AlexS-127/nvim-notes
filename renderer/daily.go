@@ -316,8 +316,8 @@ func containsFold(list []string, s string) bool {
 	return false
 }
 
-// Capture appends "- [ ] text #tag @due _(timestamp)_" to inbox.md and
-// returns the line it wrote.
+// Capture adds "- [ ] text #tag @due _(timestamp)_" to inbox.md (above ## Done
+// when there is one, else at the end) and returns the line it wrote.
 func (s *Store) Capture(o CaptureOpts, now time.Time) (string, error) {
 	text, create, err := buildCapture(o, s.Folders(), now)
 	if err != nil {
@@ -341,6 +341,10 @@ func (s *Store) Capture(o CaptureOpts, now time.Time) (string, error) {
 	data, err := os.ReadFile(full)
 	if err != nil {
 		return "", err
+	}
+	lines, lf := splitLines(string(data))
+	if out, ok := insertOpen(lines, []string{line}); ok {
+		return line, writeAtomic(full, []byte(joinLines(out, lf)))
 	}
 	prefix := ""
 	if len(data) > 0 && data[len(data)-1] != '\n' {
