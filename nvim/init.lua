@@ -877,6 +877,23 @@ vim.api.nvim_set_decoration_provider(task_ns, {
   end,
 })
 
+-- Latin macrons, only in notes under $NOTES_DIR/lat101: in insert mode ; then a vowel
+-- types its macron (;a→ā, ;E→Ē). Any other key after ; types the ; and that key as usual.
+local MACRONS = {
+  a = "ā", e = "ē", i = "ī", o = "ō", u = "ū", y = "ȳ",
+  A = "Ā", E = "Ē", I = "Ī", O = "Ō", U = "Ū", Y = "Ȳ",
+}
+vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile", "BufEnter" }, {
+  pattern = NOTES .. "/lat101/*",
+  callback = function(ev)
+    vim.keymap.set("i", ";", function()
+      local ok, ch = pcall(vim.fn.getcharstr)
+      if not ok then return ";" end
+      return MACRONS[ch] or (";" .. ch)
+    end, { buffer = ev.buf, expr = true, desc = "Latin macron (; then a/e/i/o/u/y)" })
+  end,
+})
+
 -- Convert natural due dates on the line just edited (runs before autosave below)
 vim.api.nvim_create_autocmd("InsertLeave", {
   pattern = "*.md",
