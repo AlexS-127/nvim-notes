@@ -371,14 +371,15 @@ local function move_from_done(lines, i)
   insert_at(lines, at, block)
 end
 
-local function toggle_checkbox_range(first, last)
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+local function toggle_checkbox_range(first, last, buf)
+  buf = buf or 0   -- another buffer: no cursor to restore
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local was_done = {}
   for i = first, last do
     was_done[i] = lines[i]:match("^%s*[-*+] %[[xX]%]") ~= nil
     lines[i] = toggle_checkbox_line(lines[i])
   end
-  local cursor = vim.api.nvim_win_get_cursor(0)
+  local cursor = buf == 0 and vim.api.nvim_win_get_cursor(0)
   for i = last, first, -1 do  -- bottom first so the rows above stay put
     if lines[i]:match("^%s*[-*+] %[ %]") and was_done[i] then move_from_done(lines, i) end
   end
@@ -391,8 +392,8 @@ local function toggle_checkbox_range(first, last)
       i = i + 1
     end
   end
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
-  vim.api.nvim_win_set_cursor(0, { math.min(cursor[1], #lines), cursor[2] })
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  if cursor then vim.api.nvim_win_set_cursor(0, { math.min(cursor[1], #lines), cursor[2] }) end
 end
 
 local function set_heading(level)
@@ -561,6 +562,115 @@ local function notesview(args)
   vim.system(vim.list_extend({ "notesview" }, args), { env = nv_env(), stdout = false, stderr = false }, function() end)
 end
 
+-- Task actions (Enter in the task picker): tick, copy, edit, change due date or difficulty.
+-- Edits go through the file's buffer (loaded hidden if needed) and are written straight away.
+local STAMP = "%s+_%b()_%s*$"   -- created stamp at the end of the line
+
+-- Column (1-based, inclusive) where the task's text ends: the trailing created stamp,
+-- difficulty, due date and tags are not part of it.
+local function task_text_end(line)
+  local n = #line:gsub("%s+$", "")
+  local floor = #(line:match("^%s*[-*+] %[.%]%s*") or "")
+  local pats = { "%s+_%b()_$", "%s+@%d%d%d%d%-%d%d%-%d%d$", "%s+![123]$", "%s+#%S+$" }
+  local found = true
+  while found do
+    found = false
+    for _, pat in ipairs(pats) do
+      local a = line:sub(1, n):find(pat)
+      if a and a - 1 > floor then n, found = a - 1, true end
+    end
+  end
+  return n
+end
+
+-- The task's words alone: no checkbox, tags, due date, difficulty or stamps.
+local function task_plain_text(t)
+  local s = " " .. t.text .. " "
+  s = s:gsub("%s_%b()_", " "):gsub("%s#%S+", " "):gsub("%s@%d%d%d%d%-%d%d%-%d%d", " "):gsub("%s![123]%f[%W]", " ")
+  s = vim.trim(s:gsub("%s%s+", " "))
+  return s ~= "" and s or t.display
+end
+
+local function set_task_due(line, date)
+  local pat = "(%s)@%d%d%d%d%-%d%d%-%d%d%f[%W]"
+  if line:find(pat) then return (line:gsub(pat, date ~= "" and ("%1@" .. date) or "", 1)) end
+  if date == "" then return line end
+  local at = line:find("%s+![123]%f[%W]") or line:find(STAMP)
+  if not at then return (line:gsub("%s+$", "")) .. " @" .. date end
+  return line:sub(1, at - 1) .. " @" .. date .. line:sub(at)
+end
+
+local function set_task_difficulty(line, diff)
+  local pat = "(%s)![123]%f[%W]"
+  if line:find(pat) then return (line:gsub(pat, diff ~= "" and ("%1!" .. diff) or "", 1)) end
+  if diff == "" then return line end
+  local at = line:find(STAMP)
+  if not at then return (line:gsub("%s+$", "")) .. " !" .. diff end
+  return line:sub(1, at - 1) .. " !" .. diff .. line:sub(at)
+end
+
+-- Runs fn(buf, line) on a task's line if it is still where the picker saw it.
+local function with_task_line(t, fn)
+  local buf = vim.fn.bufadd(NOTES .. "/" .. t.file)
+  vim.fn.bufload(buf)
+  local line = vim.api.nvim_buf_get_lines(buf, t.line - 1, t.line, false)[1]
+  if not (line and line:match("^%s*[-*+] %[ %]") and line:find(t.text, 1, true)) then
+    return vim.notify("That task has moved: reopen the task list", vim.log.levels.WARN)
+  end
+  local dirty = vim.bo[buf].modified
+  fn(buf, line)
+  if dirty then return vim.notify("Changed in the open buffer (it has unsaved edits, so not written)", vim.log.levels.WARN) end
+  vim.api.nvim_buf_call(buf, function() vim.cmd("silent write") end)
+end
+
+local function edit_task_line(t, change, msg)
+  with_task_line(t, function(buf, line)
+    vim.api.nvim_buf_set_lines(buf, t.line - 1, t.line, false, { change(line) })
+    vim.notify(msg)
+  end)
+end
+
+local function task_actions(item)
+  local t = item.task
+  local actions = {
+    { "t", "Tick off", function()
+      with_task_line(t, function(buf) toggle_checkbox_range(t.line, t.line, buf); vim.notify("Done: " .. t.display) end)
+    end },
+    { "c", "Copy text", function()
+      local s = task_plain_text(t)
+      vim.fn.setreg("+", s); vim.fn.setreg('"', s)
+      vim.notify("Copied: " .. s)
+    end },
+    { "e", "Edit task", function()
+      vim.cmd.edit(vim.fn.fnameescape(item.file))
+      local line = vim.api.nvim_buf_get_lines(0, t.line - 1, t.line, false)[1] or ""
+      local col = task_text_end(line)
+      pcall(vim.api.nvim_win_set_cursor, 0, { t.line, math.max(0, col - 1 + vim.str_utf_start(line, col)) })
+    end },
+    { "d", "Edit due date", function()
+      ask_due(function(date) edit_task_line(t, function(l) return set_task_due(l, date) end,
+        date == "" and "Due date removed" or ("Due " .. date)) end)
+    end },
+    { "f", "Edit difficulty", function()
+      ask_difficulty(function(d) edit_task_line(t, function(l) return set_task_difficulty(l, d) end,
+        d == "" and "Difficulty removed" or ("Difficulty " .. d)) end)
+    end },
+  }
+  -- one keypress picks: no list to scroll, no Enter to confirm
+  local chunks = { { t.display .. "\n", "Title" } }
+  for _, a in ipairs(actions) do
+    vim.list_extend(chunks, { { "[" .. a[1] .. "]", "Special" }, { " " .. a[2] .. "   " } })
+  end
+  vim.api.nvim_echo(chunks, false, {})
+  vim.cmd("redraw")
+  local ok, key = pcall(vim.fn.getcharstr)
+  vim.cmd("echo ''")
+  if not ok then return end
+  for _, a in ipairs(actions) do
+    if key:lower() == a[1] then return a[3]() end
+  end
+end
+
 local function open_tasks_picker()
   local tasks = nv_json({ "tasks", "--json", "--dir", NOTES })
   if type(tasks) ~= "table" then   -- no (or an older) notesview: plain grep
@@ -594,9 +704,7 @@ local function open_tasks_picker()
     preview = "file",
     confirm = function(picker, item)
       picker:close()
-      if not item then return end
-      vim.cmd.edit(vim.fn.fnameescape(item.file))
-      pcall(vim.api.nvim_win_set_cursor, 0, { item.pos[1], 0 })
+      if item then vim.schedule(function() task_actions(item) end) end
     end,
   })
 end
