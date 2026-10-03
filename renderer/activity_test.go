@@ -122,16 +122,16 @@ func TestScoreFor(t *testing.T) {
 	if s := scoreFor(0, 0, 0, 0, false); s.Total != 0 {
 		t.Errorf("empty day: %+v", s)
 	}
-	// 3 done (30) + 2 made (4) + 10 min quiz (10) - 2 overdue (10)
+	// 3 done (15) + 2 made (4) + 10 min quiz (20) - 2 overdue (20)
 	s := scoreFor(3, 2, 600, 2, true)
-	if s.DonePts != 30 || s.CreatedPts != 4 || s.StudyPts != 10 || s.OverduePts != -10 || s.Total != 34 || !s.Live {
+	if s.DonePts != 15 || s.CreatedPts != 4 || s.StudyPts != 20 || s.OverduePts != -20 || s.Total != 19 || !s.Live {
 		t.Errorf("score: %+v", s)
 	}
-	// each part is capped, the total tops out at 100, the penalty at -30
-	if s := scoreFor(20, 20, 3*3600, 0, false); s.Total != 100 {
+	// each part is capped (100 + 30 + 100), the penalty at -100, and the total never goes below 0
+	if s := scoreFor(20, 20, 3*3600, 0, false); s.Total != 230 {
 		t.Errorf("max: %+v", s)
 	}
-	if s := scoreFor(1, 0, 0, 50, false); s.OverduePts != -30 || s.Total != 0 {
+	if s := scoreFor(1, 0, 0, 50, false); s.OverduePts != -100 || s.Total != 0 {
 		t.Errorf("penalty cap and floor: %+v", s)
 	}
 }
@@ -149,11 +149,11 @@ func TestAddScores(t *testing.T) {
 	a := BuildActivity(tasks, now, 2)
 	a.AddStudy(s.StudySeconds(), now)
 	a.AddScores(tasks, now)
-	if got := a.Scores["2026-09-30"]; got.Done != 1 || got.Overdue != 1 || got.Total != 5 {
+	if got := a.Scores["2026-09-30"]; got.Done != 1 || got.Overdue != 1 || got.Total != 0 { // 5 for a, -10 for b, floored at 0
 		t.Errorf("9/30: %+v", got)
 	}
-	// 10 for c, 20 for quiz, -5 for b
-	if got := a.Scores["2026-10-01"]; !got.Live || got.Total != 25 || got.Overdue != 1 {
+	// 5 for c, 40 for quiz, -10 for b
+	if got := a.Scores["2026-10-01"]; !got.Live || got.Total != 35 || got.Overdue != 1 {
 		t.Errorf("today: %+v", got)
 	}
 	if _, ok := a.Scores["2026-09-29"]; ok {
