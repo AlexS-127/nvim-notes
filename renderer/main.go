@@ -261,6 +261,7 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 			if (sub != "track" && sub != "untrack") || len(rest) == 0 {
 				return fail(fmt.Errorf("usage: notesview words [track|untrack DIR…]"))
 			}
+			store.RecordWords(now) // credit writing under the current list before it changes
 			set := map[string]bool{}
 			for _, t := range tracked {
 				set[t] = true
@@ -286,6 +287,7 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 			if err := store.SetTrackedWords(tracked); err != nil {
 				return fail(err)
 			}
+			store.RecordWords(now) // baseline newly tracked folders now: only later words count
 		}
 		if *asJSON {
 			return printJSON(stdout, map[string]any{"tracked": tracked, "per_day": store.WordsPerDay()})
