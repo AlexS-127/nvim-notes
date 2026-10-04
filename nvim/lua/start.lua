@@ -1,4 +1,4 @@
--- Startup page (mini.starter): next tasks, and every action on one key.
+-- Startup page (mini.starter): today's score and numbers, next tasks, and every action on one key.
 local M = {}
 
 local uv = vim.uv or vim.loop
@@ -13,6 +13,85 @@ local function greeting()
   local h = tonumber(os.date("%H"))
   local part = h < 5 and "night" or h < 12 and "morning" or h < 18 and "afternoon" or "evening"
   return ("good %s, alex\n%s"):format(part, os.date("%A, %B %d"))
+end
+
+-- ── Today: score, its graph, tasks made/done/left, quiz time ──────
+-- Read from the running notesview server (/api/activity, the same numbers as the viewer's Activity
+-- view). The local.notesview-serve launch agent keeps it up; if it is down, the page says so.
+local stats = nil   -- nil: still loading, false: server not reachable
+local PORT = vim.env.NOTESVIEW_PORT or "7777"
+local BARS = { "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█" }
+
+local function refresh()
+  if vim.bo.filetype == "ministarter" then pcall(require("mini.starter").refresh) end
+end
+
+local function load_stats()
+  vim.system({ "curl", "-sf", "--max-time", "2", "http://127.0.0.1:" .. PORT .. "/api/activity" }, { text = true }, function(r)
+    vim.schedule(function()
+      local ok, decoded = pcall(vim.json.decode, r.stdout or "", { luanil = { object = true, array = true } })
+      stats = (r.code == 0 and ok and type(decoded) == "table") and decoded or false
+      refresh()
+    end)
+  end)
+end
+
+local function clock(secs) return ("%02d:%02d"):format(math.floor(secs / 3600), math.floor(secs % 3600 / 60)) end
+
+local function duration(secs)
+  if secs >= 3600 then return ("%dh %02dm"):format(math.floor(secs / 3600), math.floor(secs % 3600 / 60)) end
+  return ("%dm %02ds"):format(math.floor(secs / 60), secs % 60)
+end
+
+-- Today's score log (score_line) as a step curve from 00:00 to now, `rows` lines of block characters.
+-- The bottom row always has at least ▁ so the elapsed part of the day reads as a baseline.
+local function score_graph(line, width, rows)
+  local t = os.date("*t")
+  local now = t.hour * 3600 + t.min * 60 + t.sec
+  local pts = {}
+  for _, p in ipairs(line or {}) do
+    local h, m, s = tostring(p.at):match("T(%d+):(%d+):(%d+)")
+    if h then pts[#pts + 1] = { h * 3600 + m * 60 + s, tonumber(p.total) or 0 } end
+  end
+  table.sort(pts, function(a, b) return a[1] < b[1] end)
+  local vals, top, j, cur = {}, 0, 1, 0
+  for c = 1, width do
+    local at = now * c / width
+    while pts[j] and pts[j][1] <= at do cur = pts[j][2]; j = j + 1 end
+    vals[c] = cur
+    top = math.max(top, cur)
+  end
+  local out = {}
+  for r = rows, 1, -1 do
+    local cells = {}
+    for c = 1, width do
+      local eighths = top > 0 and math.floor(vals[c] / top * rows * 8 + 0.5) or 0
+      local fill = math.max(0, math.min(8, eighths - (r - 1) * 8))
+      if r == 1 then fill = math.max(fill, 1) end
+      cells[c] = fill > 0 and BARS[fill] or " "
+    end
+    local label = r == rows and ("%3d"):format(top) or r == 1 and "  0" or "   "
+    out[#out + 1] = label .. " ┤" .. table.concat(cells)
+  end
+  out[#out + 1] = "     " .. clock(0) .. (" "):rep(math.max(1, width - 10)) .. clock(now)
+  return out
+end
+
+local function stats_lines()
+  if stats == nil then return { "score …" } end
+  if not stats then return { "score: notesview server not running" } end
+  local today = stats.today or os.date("%Y-%m-%d")
+  local score = ((stats.scores or {})[today] or {}).total or 0
+  local day = (stats.days or {})[today] or {}
+  local lines = { ("score %d"):format(score) }
+  vim.list_extend(lines, score_graph(stats.score_line, math.max(16, math.min(48, vim.o.columns - 30)), 3))
+  lines[#lines + 1] = ("tasks  %d made · %d done · %d left    quiz %s"):format(
+    day.created or 0, day.done or 0, stats.open or 0, duration(stats.study_today or 0))
+  return lines
+end
+
+local function header()
+  return greeting() .. "\n\n" .. table.concat(stats_lines(), "\n")
 end
 
 -- ── Next tasks ───────────────────────────────────────────────────
@@ -39,7 +118,7 @@ local function load_tasks()
     vim.schedule(function()
       local ok, decoded = pcall(vim.json.decode, r.stdout or "")
       tasks = (r.code == 0 and ok and type(decoded) == "table") and pick_next(decoded, 3) or {}
-      if vim.bo.filetype == "ministarter" then pcall(require("mini.starter").refresh) end
+      refresh()
     end)
   end)
 end
@@ -131,6 +210,7 @@ local function run_quiz()
   if not pcall(vim.cmd, ("restart lua vim.g.notes_tui = %d; require('mini.starter').open()"):format(tui)) then
     vim.cmd("redraw!")
     load_tasks()
+    load_stats()
     pcall(require("mini.starter").open)
   end
 end
@@ -162,9 +242,10 @@ end
 function M.setup()
   local starter = require("mini.starter")
   load_tasks()
+  load_stats()
 
   starter.setup({
-    header = greeting,
+    header = header,
     items = { task_items, action_items },
     footer = "",
     content_hooks = { starter.gen_hook.aligning("center", "center") },
@@ -190,7 +271,12 @@ function M.setup()
     callback = function() vim.v.swapchoice = "e" end,
   })
 
-  vim.api.nvim_create_autocmd("FocusGained", { callback = load_tasks })  -- fresh tasks when you come back
+  -- fresh tasks and numbers when you come back; the numbers also tick over once a minute while the page is up
+  vim.api.nvim_create_autocmd("FocusGained", { callback = function() load_tasks(); load_stats() end })
+  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = load_stats })
+  uv.new_timer():start(60000, 60000, vim.schedule_wrap(function()
+    if vim.bo.filetype == "ministarter" then load_stats() end
+  end))
 
   -- mini.starter turns letters into a search query; give them back as direct keys.
   vim.api.nvim_create_autocmd("User", {
