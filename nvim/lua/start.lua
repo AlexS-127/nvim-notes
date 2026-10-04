@@ -98,8 +98,13 @@ local function run_quiz()
   local tty = vim.trim(vim.fn.system({ "ps", "-o", "tty=", "-p", tostring(uv.os_getppid()) }))
   if tty == "" or tty:find("?", 1, true) then return vim.notify("quiz: can't find the terminal", vim.log.levels.ERROR) end
   tty = "/dev/" .. (tty:match("^tty") and tty or "tty" .. tty)
+  -- The TUI also reads this tty and would steal keystrokes (an eaten answer + Enter), so freeze it
+  -- (SIGSTOP) while the quiz runs; the trap resumes it however the command ends.
+  local tui = uv.os_getppid()
   local cmd = table.concat({
     "T=" .. vim.fn.shellescape(tty),
+    "trap 'kill -CONT " .. tui .. "' EXIT",
+    "kill -STOP " .. tui,
     "saved=$(stty -g <$T)",
     "printf '\\033[?1049l\\033[?1004l\\033[?1000l\\033[?1002l\\033[?1003l\\033[?1006l' >$T",
     "stty sane <$T",
