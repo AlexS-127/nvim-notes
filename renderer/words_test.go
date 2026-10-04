@@ -57,6 +57,37 @@ func TestRecordWords(t *testing.T) {
 	}
 }
 
+func TestExcludedWords(t *testing.T) {
+	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.Local)
+	s := newTestStore(t, map[string]string{"mine/a.md": "one\n", "mine/defs.md": "one\n"})
+	write := func(rel, text string) {
+		if err := os.WriteFile(filepath.Join(s.Root, filepath.FromSlash(rel)), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.SetTrackedWords([]string{"mine"})
+	s.RecordWords(now)
+	s.SetExcludedWords([]string{"mine/defs.md"})
+	s.SetTrackedWords([]string{"mine"}) // must keep the exclusion
+	if got := s.ExcludedWords(); len(got) != 1 {
+		t.Fatalf("exclusion lost: %v", got)
+	}
+	write("mine/a.md", "one two\n")
+	write("mine/defs.md", "one two three four\n")
+	if got := s.RecordWords(now); got["mine/a.md"] != 1 || len(got) != 1 {
+		t.Fatalf("excluded note credited: %v", got)
+	}
+	// including it again baselines, so the words written meanwhile are not credited
+	s.SetExcludedWords(nil)
+	if got := s.RecordWords(now); len(got) != 0 {
+		t.Fatalf("un-excluded note credited: %v", got)
+	}
+	write("mine/defs.md", "one two three four five\n")
+	if got := s.RecordWords(now); got["mine/defs.md"] != 1 {
+		t.Fatalf("included note not counted: %v", got)
+	}
+}
+
 func TestWordsScore(t *testing.T) {
 	if s := scoreFor([4]int{}, 0, 0, 5*scoreWordsPer, 0, false); s.WordsPts != 5 || s.Total != 5 {
 		t.Errorf("words points: %+v", s)

@@ -22,7 +22,7 @@ import (
 // file, rename) counts in full; notes already there when a folder starts being tracked
 // are only baselined.
 const (
-	wordsConfig = ".words.json"       // {"tracked": ["daily", "inbox.md", ...]}
+	wordsConfig = ".words.json"       // {"tracked": ["daily", "inbox.md", ...], "excluded": ["lat101/definitions.md", ...]}
 	wordsState  = ".words_state.json" // last seen count per tracked note
 	wordsLog    = ".words_log.jsonl"  // {at, date, file, words} per increase
 )
@@ -30,13 +30,16 @@ const (
 var wordsMu sync.Mutex
 
 // wordsTracked are the notes-relative folders (or single notes) whose writing counts.
+// Excluded are notes or folders inside a tracked entry whose writing does not count.
 type wordsTracked struct {
-	Tracked []string `json:"tracked"`
+	Tracked  []string `json:"tracked"`
+	Excluded []string `json:"excluded,omitempty"`
 }
 
 type wordsSnapshot struct {
-	Dirs  []string       `json:"dirs"`  // what was tracked when the counts were taken
-	Files map[string]int `json:"files"` // note path -> words
+	Dirs  []string       `json:"dirs"`               // what was tracked when the counts were taken
+	Excl  []string       `json:"excluded,omitempty"` // what was excluded when the counts were taken
+	Files map[string]int `json:"files"`              // note path -> words
 }
 
 // countWords counts the words in a note's prose.
@@ -77,13 +80,11 @@ func (s *Store) writeWordsJSON(name string, v any) error {
 	return os.Rename(tmp, filepath.Join(s.Root, name))
 }
 
-// TrackedWords lists the tracked folders and notes, cleaned and sorted.
-func (s *Store) TrackedWords() []string {
-	var c wordsTracked
-	s.readWordsJSON(wordsConfig, &c)
+// cleanWordsPaths trims, de-duplicates and sorts notes-relative paths.
+func cleanWordsPaths(in []string) []string {
 	seen := map[string]bool{}
 	out := []string{}
-	for _, t := range c.Tracked {
+	for _, t := range in {
 		t = strings.Trim(filepath.ToSlash(filepath.Clean(strings.TrimSpace(t))), "/")
 		if t != "" && t != "." && !strings.HasPrefix(t, "..") && !seen[t] {
 			seen[t] = true
@@ -94,11 +95,38 @@ func (s *Store) TrackedWords() []string {
 	return out
 }
 
-// SetTrackedWords saves the tracked list.
+// TrackedWords lists the tracked folders and notes, cleaned and sorted.
+func (s *Store) TrackedWords() []string {
+	var c wordsTracked
+	s.readWordsJSON(wordsConfig, &c)
+	return cleanWordsPaths(c.Tracked)
+}
+
+// ExcludedWords lists the notes and folders inside tracked entries that do not count.
+func (s *Store) ExcludedWords() []string {
+	var c wordsTracked
+	s.readWordsJSON(wordsConfig, &c)
+	return cleanWordsPaths(c.Excluded)
+}
+
+// SetTrackedWords saves the tracked list, keeping the exclusions.
 func (s *Store) SetTrackedWords(dirs []string) error {
 	wordsMu.Lock()
 	defer wordsMu.Unlock()
-	return s.writeWordsJSON(wordsConfig, wordsTracked{Tracked: dirs})
+	var c wordsTracked
+	s.readWordsJSON(wordsConfig, &c)
+	c.Tracked = dirs
+	return s.writeWordsJSON(wordsConfig, c)
+}
+
+// SetExcludedWords saves the exclusion list, keeping the tracked list.
+func (s *Store) SetExcludedWords(paths []string) error {
+	wordsMu.Lock()
+	defer wordsMu.Unlock()
+	var c wordsTracked
+	s.readWordsJSON(wordsConfig, &c)
+	c.Excluded = paths
+	return s.writeWordsJSON(wordsConfig, c)
 }
 
 func inTracked(rel string, tracked []string) bool {
@@ -110,22 +138,27 @@ func inTracked(rel string, tracked []string) bool {
 	return false
 }
 
+// wordsCounted reports whether rel is in a tracked entry and not excluded.
+func wordsCounted(rel string, tracked, excluded []string) bool {
+	return inTracked(rel, tracked) && !inTracked(rel, excluded)
+}
+
 // RecordWords logs the words added to tracked notes since the last call and returns
 // them per file.
 func (s *Store) RecordWords(now time.Time) map[string]int {
 	wordsMu.Lock()
 	defer wordsMu.Unlock()
-	tracked := s.TrackedWords()
+	tracked, excluded := s.TrackedWords(), s.ExcludedWords()
 	var prev wordsSnapshot
 	s.readWordsJSON(wordsState, &prev)
 	known := map[string]bool{}
 	for _, d := range prev.Dirs {
 		known[d] = true
 	}
-	next := wordsSnapshot{Dirs: tracked, Files: map[string]int{}}
+	next := wordsSnapshot{Dirs: tracked, Excl: excluded, Files: map[string]int{}}
 	added := map[string]int{}
 	for _, rel := range s.Files() {
-		if !inTracked(rel, tracked) {
+		if !wordsCounted(rel, tracked, excluded) {
 			continue
 		}
 		b, err := s.Read(rel)
@@ -138,8 +171,8 @@ func (s *Store) RecordWords(now time.Time) map[string]int {
 		n := countWords(string(b))
 		next.Files[rel] = n
 		old, seen := prev.Files[rel]
-		if !seen && !s.wordsEntryKnown(rel, tracked, known) {
-			continue // a folder that was only just tracked: baseline, don't credit
+		if !seen && (!s.wordsEntryKnown(rel, tracked, known) || inTracked(rel, prev.Excl)) {
+			continue // just tracked or just un-excluded: baseline, don't credit
 		}
 		if n > old {
 			added[rel] = n - old
@@ -172,11 +205,16 @@ func (s *Store) wordsEntryKnown(rel string, tracked []string, known map[string]b
 }
 
 func sameWordsSnapshot(a, b wordsSnapshot) bool {
-	if len(a.Dirs) != len(b.Dirs) || len(a.Files) != len(b.Files) {
+	if len(a.Dirs) != len(b.Dirs) || len(a.Excl) != len(b.Excl) || len(a.Files) != len(b.Files) {
 		return false
 	}
 	for i := range a.Dirs {
 		if a.Dirs[i] != b.Dirs[i] {
+			return false
+		}
+	}
+	for i := range a.Excl {
+		if a.Excl[i] != b.Excl[i] {
 			return false
 		}
 	}

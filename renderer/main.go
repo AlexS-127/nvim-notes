@@ -59,6 +59,7 @@ func usage() {
   notesview daily    [--date YYYY-MM-DD] [--dir DIR]   create a daily note (today's with carry-over)
   notesview words    [track|untrack DIR…] [--dir DIR]  list, add or remove the folders whose new words count
                                                        (DIR is relative to the notes folder, or one note)
+  notesview words    [exclude|include PATH…]           skip (or count again) a note or folder inside a tracked one
   notesview doctor                                     check the installation
   notesview themes                                     list themes (* = current)
   notesview theme    NAME                              choose a theme (writes config.json)
@@ -255,13 +256,45 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		fmt.Fprintln(stdout, "Added to inbox:", line)
 	case "words":
-		tracked := store.TrackedWords()
+		tracked, excluded := store.TrackedWords(), store.ExcludedWords()
 		if len(fs.Args()) > 0 {
 			sub, rest := fs.Args()[0], fs.Args()[1:]
-			if (sub != "track" && sub != "untrack") || len(rest) == 0 {
-				return fail(fmt.Errorf("usage: notesview words [track|untrack DIR…]"))
+			if (sub != "track" && sub != "untrack" && sub != "exclude" && sub != "include") || len(rest) == 0 {
+				return fail(fmt.Errorf("usage: notesview words [track|untrack|exclude|include PATH…]"))
 			}
 			store.RecordWords(now) // credit writing under the current list before it changes
+			if sub == "exclude" || sub == "include" {
+				set := map[string]bool{}
+				for _, e := range excluded {
+					set[e] = true
+				}
+				for _, d := range rest {
+					d = strings.Trim(filepath.ToSlash(filepath.Clean(d)), "/")
+					if sub == "exclude" {
+						if !inTracked(d, tracked) {
+							return fail(fmt.Errorf("%s: not inside a tracked folder or note (tracked: %s)", d, strings.Join(tracked, ", ")))
+						}
+						if _, err := os.Stat(filepath.Join(store.Root, filepath.FromSlash(d))); err != nil {
+							if _, err := os.Stat(filepath.Join(store.Root, filepath.FromSlash(d)+".md")); err != nil {
+								return fail(fmt.Errorf("%s: no such folder or note in %s", d, store.Root))
+							}
+						}
+						set[d] = true
+					} else {
+						delete(set, d)
+					}
+				}
+				excluded = excluded[:0]
+				for d := range set {
+					excluded = append(excluded, d)
+				}
+				sort.Strings(excluded)
+				if err := store.SetExcludedWords(excluded); err != nil {
+					return fail(err)
+				}
+				store.RecordWords(now) // drop or baseline the affected notes now
+				return printWords(stdout, store, tracked, excluded, now, *asJSON)
+			}
 			set := map[string]bool{}
 			for _, t := range tracked {
 				set[t] = true
@@ -289,11 +322,7 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 			}
 			store.RecordWords(now) // baseline newly tracked folders now: only later words count
 		}
-		if *asJSON {
-			return printJSON(stdout, map[string]any{"tracked": tracked, "per_day": store.WordsPerDay()})
-		}
-		per := store.WordsPerDay()
-		fmt.Fprintf(stdout, "tracked: %s\ntoday: %d new words\n", strings.Join(tracked, ", "), per[now.Format(isoDate)])
+		return printWords(stdout, store, tracked, excluded, now, *asJSON)
 	case "daily":
 		date := now
 		if *dateFlag != "" {
@@ -314,6 +343,19 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 		}
 		fmt.Fprintln(stdout, filepath.Join(store.Root, filepath.FromSlash(res.Path)))
 	}
+	return 0
+}
+
+func printWords(stdout io.Writer, store *Store, tracked, excluded []string, now time.Time, asJSON bool) int {
+	per := store.WordsPerDay()
+	if asJSON {
+		return printJSON(stdout, map[string]any{"tracked": tracked, "excluded": excluded, "per_day": per})
+	}
+	fmt.Fprintf(stdout, "tracked: %s\n", strings.Join(tracked, ", "))
+	if len(excluded) > 0 {
+		fmt.Fprintf(stdout, "excluded: %s\n", strings.Join(excluded, ", "))
+	}
+	fmt.Fprintf(stdout, "today: %d new words\n", per[now.Format(isoDate)])
 	return 0
 }
 
