@@ -196,16 +196,41 @@ local function restart_renderer()
   end)
 end
 
+-- Quiz in a full-screen terminal tab inside nvim. Used when nvim is a job of an interactive shell
+-- (typed `nvim`, or the `notes` function): SIGSTOPping the TUI there makes the shell think the job
+-- was suspended (like Ctrl-Z), so it grabs the terminal back and fights the quiz for keystrokes.
+local function run_quiz_in_terminal(script)
+  vim.cmd("tabnew")
+  local buf = vim.api.nvim_get_current_buf()
+  vim.fn.jobstart({ "sh", "-c", 'python3 "$1"; printf "\\n[Enter to go back]"; read _', "sh", script }, {
+    term = true,
+    env = { NOTES_DIR = NOTES },
+    on_exit = function()
+      vim.schedule(function()
+        if vim.api.nvim_buf_is_valid(buf) then pcall(vim.api.nvim_buf_delete, buf, { force = true }) end
+        load_tasks()
+        load_stats()
+      end)
+    end,
+  })
+  vim.cmd("startinsert")
+end
+
 -- ── Vocab quiz: hand the real terminal to notes/quiz.py (outside nvim), come back Home after ──
 local function run_quiz()
   local script = NOTES .. "/quiz.py"
   if vim.fn.filereadable(script) == 0 then return vim.notify("quiz not found: " .. script, vim.log.levels.ERROR) end
+  local tui0 = vim.g.notes_tui or uv.os_getppid()
+  -- Under job control the TUI leads its own process group; then freezing it is unsafe (see above).
+  if vim.trim(vim.fn.system({ "ps", "-o", "pgid=", "-p", tostring(tui0) })) == tostring(tui0) then
+    return run_quiz_in_terminal(script)
+  end
   -- `:!` children get piped stdio and no controlling terminal (no /dev/tty), so input() would hit EOF
   -- at once. Find nvim's own tty device, point the quiz at it, leave the alternate screen, switch to
   -- cooked mode, turn focus/mouse reporting off (else cmd-tab types ^[[I / ^[[O), then restart nvim.
   -- (The server process has no tty; its parent, the TUI, does.)
   -- After `:restart` the new server is orphaned (parent 1), so the TUI pid is handed over via vim.g.
-  local tui = vim.g.notes_tui or uv.os_getppid()
+  local tui = tui0
   local tty = vim.trim(vim.fn.system({ "ps", "-o", "tty=", "-p", tostring(tui) }))
   if tty == "" or tty:find("?", 1, true) then return vim.notify("quiz: can't find the terminal", vim.log.levels.ERROR) end
   tty = "/dev/" .. (tty:match("^tty") and tty or "tty" .. tty)
