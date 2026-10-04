@@ -751,6 +751,7 @@ local function open_tasks_picker()
   Snacks.picker.pick({
     title = "Open tasks (by due date)",
     items = items,
+    sort = { fields = { "idx" } },   -- keep notesview's order (due date, newest first) while filtering
     format = function(item)
       local t = item.task
       return {
