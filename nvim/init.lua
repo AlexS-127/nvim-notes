@@ -710,8 +710,24 @@ local function claude_it(item)
     "Do this task now, from this directory (~). When you are done, if the work changed files in any git repo,",
     "commit them in that repo and push to main. Don't commit or push repos you didn't change.",
   }, "\n")
+  local origin = vim.api.nvim_get_current_tabpage()
   vim.cmd("tabnew")
-  vim.fn.termopen({ "claude", prompt }, { cwd = vim.uv.os_homedir() })
+  local buf = vim.api.nvim_get_current_buf()
+  vim.fn.termopen({ "claude", prompt }, {
+    cwd = vim.uv.os_homedir(),
+    on_exit = function()
+      -- when claude exits, drop the dead terminal tab and go back to where we were
+      vim.schedule(function()
+        if vim.api.nvim_buf_is_valid(buf) then
+          pcall(vim.api.nvim_buf_delete, buf, { force = true })
+        end
+        if vim.api.nvim_tabpage_is_valid(origin) then
+          pcall(vim.api.nvim_set_current_tabpage, origin)
+        end
+        vim.cmd("stopinsert")
+      end)
+    end,
+  })
   vim.cmd("startinsert")
 end
 
