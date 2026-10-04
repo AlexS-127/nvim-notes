@@ -701,19 +701,13 @@ local function task_actions(item)
   end
 end
 
--- Shift+Enter on a task: run claude from ~ in a new tab with the task as its first message.
-local function claude_it(item)
-  local t = item.task
-  local prompt = table.concat({
-    "Task from my notes (" .. t.file .. ":" .. t.line .. "): " .. task_plain_text(t),
-    "",
-    "Do this task now, from this directory (~). When you are done, if the work changed files in any git repo,",
-    "commit them in that repo and push to main. Don't commit or push repos you didn't change.",
-  }, "\n")
+-- Run claude from ~ in a new tab (optionally with a first message). When claude exits, the tab is
+-- closed and focus returns to the original tab.
+local function open_claude(prompt)
   local origin = vim.api.nvim_get_current_tabpage()
   vim.cmd("tabnew")
   local buf = vim.api.nvim_get_current_buf()
-  vim.fn.termopen({ "claude", prompt }, {
+  vim.fn.termopen(prompt and { "claude", prompt } or { "claude" }, {
     cwd = vim.uv.os_homedir(),
     on_exit = function()
       -- when claude exits, drop the dead terminal tab and go back to where we were
@@ -751,6 +745,17 @@ local function open_tasks_picker()
   Snacks.picker.pick({
     title = "Open tasks (by due date)",
     items = items,
+-- Shift+Enter on a task: run claude from ~ with the task as its first message.
+local function claude_it(item)
+  local t = item.task
+  open_claude(table.concat({
+    "Task from my notes (" .. t.file .. ":" .. t.line .. "): " .. task_plain_text(t),
+    "",
+    "Do this task now, from this directory (~). When you are done, if the work changed files in any git repo,",
+    "commit them in that repo and push to main. Don't commit or push repos you didn't change.",
+  }, "\n"))
+end
+
     sort = { fields = { "idx" } },   -- keep notesview's order (due date, newest first) while filtering
     format = function(item)
       local t = item.task
@@ -875,6 +880,7 @@ vim.api.nvim_create_autocmd("FileType", {
 
     -- Navigation
     bmap({ "n", "x" }, "j", "v:count == 0 ? 'gj' : 'j'", "Down (visual line)", { expr = true })
+map("n", "<leader>nC", function() open_claude() end, { desc = "Claude (in ~, new tab)" })
     bmap({ "n", "x" }, "k", "v:count == 0 ? 'gk' : 'k'", "Up (visual line)", { expr = true })
     bmap("n", "<CR>", follow_link, "Follow link under cursor")
     bmap("n", "<BS>", "<C-o>", "Go back")

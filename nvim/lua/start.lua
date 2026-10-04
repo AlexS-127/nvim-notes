@@ -131,8 +131,8 @@ end
 -- ── One-key actions ──────────────────────────────────────────────
 local actions = {
   { "t", "Task list", function() feed("<leader>no") end },
-  { "v", "Task view (window)", function() feed("<leader>nt") end },
-  { "c", "Capture a task", function() feed("<leader>ni") end },
+  { "v", "Capture a task", function() feed("<leader>ni") end },
+  { "c", "Claude (in ~)", function() feed("<leader>nC") end },
   { "e", "Inbox", function() feed("<leader>nI") end },
   { "d", "Today's note", function() feed("<leader>nd") end },
   { "n", "New note", function() feed("<leader>nn") end },
