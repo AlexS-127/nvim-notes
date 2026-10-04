@@ -231,7 +231,7 @@ Leader is `<Space>`. Press `<Space>?` inside Neovim to search all shortcuts.
 | `<Space>nn` | New note: asks for a title, then a folder |
 | `<Space>nd` / `<Space>ny` | Today's / yesterday's daily note (`:Today`; today's carries over open tasks) |
 | `<Space>ni` | Capture a task to `inbox.md`: text, folder, due date |
-| `<Space>nC` | Open `claude` in `~` (new tab; the tab closes when claude exits) |
+| `<Space>nC` | Quit nvim and run `claude` in `~` (a shell in `~` is left when claude exits) |
 | `<Space>nI` | Open inbox |
 | `<Space>nf` | Find note |
 | `<Space>ng` | Search inside notes |

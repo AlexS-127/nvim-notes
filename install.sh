@@ -232,7 +232,18 @@ done
   echo "$MARK_BEGIN"
   cat <<'SHELL'
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
-alias notes='cd "${NOTES_DIR:-$HOME/notes}" && nvim +Today'
+# notes: open today's note. If nvim quits to run claude (start page c, task picker Shift+Enter),
+# claude runs here in ~ with the prompt nvim left in $NVIM_NOTES_CLAUDE.
+unalias notes 2>/dev/null
+notes() {
+  cd "${NOTES_DIR:-$HOME/notes}" || return
+  local h="${TMPDIR:-/tmp}/nvim-notes-claude.$$" p
+  rm -f "$h"
+  NVIM_NOTES_CLAUDE="$h" nvim +Today "$@"
+  [ -e "$h" ] || return 0
+  p="$(<"$h")"; rm -f "$h"
+  cd ~ && if [ -n "$p" ]; then claude "$p"; else claude; fi
+}
 # inbox [text]: capture a task to inbox.md — asks for the text (unless given), a folder (fzf) and a due date
 inbox() { notesview capture -i -- "$@"; }
 SHELL

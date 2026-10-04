@@ -721,28 +721,23 @@ local function task_actions(item)
   end
 end
 
--- Run claude from ~ in a new tab (optionally with a first message). When claude exits, the tab is
--- closed and focus returns to the original tab.
+-- Run claude from ~ outside nvim (optionally with a first message). The launcher (ghostty-nvim, or the
+-- `notes` shell function) sets $NVIM_NOTES_CLAUDE to a file path; nvim writes the prompt there and
+-- quits, then the launcher runs claude in the real terminal and leaves a normal shell when it exits.
 local function open_claude(prompt)
-  local origin = vim.api.nvim_get_current_tabpage()
-  vim.cmd("tabnew")
-  local buf = vim.api.nvim_get_current_buf()
-  vim.fn.termopen(prompt and { "claude", prompt } or { "claude" }, {
-    cwd = vim.uv.os_homedir(),
-    on_exit = function()
-      -- when claude exits, drop the dead terminal tab and go back to where we were
-      vim.schedule(function()
-        if vim.api.nvim_buf_is_valid(buf) then
-          pcall(vim.api.nvim_buf_delete, buf, { force = true })
-        end
-        if vim.api.nvim_tabpage_is_valid(origin) then
-          pcall(vim.api.nvim_set_current_tabpage, origin)
-        end
-        vim.cmd("stopinsert")
-      end)
-    end,
-  })
-  vim.cmd("startinsert")
+  local handoff = vim.env.NVIM_NOTES_CLAUDE
+  if not handoff or handoff == "" then
+    return vim.notify("claude: start nvim via ghostty-nvim or `notes` to run claude outside nvim", vim.log.levels.WARN)
+  end
+  pcall(vim.cmd, "silent! wall")
+  if vim.fn.writefile(vim.split(prompt or "", "\n", { plain = true }), handoff) ~= 0 then
+    return vim.notify("claude: can't write " .. handoff, vim.log.levels.ERROR)
+  end
+  local ok, err = pcall(vim.cmd, "qa")
+  if not ok then   -- e.g. an unsaved unnamed buffer: stay in nvim and cancel the handoff
+    os.remove(handoff)
+    vim.notify("claude: " .. tostring(err), vim.log.levels.ERROR)
+  end
 end
 
 -- Shift+Enter on a task: run claude from ~ with the task as its first message.
@@ -880,7 +875,7 @@ map("n", "<leader>o", function()
   if NV.follow then NV.shown = nil end
 end, { desc = "Toggle viewer follow mode" })
 map("n", "<leader>nt", function() notesview({ "open", "--tasks" }) end, { desc = "Open Tasks view" })
-map("n", "<leader>nC", function() open_claude() end, { desc = "Claude (in ~, new tab)" })
+map("n", "<leader>nC", function() open_claude() end, { desc = "Claude (in ~, quits nvim)" })
 map("n", "<leader>?", function() Snacks.picker.keymaps() end, { desc = "Search all shortcuts" })
 map("n", "<leader>w", "<cmd>write<cr>", { desc = "Save" })
 map("n", "<leader>q", "<cmd>quit<cr>", { desc = "Quit window" })
