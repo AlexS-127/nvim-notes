@@ -123,27 +123,44 @@ local function load_tasks()
   end)
 end
 
-local function task_label(t)
+-- mini.starter centers the block by its widest line, so a task line wider than the rest pushes
+-- everything left (and past the window width, centering gives up and it all hugs the left edge).
+-- Every "Next up" line is cut and padded to the same width, so the page doesn't move when the
+-- random picks change.
+local function next_width()
+  return math.max(30, math.min(60, vim.o.columns - 16))
+end
+
+-- `s` cut to at most `w` display columns, ending in "…" when shortened.
+local function cut(s, w)
+  if vim.fn.strdisplaywidth(s) <= w then return s end
+  local n = w - 1
+  while n > 0 and vim.fn.strdisplaywidth(vim.fn.strcharpart(s, 0, n)) > w - 1 do n = n - 1 end
+  return vim.fn.strcharpart(s, 0, n) .. "…"
+end
+
+-- `s` cut, then padded with spaces, to exactly `w` display columns.
+local function fit(s, w)
+  s = cut(s, w)
+  return s .. (" "):rep(w - vim.fn.strdisplaywidth(s))
+end
+
+local function task_label(t, w)
   local text = t.display:gsub("%s*_%(.-%)_%s*$", "")
   local when = t.due and (t.group == "overdue" and "overdue" or t.due:sub(6)) or "anytime"
   local cat = t.category_name and ("  · " .. t.category_name) or ""
-  -- A line wider than the window makes mini.starter's centering give up (everything hugs the left
-  -- edge), so shorten the task text to keep the whole block narrower than the window.
-  local tail = ("  (%s)%s"):format(when, cat)
-  local room = math.max(20, math.min(70, vim.o.columns - 16) - 3 - vim.fn.strdisplaywidth(tail))
-  if vim.fn.strdisplaywidth(text) > room then
-    text = vim.fn.strcharpart(text, 0, room - 1) .. "…"
-  end
-  return text .. tail
+  local tail = cut(("  (%s)%s"):format(when, cat), w - 10)   -- keep at least 10 columns for the text
+  return fit(cut(text, w - vim.fn.strdisplaywidth(tail)) .. tail, w)
 end
 
 local function task_items()
-  if tasks == nil then return { { name = "loading…", action = "", section = "Next up" } } end
-  if #tasks == 0 then return { { name = "nothing open", action = "", section = "Next up" } } end
+  local w = next_width()
+  if tasks == nil then return { { name = fit("loading…", w), action = "", section = "Next up" } } end
+  if #tasks == 0 then return { { name = fit("nothing open", w), action = "", section = "Next up" } } end
   local items = {}
   for i, t in ipairs(tasks) do
     items[i] = {
-      name = ("%d  %s"):format(i, task_label(t)),
+      name = ("%d  %s"):format(i, task_label(t, w - 3)),
       section = "Next up",
       action = function()
         vim.cmd.edit(vim.fn.fnameescape(NOTES .. "/" .. t.file))
