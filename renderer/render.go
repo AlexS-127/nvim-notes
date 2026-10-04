@@ -63,6 +63,31 @@ func (wikiParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Nod
 	return n
 }
 
+// ── --> arrows ───────────────────────────────────────────────────
+
+// arrows maps ASCII arrows to their symbols, longest first so "-->" wins
+// over "->". Code spans, math and raw HTML (e.g. "<!-- -->") are parsed
+// before this sees them, and a backslash (`\->`) keeps the ASCII form.
+var arrows = []struct{ ascii, symbol string }{
+	{"<-->", "↔"}, {"<==>", "⇔"},
+	{"-->", "→"}, {"<--", "←"}, {"==>", "⇒"}, {"<==", "⇐"}, {"<->", "↔"}, {"<=>", "⇔"},
+	{"->", "→"}, {"<-", "←"}, {"=>", "⇒"},
+}
+
+type arrowParser struct{}
+
+func (arrowParser) Trigger() []byte { return []byte{'-', '<', '='} }
+func (arrowParser) Parse(_ ast.Node, block text.Reader, _ parser.Context) ast.Node {
+	line, _ := block.PeekLine()
+	for _, a := range arrows {
+		if bytes.HasPrefix(line, []byte(a.ascii)) {
+			block.Advance(len(a.ascii))
+			return ast.NewString([]byte(a.symbol))
+		}
+	}
+	return nil
+}
+
 // ── Markdown pipeline ────────────────────────────────────────────
 
 type Markdown struct {
@@ -95,7 +120,7 @@ func NewMarkdown(store *Store, note string) *Markdown {
 			),
 		),
 		goldmark.WithParserOptions(
-			parser.WithInlineParsers(util.Prioritized(wikiParser{}, 199)),
+			parser.WithInlineParsers(util.Prioritized(wikiParser{}, 199), util.Prioritized(arrowParser{}, 250)),
 			parser.WithASTTransformers(util.Prioritized(m, 100)),
 		),
 		goldmark.WithRendererOptions(
@@ -112,13 +137,13 @@ func NewMarkdown(store *Store, note string) *Markdown {
 
 // newInlineMarkdown builds a goldmark instance that treats its whole input as
 // one paragraph, so a single line such as a task's text keeps its inline
-// markup (emphasis, code, links, [[wiki links]]) while block syntax like a
+// markup (emphasis, code, links, [[wiki links]], --> arrows) while block syntax like a
 // leading "# " or "> " stays literal text.
 func newInlineMarkdown(opts ...goldmark.Option) goldmark.Markdown {
 	p := parser.NewParser(
 		parser.WithBlockParsers(util.Prioritized(parser.NewParagraphParser(), 1000)),
 		parser.WithInlineParsers(parser.DefaultInlineParsers()...),
-		parser.WithInlineParsers(util.Prioritized(wikiParser{}, 199)),
+		parser.WithInlineParsers(util.Prioritized(wikiParser{}, 199), util.Prioritized(arrowParser{}, 250)),
 	)
 	opts = append([]goldmark.Option{
 		goldmark.WithParser(p),

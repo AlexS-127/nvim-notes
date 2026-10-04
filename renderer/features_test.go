@@ -128,6 +128,34 @@ func TestRenderMovedAndInline(t *testing.T) {
 	}
 }
 
+func TestRenderArrows(t *testing.T) {
+	s := newTestStore(t, map[string]string{"Other.md": "# O"})
+	md := NewMarkdown(s, "")
+	cases := []struct{ src, want string }{
+		{"a --> b -> c", "a → b → c"},
+		{"a <-- b <- c <--> d <-> e", "a ← b ← c ↔ d ↔ e"},
+		{"a ==> b => c <== d <==> e", "a ⇒ b ⇒ c ⇐ d ⇔ e"},
+		{"x <= y and x >= y, well-known - fine", "x &lt;= y and x &gt;= y, well-known - fine"},
+		{"`a --> b` and \\-> kept", "<code>a --&gt; b</code> and -&gt; kept"},
+		{"[[Other]] --> done", `<a class="wikilink" href="#/note/Other.md">Other</a> → done`},
+	}
+	for _, c := range cases {
+		if got := md.RenderInline("inbox.md", c.src); got != c.want {
+			t.Errorf("RenderInline(%q)\n got %q\nwant %q", c.src, got, c.want)
+		}
+	}
+	out, err := md.Render([]byte("start --> end\n\n<!-- note -->\n\n```\na --> b\n```\n\n---\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "start → end") || !strings.Contains(out, "a --&gt; b") || !strings.Contains(out, "<hr") || strings.Contains(out, "→ note") {
+		t.Errorf("arrows in note:\n%s", out)
+	}
+	if got := PlainText("plan --> ship"); got != "plan → ship" {
+		t.Errorf("PlainText: %q", got)
+	}
+}
+
 func TestWatcherReportsTreeChanges(t *testing.T) {
 	s := newTestStore(t, map[string]string{"a.md": "x"})
 	srv := NewServer(s, 0)
