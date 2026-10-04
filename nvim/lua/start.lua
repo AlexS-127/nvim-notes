@@ -125,6 +125,7 @@ local actions = {
   { "d", "Today's note", function() feed("<leader>nd") end },
   { "n", "New note", function() feed("<leader>nn") end },
   { "f", "Find note", function() feed("<leader>nf") end },
+  { "o", "Go to folder", function() feed("<leader>nF") end },
   { "g", "Search notes", function() feed("<leader>ng") end },
   { "s", "Study (vocab quiz)", run_quiz },
   { "r", "Restart renderer (rebuild)", restart_renderer },
@@ -161,6 +162,13 @@ function M.setup()
         vim.bo[ev.buf].swapfile = false
       end
     end,
+  })
+
+  -- Every nvim instance names its start buffer "ministarter://1/welcome", so a second instance
+  -- collides with the first one's swap file (E325). Nothing to recover there: just edit anyway.
+  vim.api.nvim_create_autocmd("SwapExists", {
+    pattern = "*ministarter*",
+    callback = function() vim.v.swapchoice = "e" end,
   })
 
   vim.api.nvim_create_autocmd("FocusGained", { callback = load_tasks })  -- fresh tasks when you come back

@@ -271,6 +271,36 @@ local function folder_notes_picker(r)
   })
 end
 
+-- Search for a folder, then pick a note inside it (start page `o`, <Space>nF).
+local function go_to_folder()
+  pick_folder("Go to folder", function(f)
+    if not f then return end
+    if f.new then return vim.notify("No folder called " .. f.path) end
+    local r = nv_json({ "resolve", "--json", "--dir", NOTES, "--", f.tag })
+    if r and r.kind == "folder" then return folder_notes_picker(r) end
+    vim.notify("Could not open folder " .. f.path, vim.log.levels.WARN)
+  end)
+end
+
+-- Delete the note being edited (<Space>nD): confirm, move the file to the Trash
+-- (`trash`, else ~/.Trash), close the buffer and go Home.
+local function delete_current_note()
+  local buf = vim.api.nvim_get_current_buf()
+  local path = vim.api.nvim_buf_get_name(buf)
+  if path == "" or vim.bo[buf].buftype ~= "" or vim.fn.filereadable(path) == 0 then
+    return vim.notify("Not a note file", vim.log.levels.WARN)
+  end
+  if vim.fn.confirm("Delete " .. vim.fn.fnamemodify(path, ":t") .. "?", "&Yes\n&No", 2) ~= 1 then return end
+  local cmd = vim.fn.executable("trash") == 1 and { "trash", path } or { "mv", path, vim.fn.expand("~/.Trash/") }
+  local r = vim.system(cmd, { text = true }):wait()
+  if r.code ~= 0 then
+    return vim.notify("Delete failed: " .. (r.stderr or ""), vim.log.levels.ERROR)
+  end
+  vim.cmd("silent! Home")
+  pcall(vim.cmd, "bdelete! " .. buf)
+  vim.notify("Moved to Trash: " .. vim.fn.fnamemodify(path, ":t"))
+end
+
 -- Natural due dates (@tomorrow, @fri, @oct6, @10/6, @+3d) become @YYYY-MM-DD
 -- through notesview, so files only ever hold ISO dates.
 local function convert_due_dates(buf)
@@ -772,6 +802,8 @@ map("n", "<leader>ny", function() daily(-1) end, { desc = "Yesterday's daily not
 map("n", "<leader>ni", capture_to_inbox, { desc = "Capture a task: text, folder, due date" })
 map("n", "<leader>nI", function() open_note(NOTES .. "/inbox.md", "Inbox") end, { desc = "Open inbox" })
 map("n", "<leader>nf", function() Snacks.picker.files({ cwd = NOTES }) end, { desc = "Find note" })
+map("n", "<leader>nD", delete_current_note, { desc = "Delete this note (to Trash)" })
+map("n", "<leader>nF", go_to_folder, { desc = "Go to folder (search, then pick a note)" })
 map("n", "<leader>ng", function() Snacks.picker.grep({ cwd = NOTES }) end, { desc = "Search inside notes" })
 map("n", "<leader>no", open_tasks_picker, { desc = "Open tasks across notes" })
 map("n", "<leader>nr", function() Snacks.picker.recent({ filter = { cwd = NOTES } }) end, { desc = "Recent notes" })
