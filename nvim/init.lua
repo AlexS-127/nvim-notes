@@ -701,6 +701,20 @@ local function task_actions(item)
   end
 end
 
+-- Shift+Enter on a task: run claude from ~ in a new tab with the task as its first message.
+local function claude_it(item)
+  local t = item.task
+  local prompt = table.concat({
+    "Task from my notes (" .. t.file .. ":" .. t.line .. "): " .. task_plain_text(t),
+    "",
+    "Do this task now, from this directory (~). When you are done, if the work changed files in any git repo,",
+    "commit them in that repo and push to main. Don't commit or push repos you didn't change.",
+  }, "\n")
+  vim.cmd("tabnew")
+  vim.fn.termopen({ "claude", prompt }, { cwd = vim.uv.os_homedir() })
+  vim.cmd("startinsert")
+end
+
 local function open_tasks_picker()
   local tasks = nv_json({ "tasks", "--json", "--dir", NOTES })
   if type(tasks) ~= "table" then   -- no (or an older) notesview: plain grep
@@ -736,6 +750,13 @@ local function open_tasks_picker()
       picker:close()
       if item then vim.schedule(function() task_actions(item) end) end
     end,
+    actions = {
+      claude_it = function(picker, item)
+        picker:close()
+        if item then vim.schedule(function() claude_it(item) end) end
+      end,
+    },
+    win = { input = { keys = { ["<S-CR>"] = { "claude_it", mode = { "n", "i" } } } } },
   })
 end
 
