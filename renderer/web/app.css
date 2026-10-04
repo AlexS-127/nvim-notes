@@ -234,7 +234,7 @@ a.tag-folder.colored:hover { border-color: var(--tc); }
 .hm-wrap, .wk-wrap { overflow-x: auto; }
 svg.heatmap { width: 100%; min-width: 640px; height: auto; display: block; }
 svg.weekly { width: 100%; height: auto; display: block; }
-.score-line .hm-label, svg.weekly .hm-label { font-size: 14px; }
+.score-line .hm-label, svg.weekly .hm-label { font-size: 20px; }
 .hm-label { fill: var(--muted); font: 10px var(--font-ui); }
 .hm-cell { fill: color-mix(in srgb, var(--fg) 8%, transparent); }
 i.hm-cell { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin: 0 1px; background: color-mix(in srgb, var(--fg) 8%, transparent); }
@@ -268,7 +268,7 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 .sc-dot { fill: var(--bg); stroke: var(--accent); stroke-width: 2; }
 .sc-now { fill: var(--accent); }
 .sc-hover { fill: var(--bg); stroke: var(--accent); stroke-width: 2; pointer-events: none; }
-.sc-read { fill: var(--accent); font-weight: 600; }
+.score-line .sc-read { font-size: 28px; fill: var(--accent); font-weight: 600; }
 .act-note { color: var(--muted); font: 12.5px var(--font-ui); margin-top: 14px; }
 .act-tip { position: fixed; z-index: 30; pointer-events: none; background: var(--fg); color: var(--bg); padding: 6px 9px; border-radius: 7px; font: 12px/1.45 var(--font-ui); box-shadow: 0 4px 14px rgba(0,0,0,.25); }
 .confetti { position: fixed; z-index: 40; width: 7px; height: 7px; border-radius: 2px; pointer-events: none; }

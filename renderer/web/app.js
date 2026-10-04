@@ -355,7 +355,7 @@
 
   // score line graph. "today": a curved line through the day; "daily": one point per day.
   function scoreLineSvg(a, mode) {
-    const W = 1200, H = 266, L = 48, R = 16, B = 34, T = 30;
+    const W = 1200, H = 290, L = 64, R = 20, B = 46, T = 48;
     let pts, xs, labels;
     if (mode === "today") {
       const day0 = dayOf(a.today).getTime(), span = 24 * 3600e3, now = Date.now();
@@ -383,12 +383,12 @@
     const last = pts[pts.length - 1];
     const area = `${d}V${base}H${xs(pts[0].t)}Z`;
     const dots = pts.filter((p) => !p.end).map((p) => `<circle class="sc-dot" cx="${xs(p.t)}" cy="${y(p.v)}" r="${mode === "today" ? 3 : 3.5}" data-tip="${esc(p.tip)}" data-v="${p.v}"/>`).join("");
-    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Productivity score" data-geo="${[L, W - R, T, H - B, 0, top].join()}"><text class="hm-label sc-read" x="${L}" y="${T - 12}"></text>${g}${xl}<path class="sc-area" d="${area}"/><path class="sc-path" d="${d}"/>${dots}<circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
+    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Productivity score" data-geo="${[L, W - R, T, H - B, 0, top].join()}"><text class="hm-label sc-read" x="${L}" y="${T - 18}"></text>${g}${xl}<path class="sc-area" d="${area}"/><path class="sc-path" d="${d}"/>${dots}<circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
   }
 
   // slope graph: derivative of today's score (points per hour). The step log is smoothed with a gaussian, so the slope is a curve.
   function slopeSvg(a) {
-    const W = 1200, H = 266, L = 48, R = 16, B = 34, T = 30;
+    const W = 1200, H = 290, L = 64, R = 20, B = 46, T = 48;
     const day0 = dayOf(a.today).getTime(), span = 24 * 3600e3, now = Math.min(Date.now(), day0 + span);
     const xs = (t) => L + (W - L - R) * Math.min(1, Math.max(0, (t - day0) / span));
     const labels = [0, 3, 6, 9, 12, 15, 18, 21].map((h) => [xs(day0 + h * 3600e3), hhmm(new Date(day0 + h * 3600e3))]);
@@ -408,7 +408,7 @@
     let d = "";
     d = curvePath(pts.map((p) => [xs(p.t), y(p.v)]));
     const last = pts[pts.length - 1];
-    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per hour" data-geo="${[L, W - R, T, H - B, bot, top].join()}"><text class="hm-label sc-read" x="${L}" y="${T - 12}"></text>${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
+    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per hour" data-geo="${[L, W - R, T, H - B, bot, top].join()}"><text class="hm-label sc-read" x="${L}" y="${T - 18}"></text>${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
   }
 
   function scoreSection(a) {
@@ -460,7 +460,7 @@
       if (!read || !dot || !path || !svg.dataset.geo) return;
       const [L, Rr, T, Bt, bot, top] = svg.dataset.geo.split(",").map(Number), r = svg.getBoundingClientRect();
       const px = (e.clientX - r.left) * svg.viewBox.baseVal.width / r.width, py = (e.clientY - r.top) * svg.viewBox.baseVal.height / r.height;
-      if (px < L || px > Rr || py < 0 || py > Bt + 34 || !(e.target.closest && e.target.closest("svg") === svg)) { read.textContent = ""; dot.setAttribute("hidden", ""); return; }
+      if (px < L || px > Rr || py < 0 || py > Bt + 46 || !(e.target.closest && e.target.closest("svg") === svg)) { read.textContent = ""; dot.setAttribute("hidden", ""); return; }
       let lo = 0, hi = path.getTotalLength();
       for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (path.getPointAtLength(mid).x < px) lo = mid; else hi = mid; }
       const p = path.getPointAtLength(hi), v = bot + (top - bot) * (1 - (p.y - T) / (Bt - T));
