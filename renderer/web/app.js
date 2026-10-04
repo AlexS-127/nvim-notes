@@ -417,6 +417,22 @@
     return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per 10 minutes" data-geo="${[L, W - R, T, H - B, bot, top].join()}">${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
   }
 
+  // weekday graph: average score per day of the week (Mon first) over finished days since the first scored day; today counts only until its weekday has a finished day
+  function weekdaySvg(a) {
+    const W = 1200, H = 266, L = 64, R = 20, B = 46, T = 18;
+    const keys = Object.keys(a.scores).sort(), today = dayOf(a.today), sum = [0, 0, 0, 0, 0, 0, 0], n = [0, 0, 0, 0, 0, 0, 0];
+    for (let d = dayOf(keys[0] || a.today); d < today; d.setDate(d.getDate() + 1)) { const i = (d.getDay() + 6) % 7; sum[i] += (a.scores[isoOf(d)] || {}).total || 0; n[i]++; }
+    const ti = (today.getDay() + 6) % 7;
+    if (!n[ti]) { sum[ti] = (a.scores[a.today] || {}).total || 0; n[ti] = 1; }
+    const avg = sum.map((s, i) => (n[i] ? s / n[i] : 0));
+    const top = Math.max(10, Math.ceil(Math.max(...avg) / 10) * 10), y = (v) => T + (H - T - B) * (1 - v / top), slot = (W - L - R) / 7, bw = slot * .56;
+    let g = "";
+    for (let i = 0; i <= top; i += top / 4) g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${Math.round(i)}</text>`;
+    const bars = avg.map((v, i) => { const x = L + slot * i + (slot - bw) / 2;
+      return `<g class="wd" data-v="${v.toFixed(2)}"><rect class="wk-hit" x="${L + slot * i}" y="${T}" width="${slot}" height="${H - T - B}"/><rect class="wk-done" x="${x}" y="${y(v)}" width="${bw}" height="${y(0) - y(v)}" rx="3"/><text class="hm-label${i === ti ? " best" : ""}" x="${x + bw / 2}" y="${H - 10}" text-anchor="middle">${DOW[i]}</text></g>`; }).join("");
+    return `<svg class="weekly score-bars" viewBox="0 0 ${W} ${H}" role="img" aria-label="Average score by day of the week">${g}${bars}</svg>`;
+  }
+
   function scoreSection(a) {
     const sc = a.scores[a.today];
     return `<div class="score-card">
@@ -424,8 +440,8 @@
         <table class="score-calc"><tbody>${scoreRows(sc, a.score_hints)}</tbody></table>
       </div>
       <div class="act-head"><div class="sc-read">--.--</div><div class="task-filter score-mode">
-        ${[["today", "Today"], ["slope", "Slope"], ["daily", "Daily"]].map(([k, l]) => `<button data-mode="${k}" class="${scoreMode === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
-      <div class="wk-wrap">${scoreMode === "slope" ? slopeSvg(a) : scoreLineSvg(a, scoreMode)}</div>`;
+        ${[["today", "Today"], ["slope", "Slope"], ["daily", "Daily"], ["weekday", "Weekday"]].map(([k, l]) => `<button data-mode="${k}" class="${scoreMode === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="wk-wrap">${scoreMode === "slope" ? slopeSvg(a) : scoreMode === "weekday" ? weekdaySvg(a) : scoreLineSvg(a, scoreMode)}</div>`;
   }
 
   async function renderActivity(keepScroll) {
@@ -469,6 +485,8 @@
   const showTip = (e, html) => { tip.innerHTML = html; tip.hidden = false; const w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX - w / 2)) + "px"; tip.style.top = e.clientY - tip.offsetHeight - 14 + "px"; };
   // hovering a score/slope graph: read the value of the drawn curve at the cursor into the label above its top-left corner
   function scoreHover(e) {
+    const bar = e.target.closest && e.target.closest(".score-bars .wd"), read = note.querySelector(".sc-read");
+    if (read && note.querySelector(".score-bars")) read.textContent = bar ? bar.dataset.v : "--.--";
     note.querySelectorAll("svg.score-line").forEach((svg) => {
       const read = note.querySelector(".sc-read"), dot = svg.querySelector(".sc-hover"), path = svg.querySelector(".sc-path");
       if (!read || !dot || !path || !svg.dataset.geo) return;
