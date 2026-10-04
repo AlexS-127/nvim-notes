@@ -29,6 +29,7 @@ var scoreDonePts = [4]int{
 
 const (
 	scoreDoneCap    = 100 // most points tasks completed can give
+	scoreFocusMult  = 2   // done points are multiplied by this for tasks outside the workflow folder
 	scoreCreatedPts = 1   // points per task created
 	scoreCreatedCap = 60  // most points tasks created can give
 	scoreQuizPerMin = 2.0 // points per minute of quiz time
@@ -41,6 +42,13 @@ const (
 	scoreRecordEvery = 10 * time.Second // how often the viewer records today's score for the graph
 )
 
+// scoreWorkflowCategory is the folder for work on the notes system itself. Tasks done in it
+// (or tagged #workflow) earn plain points; every other task, General included, is "focus"
+// work and earns scoreFocusMult times as much.
+const scoreWorkflowCategory = "workflow"
+
+func isFocusTask(t Task) bool { return t.Category != scoreWorkflowCategory }
+
 // ScoreHints is the text shown when hovering each part of the breakdown.
 type ScoreHints struct {
 	Done    string `json:"done"`
@@ -52,8 +60,9 @@ type ScoreHints struct {
 
 func scoreHints() ScoreHints {
 	return ScoreHints{
-		Done: fmt.Sprintf("%d each (difficulty 1: %d, 2: %d, 3: %d), up to %d",
-			scoreDonePts[0], scoreDonePts[1], scoreDonePts[2], scoreDonePts[3], scoreDoneCap),
+		Done: fmt.Sprintf("%d each (difficulty 1: %d, 2: %d, 3: %d), x%d outside #%s, up to %d",
+			scoreDonePts[0], scoreDonePts[1], scoreDonePts[2], scoreDonePts[3],
+			scoreFocusMult, scoreWorkflowCategory, scoreDoneCap),
 		Created: fmt.Sprintf("%d each, up to %d", scoreCreatedPts, scoreCreatedCap),
 		Study:   fmt.Sprintf("%g a minute, up to %d", scoreQuizPerMin, scoreQuizCap),
 		Words:   fmt.Sprintf("1 per %d words in tracked folders, up to %d", scoreWordsPer, scoreWordsCap),
@@ -85,12 +94,13 @@ func capInt(v, limit int) int {
 	return v
 }
 
-// scoreFor turns one day's counts into a score.
-func scoreFor(doneBy [4]int, created, studySecs, words, overdue int, live bool) Score {
+// scoreFor turns one day's counts into a score. doneBy counts the completed tasks by
+// difficulty; focus counts the subset of them outside the workflow folder (see isFocusTask).
+func scoreFor(doneBy, focus [4]int, created, studySecs, words, overdue int, live bool) Score {
 	done, donePts := 0, 0
 	for d, n := range doneBy {
 		done += n
-		donePts += n * scoreDonePts[d]
+		donePts += (n-focus[d])*scoreDonePts[d] + focus[d]*scoreDonePts[d]*scoreFocusMult
 	}
 	s := Score{Live: live, Done: done, Created: created, Study: studySecs, Words: words, Overdue: overdue}
 	s.DonePts = capInt(donePts, scoreDoneCap)
@@ -145,7 +155,7 @@ func (a *Activity) AddScores(tasks []Task, now time.Time) {
 			continue // a task stamped in the future
 		}
 		d := a.Days[k]
-		a.Scores[k] = scoreFor(d.DoneBy, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried), k == a.Today)
+		a.Scores[k] = scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried), k == a.Today)
 	}
 }
 

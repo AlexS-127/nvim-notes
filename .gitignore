@@ -2,3 +2,4 @@ nvim/nvim-pack-lock.json
 nvim/macros.lua
 renderer/notesview
 renderer/dist/
+__pycache__/

@@ -97,6 +97,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   fi
   say "Removing the custom.css link"
   unlink_file "$REPO_DIR/notesview/custom.css" "$NV_CONFIG_DIR/custom.css"
+  unlink_file "$REPO_DIR/quiz/quiz.py" "$NOTES_HOME/quiz.py"
   say "Removing shell alias and inbox command"
   for f in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do remove_block "$f"; done
   say "Removing Neovim plugin data"
@@ -214,6 +215,8 @@ if [ -L "$NV_CONFIG_DIR/config.toml" ] && [ "$(readlink "$NV_CONFIG_DIR/config.t
 fi
 
 mkdir -p "$NOTES_HOME"
+say "Linking the vocab quiz (quiz.py) into $NOTES_HOME"
+link_file "$REPO_DIR/quiz/quiz.py" "$NOTES_HOME/quiz.py"
 
 RC="$(rc_file)"
 touch "$RC"

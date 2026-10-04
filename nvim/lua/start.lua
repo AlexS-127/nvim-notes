@@ -86,8 +86,14 @@ local function restart_renderer()
       if b.code ~= 0 then
         return vim.notify("notesview build failed:\n" .. (b.stderr or ""), vim.log.levels.ERROR)
       end
-      vim.system({ "pkill", "-f", "notesview serve" }):wait()
+      -- swap the binary first: when the local.notesview-serve launch agent runs the server,
+      -- launchd restarts it the moment it is killed, and it must pick up the new build
       os.rename(bin .. ".new", bin)
+      vim.system({ "pkill", "-f", "notesview serve" }):wait()
+      -- give launchd up to 3 s to bring it back, so `open` doesn't start a second server
+      vim.wait(3000, function()
+        return vim.system({ "curl", "-sf", "-o", "/dev/null", "http://127.0.0.1:" .. (vim.env.NOTESVIEW_PORT or "7777") .. "/api/status" }):wait().code == 0
+      end, 200)
       vim.system({ "notesview", "open", "--tasks" }, { env = { NOTES_DIR = NOTES }, stdout = false, stderr = false }, function() end)
       vim.notify("notesview rebuilt and restarted")
     end)

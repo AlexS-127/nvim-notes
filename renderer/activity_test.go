@@ -132,29 +132,34 @@ func quizPts(seconds int) int {
 }
 
 func TestScoreFor(t *testing.T) {
-	if s := scoreFor([4]int{}, 0, 0, 0, 0, false); s.Total != 0 {
+	if s := scoreFor([4]int{}, [4]int{}, 0, 0, 0, 0, false); s.Total != 0 {
 		t.Errorf("empty day: %+v", s)
 	}
 	// 3 done + 2 made + 10 min quiz - 2 overdue
 	wantDone, wantMade, wantQuiz, wantOver := 3*scoreDonePts[0], 2*scoreCreatedPts, quizPts(600), -2*scoreOverduePts
-	s := scoreFor([4]int{3}, 2, 600, 0, 2, true)
+	s := scoreFor([4]int{3}, [4]int{}, 2, 600, 0, 2, true)
 	if s.DonePts != wantDone || s.CreatedPts != wantMade || s.StudyPts != wantQuiz || s.OverduePts != wantOver ||
 		s.Total != max(0, wantDone+wantMade+wantQuiz+wantOver) || !s.Live {
 		t.Errorf("score: %+v", s)
 	}
 	// done points depend on difficulty: 1 plain + 2 easy + 1 medium + 1 hard
 	wantDone = scoreDonePts[0] + 2*scoreDonePts[1] + scoreDonePts[2] + scoreDonePts[3]
-	if s := scoreFor([4]int{1, 2, 1, 1}, 0, 0, 0, 0, false); s.Done != 5 || s.DonePts != min(scoreDoneCap, wantDone) {
+	if s := scoreFor([4]int{1, 2, 1, 1}, [4]int{}, 0, 0, 0, 0, false); s.Done != 5 || s.DonePts != min(scoreDoneCap, wantDone) {
 		t.Errorf("difficulty points: %+v", s)
 	}
 	// each part is capped, the penalty is capped, and the total never goes below 0
-	s = scoreFor([4]int{1000}, 1000, 1000*3600, 1000*scoreWordsPer*scoreWordsCap, 0, false)
+	s = scoreFor([4]int{1000}, [4]int{}, 1000, 1000*3600, 1000*scoreWordsPer*scoreWordsCap, 0, false)
 	if s.DonePts != scoreDoneCap || s.CreatedPts != scoreCreatedCap || s.StudyPts != scoreQuizCap || s.WordsPts != scoreWordsCap ||
 		s.Total != scoreDoneCap+scoreCreatedCap+scoreQuizCap+scoreWordsCap {
 		t.Errorf("max: %+v", s)
 	}
-	if s := scoreFor([4]int{1}, 0, 0, 0, 1000, false); s.OverduePts != -scoreOverdueCap || s.Total != 0 {
+	if s := scoreFor([4]int{1}, [4]int{}, 0, 0, 0, 1000, false); s.OverduePts != -scoreOverdueCap || s.Total != 0 {
 		t.Errorf("penalty cap and floor: %+v", s)
+	}
+	// tasks outside the workflow folder earn scoreFocusMult times the points: 2 plain done, 1 of them focus
+	wantDone = scoreDonePts[0] + scoreDonePts[0]*scoreFocusMult
+	if s := scoreFor([4]int{2}, [4]int{1}, 0, 0, 0, 0, false); s.Done != 2 || s.DonePts != min(scoreDoneCap, wantDone) {
+		t.Errorf("focus points: %+v", s)
 	}
 }
 
@@ -171,16 +176,33 @@ func TestAddScores(t *testing.T) {
 	a := BuildActivity(tasks, now, 2)
 	a.AddStudy(s.StudySeconds(), now)
 	a.AddScores(tasks, now)
-	if got := a.Scores["2026-09-30"]; got.Done != 1 || got.Overdue != 1 || got.Total != clampInt(scoreDonePts[0]-scoreOverduePts, 0, 1<<30) { // a done, b overdue, floored at 0
+	if got := a.Scores["2026-09-30"]; got.Done != 1 || got.Overdue != 1 || got.Total != clampInt(scoreDonePts[0]*scoreFocusMult-scoreOverduePts, 0, 1<<30) { // a done (General, so focus), b overdue, floored at 0
 		t.Errorf("9/30: %+v", got)
 	}
 	// c done, 20 min quiz, b overdue
-	want := max(0, scoreDonePts[0]+quizPts(1200)-scoreOverduePts)
+	want := max(0, scoreDonePts[0]*scoreFocusMult+quizPts(1200)-scoreOverduePts)
 	if got := a.Scores["2026-10-01"]; !got.Live || got.Total != want || got.Overdue != 1 {
 		t.Errorf("today: %+v", got)
 	}
 	if _, ok := a.Scores["2026-09-29"]; ok {
 		t.Error("a day with no activity should not be scored")
+	}
+}
+
+func TestScoreFocusVsWorkflow(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local)
+	s := newTestStore(t, map[string]string{
+		"workflow/ideas.md": "- [x] tweak the viewer !2 ✅ 2026-10-01\n",
+		"act200/hw.md":      "- [x] homework !2 ✅ 2026-10-01\n",
+		"inbox.md":          "- [x] tagged into workflow #workflow ✅ 2026-10-01\n- [x] tagged into a course #act200 ✅ 2026-10-01\n",
+	})
+	tasks := s.CollectTasks(TaskQuery{All: true, Now: now})
+	a := BuildActivity(tasks, now, 2)
+	a.AddScores(tasks, now)
+	// workflow: !2 + plain at 1x; act200: !2 + plain at scoreFocusMult
+	want := scoreDonePts[2] + scoreDonePts[0] + (scoreDonePts[2]+scoreDonePts[0])*scoreFocusMult
+	if got := a.Scores["2026-10-01"]; got.Done != 4 || got.DonePts != min(scoreDoneCap, want) {
+		t.Errorf("got %+v, want done_pts %d", got, want)
 	}
 }
 

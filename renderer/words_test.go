@@ -89,7 +89,7 @@ func TestExcludedWords(t *testing.T) {
 }
 
 func TestWordsScore(t *testing.T) {
-	if s := scoreFor([4]int{}, 0, 0, 5*scoreWordsPer, 0, false); s.WordsPts != 5 || s.Total != 5 {
+	if s := scoreFor([4]int{}, [4]int{}, 0, 0, 5*scoreWordsPer, 0, false); s.WordsPts != 5 || s.Total != 5 {
 		t.Errorf("words points: %+v", s)
 	}
 	a := Activity{Today: "2026-10-03", Days: map[string]DayStat{}}

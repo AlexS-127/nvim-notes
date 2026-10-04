@@ -80,6 +80,8 @@ type DayStat struct {
 	Words   int `json:"words"` // new words written in tracked folders, see words.go
 	// DoneBy counts completed tasks by difficulty: [0] has none set, [1]-[3] are !1-!3.
 	DoneBy [4]int `json:"-"`
+	// DoneFocus is the part of DoneBy outside the workflow folder, scored double (score.go).
+	DoneFocus [4]int `json:"-"`
 }
 
 type WeekStat struct {
@@ -210,6 +212,9 @@ func BuildActivity(tasks []Task, now time.Time, nWeeks int) Activity {
 				d := a.Days[t.DoneDate]
 				d.Done++
 				d.DoneBy[t.Difficulty]++
+				if isFocusTask(t) {
+					d.DoneFocus[t.Difficulty]++
+				}
 				a.Days[t.DoneDate] = d
 			}
 		}
