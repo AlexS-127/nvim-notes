@@ -280,7 +280,8 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 #act-slope[data-sign="up"], .sc-read[data-sign="up"] { color: var(--c-tip); }
 #act-slope[data-sign="down"], .sc-read[data-sign="down"] { color: var(--c-danger); }
 .sc-hover[hidden] { display: none; }
-@media (max-width: 760px) { .score-card { grid-template-columns: 1fr; } .act-tiles { grid-template-columns: 1fr 1fr; } @media (prefers-reduced-motion: reduce) { .wk-done.best { fill: color-mix(in srgb, var(--accent) 100%, var(--c-warning) 25%); }
+@media (max-width: 760px) { .score-card { grid-template-columns: 1fr; } .act-tiles { grid-template-columns: 1fr 1fr; } }
+@media (prefers-reduced-motion: reduce) { .wk-done.best { fill: color-mix(in srgb, var(--accent) 100%, var(--c-warning) 25%); } }
 .hm-label.best { fill: var(--fg); font-weight: 700; }
 .wd:hover .wk-hit { fill: var(--hl); }
 .recent { list-style: none; padding: 0; margin: 0; font: 14px var(--font-ui); }
