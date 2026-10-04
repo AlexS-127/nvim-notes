@@ -387,6 +387,9 @@
   }
 
   // slope graph: derivative of today's score (points per hour). The step log is smoothed with a gaussian, so the slope is a curve.
+  // "up" / "down" / "" so slope numbers can be coloured green / red
+  const signOf = (v) => (v >= 0.005 ? "up" : v <= -0.005 ? "down" : "");
+
   // slope in points per 10 minutes at time t (ms)
   function slopeFn(a) {
     const jumps = a.score_line.slice(1).map((p, i) => ({ t: new Date(p.at).getTime(), dv: p.total - a.score_line[i].total })).filter((j) => j.dv);
@@ -457,7 +460,7 @@
     // current slope tile ticks in real time (it decays between score changes)
     const sl = $("#act-slope"), sf = slopeFn(a).at;
     let timer;
-    const tick = () => { if (!sl.isConnected) return clearInterval(timer); sl.textContent = sf(Date.now()).toFixed(2); };
+    const tick = () => { if (!sl.isConnected) return clearInterval(timer); const v = sf(Date.now()); sl.textContent = v.toFixed(2); sl.dataset.sign = signOf(v); };
     tick(); timer = setInterval(tick, 1000);
   }
 
@@ -472,11 +475,12 @@
       if (!read || !dot || !path || !svg.dataset.geo) return;
       const [L, Rr, T, Bt, bot, top] = svg.dataset.geo.split(",").map(Number), r = svg.getBoundingClientRect();
       const px = (e.clientX - r.left) * svg.viewBox.baseVal.width / r.width, py = (e.clientY - r.top) * svg.viewBox.baseVal.height / r.height;
-      if (px < L || px > Rr || py < 0 || py > Bt + 46 || !(e.target.closest && e.target.closest("svg") === svg)) { read.textContent = "--.--"; dot.setAttribute("hidden", ""); return; }
+      if (px < L || px > Rr || py < 0 || py > Bt + 46 || !(e.target.closest && e.target.closest("svg") === svg)) { read.textContent = "--.--"; read.dataset.sign = ""; dot.setAttribute("hidden", ""); return; }
       let lo = 0, hi = path.getTotalLength();
       for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (path.getPointAtLength(mid).x < px) lo = mid; else hi = mid; }
       const p = path.getPointAtLength(hi), v = bot + (top - bot) * (1 - (p.y - T) / (Bt - T));
       read.textContent = (Math.abs(v) < 0.005 ? 0 : v).toFixed(2);
+      read.dataset.sign = svg.getAttribute("aria-label").includes("slope") ? signOf(v) : "";
       dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.removeAttribute("hidden");
     });
   }
@@ -488,7 +492,7 @@
       showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}${Number(c.dataset.study) ? `<br>${fmtStudy(Number(c.dataset.study))} of quiz` : ""}${Number(c.dataset.words) ? `<br>${Number(c.dataset.words).toLocaleString()} new words` : ""}${Number(c.dataset.score) ? `<br>Score ${c.dataset.score}` : ""}`);
     } else tip.hidden = true;
   });
-  note.addEventListener("mouseleave", () => { tip.hidden = true; note.querySelectorAll(".sc-read").forEach((t) => { t.textContent = "--.--"; }); note.querySelectorAll(".sc-hover").forEach((c) => c.setAttribute("hidden", "")); });
+  note.addEventListener("mouseleave", () => { tip.hidden = true; note.querySelectorAll(".sc-read").forEach((t) => { t.textContent = "--.--"; t.dataset.sign = ""; }); note.querySelectorAll(".sc-hover").forEach((c) => c.setAttribute("hidden", "")); });
   note.addEventListener("click", (e) => {
     const b = e.target.closest && e.target.closest(".act-metric button");
     if (b) { actMetric = b.dataset.metric; store.set("actMetric", actMetric); show(current, true); }

@@ -284,3 +284,6 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 .recent li { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--border); }
 .recent li:last-child { border-bottom: 0; }
 .rt-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+#act-slope[data-sign="up"], .sc-read[data-sign="up"] { color: var(--c-tip); }
+#act-slope[data-sign="down"], .sc-read[data-sign="down"] { color: var(--c-danger); }
