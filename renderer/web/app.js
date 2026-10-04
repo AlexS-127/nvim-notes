@@ -400,7 +400,7 @@
     const xs = (t) => L + (W - L - R) * Math.min(1, Math.max(0, (t - day0) / span));
     const labels = [0, 3, 6, 9, 12, 15, 18, 21].map((h) => [xs(day0 + h * 3600e3), hhmm(new Date(day0 + h * 3600e3))]);
     const xl = labels.map(([x, l]) => `<text class="hm-label" x="${x}" y="${H - 10}" text-anchor="middle">${l}</text>`).join("");
-    const { jumps, at: slope } = slopeFn(a), step = 5 * 60e3;
+    const { jumps, at: slope } = slopeFn(a), step = 60e3;
     const pts = [];
     for (let t = day0; t <= now; t += step) pts.push({ t, v: slope(t) });
     pts.push({ t: now, v: slope(now) });
