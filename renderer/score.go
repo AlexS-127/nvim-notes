@@ -29,8 +29,8 @@ var scoreDonePts = [4]int{
 
 const (
 	scoreDoneCap    = 100 // most points tasks completed can give
-	scoreCreatedPts = 2   // points per task created
-	scoreCreatedCap = 30  // most points tasks created can give
+	scoreCreatedPts = 1   // points per task created
+	scoreCreatedCap = 60  // most points tasks created can give
 	scoreQuizPerMin = 2.0 // points per minute of quiz time
 	scoreQuizCap    = 100 // most points quiz time can give
 	scoreWordsPer   = 15  // new words per point
