@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Vocab quiz. Reads `word :: translation` lines from notes/<subject>/definitions.md.
+"""Vocab and question quiz. Reads `word :: translation` lines from notes/<subject>/definitions.md,
+or a question bank from notes/<subject>/questions.md (multiple choice, true/false, short answer
+and self-graded worked problems; format in notes/format/question-format.md). A subject with a
+questions.md uses it.
 
 Progress is saved per subject in notes/<subject>/.quiz_stats.json. Each question is
 a weighted random draw: new words and words you keep missing come up most, words you
@@ -13,7 +16,8 @@ Time spent is logged per session to notes/.quiz_log.jsonl and shows up in the vi
 Activity view. Time you spend away (over IDLE_CAP seconds on one question) isn't counted.
 
 At the start you can practise everything (just press Enter) or only one word type,
-taken from the "(noun)", "(verb)"... at the end of each definitions.md line.
+taken from the "(noun)", "(verb)"... at the end of each definitions.md line, or, for a
+question bank, one `## ` topic. Worked problems are idle-capped at PROBLEM_IDLE_CAP instead.
 
 Usage: python3 ~/notes/quiz.py [subject]   (a link to nvim-notes/quiz/quiz.py)
 """
@@ -25,6 +29,7 @@ import os
 import random
 import re
 import sys
+import textwrap
 import time
 import unicodedata
 from datetime import date, datetime
@@ -78,24 +83,7 @@ def kind(trans):
 
 def choose_type(pairs):
     """Ask which word type to practise. Enter = everything. Returns the filtered pairs."""
-    counts = {}
-    for _, t in pairs:
-        counts[kind(t) or "untyped"] = counts.get(kind(t) or "untyped", 0) + 1
-    if len(counts) < 2:
-        return pairs
-    types = sorted(counts, key=lambda k: -counts[k])
-    print("\nWord type (Enter = everything):")
-    for i, t in enumerate(types, 1):
-        print(f"  {i}) {t} ({counts[t]})")
-    while True:
-        r = input("> ").strip().lower()
-        if not r:
-            return pairs
-        if r.isdigit() and 1 <= int(r) <= len(types):
-            r = types[int(r) - 1]
-        if r in counts:
-            return [p for p in pairs if (kind(p[1]) or "untyped") == r]
-        print("  Pick a number or type name from the list, or press Enter.")
+    return choose_group(pairs, lambda p: kind(p[1]) or "untyped", "Word type")
 
 
 def norm(s):
@@ -264,68 +252,260 @@ def choose(prompt, choices):
         print("  Pick a number from the list.")
 
 
+class Clock:
+    """Active study time: each prompt adds the time until it is answered, capped at `cap`."""
+
+    def __init__(self):
+        self.active = 0.0
+
+    def input(self, prompt, cap=IDLE_CAP):
+        asked = time.monotonic()
+        try:
+            return input(prompt)
+        finally:  # so quitting or Ctrl-C at a prompt still counts
+            self.active += min(time.monotonic() - asked, cap)
+
+
+# ---- vocab (definitions.md) -------------------------------------------------------------
+
+
+def vocab_bank(subject):
+    """Items, asker and display label for a definitions.md subject."""
+    pairs = load(NOTES / subject / "definitions.md")
+    if not pairs:
+        sys.exit(f"No 'word :: translation' lines in {subject}/definitions.md")
+    pairs = choose_type(pairs)
+
+    print("\nDirection:")
+    d = choose("> ", ["Latin → English", "English → Latin", "Mixed"])
+
+    def ask(item, clock):
+        word, trans = item
+        forward = d == 0 or (d == 2 and random.random() < 0.5)
+        q, a = (word, trans) if forward else (trans, word)
+        guess = clock.input(f"{q}  → ").strip() or "?"  # a blank Enter skips and reveals, like '?'
+        if guess.lower() == "q":
+            return None
+        ok = guess != "?" and check(guess, a)
+        more = others(guess, a) if ok else []
+        return ok, (f"  also: {', '.join(more)}" if more else ""), f"  ✗  {a}"
+
+    return pairs, ask, lambda item: f"{item[0]} :: {item[1]}", "word"
+
+
+# ---- question bank (questions.md) -------------------------------------------------------
+
+PROBLEM_IDLE_CAP = 600  # seconds; a worked problem on paper really does take minutes
+FIELD = re.compile(r"^(Q|A|Why|Src|Solution):[ \t]?(.*)$")
+CHOICE = re.compile(r"^([a-hA-H])[).][ \t]+(.*)$")
+REFERS_TO_LETTERS = re.compile(r"\babove\b|\b[A-H] and [A-H]\b", re.I)
+
+
+def load_questions(path):
+    """Parse questions.md (format in notes/format/question-format.md) into dicts with keys
+    topic, q, choices, a, solution, why, src. A block runs from `Q:` to the next `Q:` or
+    heading; `## ` headings are topics. Malformed blocks are reported and skipped."""
+    out, bad, topic, cur, field = [], [], "", None, None
+
+    def flush():
+        if not cur:
+            return
+        for k in ("q", "a", "solution", "why", "src"):
+            cur[k] = textwrap.dedent(cur[k]).strip()
+        letters = "abcdefgh"[: len(cur["choices"])]
+        if cur["solution"] or (cur["a"] and (not cur["choices"] or cur["a"].lower() in letters)):
+            out.append(cur)
+        else:
+            bad.append(cur["q"].splitlines()[0][:60] if cur["q"] else "(empty question)")
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.rstrip()
+        if line.startswith("#"):
+            flush()
+            cur = field = None
+            if line.startswith("## "):
+                topic = line[3:].strip()
+            continue
+        m = FIELD.match(line)
+        if m:
+            name, val = m[1].lower(), m[2]
+            if name == "q":
+                flush()
+                cur = {"topic": topic, "q": "", "choices": [], "a": "", "solution": "", "why": "", "src": ""}
+            if cur is not None:
+                field = name
+                cur[field] = val
+            continue
+        if cur is None or not line.strip():
+            continue
+        c = CHOICE.match(line.strip())
+        if c and field in ("q", "choices"):
+            cur["choices"].append(c[2].strip())
+            field = "choices"
+        elif field and field != "choices":
+            cur[field] += "\n" + line
+    flush()
+    for b in bad:
+        print(f"  skipped (no usable A:/Solution:): {b}", file=sys.stderr)
+    return out
+
+
+def qkind(q):
+    if q["solution"]:
+        return "problem"
+    if q["choices"]:
+        return "mc"
+    if norm(q["a"]) in ("true", "false"):
+        return "tf"
+    return "short"
+
+
+def short_label(q, n=70):
+    first = " ".join(q["q"].split())
+    return first if len(first) <= n else first[: n - 1] + "…"
+
+
+def ask_question(item, clock):
+    _, q = item
+    kind = qkind(q)
+    print(q["q"])
+    note = "".join(f"\n  {l.strip()}" for l in q["why"].splitlines())
+    src = f"  ({q['src']})" if q["src"] else ""
+
+    if kind == "problem":
+        r = clock.input("  Work it out, then Enter to see the solution (q to quit) ", PROBLEM_IDLE_CAP)
+        if r.strip().lower() == "q":
+            return None
+        print("\n".join(f"  {l}" for l in q["solution"].splitlines()) + note + ("\n" + src if src else ""))
+        while True:
+            r = clock.input("  Did you get it? [y/n] ").strip().lower()
+            if r in ("y", "n"):
+                return r == "y", "", ""
+            if r == "q":
+                return None
+
+    if kind == "mc":
+        order = list(range(len(q["choices"])))
+        if not any(REFERS_TO_LETTERS.search(c) for c in q["choices"]):
+            random.shuffle(order)
+        letters = "abcdefgh"
+        for i, j in enumerate(order):
+            print(f"  {letters[i]}) {q['choices'][j]}")
+        right = order.index(letters.index(q["a"].lower()))
+        prompt, answer = "  → ", f"{letters[right]}) {q['choices'][order[right]]}"
+        valid = set(letters[: len(order)]) | {str(i + 1) for i in range(len(order))}
+    elif kind == "tf":
+        prompt, answer, valid = "  [t/f] → ", q["a"].lower(), {"t", "f", "true", "false"}
+    else:
+        prompt, answer, valid = "  → ", q["a"], None
+
+    while True:
+        guess = clock.input(prompt).strip() or "?"
+        g = guess.lower()
+        if g == "q":
+            return None
+        if guess == "?" or valid is None or g in valid:
+            break
+        print("  Answer with " + ("a letter" if kind == "mc" else "t or f") + ", '?' to skip or 'q' to quit.")
+    if guess == "?":
+        ok = False
+    elif kind == "mc":
+        ok = g in (letters[right], str(right + 1))
+    elif kind == "tf":
+        ok = g in ("t", "true") if answer == "true" else g in ("f", "false")
+    else:
+        ok = check(guess, answer)
+    return ok, note + src, f"  ✗  {answer}" + note + src
+
+
+def questions_bank(subject):
+    qs = load_questions(NOTES / subject / "questions.md")
+    if not qs:
+        sys.exit(f"No usable questions in {subject}/questions.md (format: notes/format/question-format.md)")
+    items = [(q["q"], q) for q in qs]
+    items = choose_group(items, lambda p: p[1]["topic"] or "no topic", "Topic", by_count=False)
+    return items, ask_question, lambda item: short_label(item[1]), "question"
+
+
+# ---- session ------------------------------------------------------------------------------
+
+
+def choose_group(items, group_of, title, by_count=True):
+    """Ask which group to practise (Enter = everything). Returns the filtered items."""
+    counts = {}
+    for it in items:
+        counts[group_of(it)] = counts.get(group_of(it), 0) + 1
+    if len(counts) < 2:
+        return items
+    groups = sorted(counts, key=lambda k: -counts[k]) if by_count else list(counts)
+    print(f"\n{title} (Enter = everything):")
+    for i, t in enumerate(groups, 1):
+        print(f"  {i}) {t} ({counts[t]})")
+    while True:
+        r = input("> ").strip()
+        if not r:
+            return items
+        if r.isdigit() and 1 <= int(r) <= len(groups):
+            r = groups[int(r) - 1]
+        match = next((g for g in groups if g.lower() == r.lower()), None)
+        if match:
+            return [it for it in items if group_of(it) == match]
+        print("  Pick a number or name from the list, or press Enter.")
+
+
 def main():
-    subjects = sorted(p.parent.name for p in NOTES.glob("*/definitions.md"))
+    subjects = sorted({p.parent.name for f in ("definitions.md", "questions.md") for p in NOTES.glob(f"*/{f}")})
     if not subjects:
-        sys.exit(f"No definitions.md files found under {NOTES}/<subject>/")
+        sys.exit(f"No definitions.md or questions.md files found under {NOTES}/<subject>/")
     if len(sys.argv) > 1 and sys.argv[1] in subjects:
         subject = sys.argv[1]
     else:
         print("Subject:")
         subject = subjects[choose("> ", subjects)]
 
-    pairs = load(NOTES / subject / "definitions.md")
-    if not pairs:
-        sys.exit(f"No 'word :: translation' lines in {subject}/definitions.md")
-
-    pairs = choose_type(pairs)
-
-    print("\nDirection:")
-    d = choose("> ", ["Latin → English", "English → Latin", "Mixed"])
+    if (NOTES / subject / "questions.md").exists():
+        items, ask, label, noun = questions_bank(subject)
+    else:
+        items, ask, label, noun = vocab_bank(subject)
 
     stats_path = NOTES / subject / ".quiz_stats.json"
     stats = load_stats(stats_path)
-    hard = sum(struggling(stats, w) for w, _ in pairs)
+    hard = sum(struggling(stats, k) for k, _ in items)
     pl, streak_msg = start_player(stats)
     lvl = level_of(pl["xp"])
     print(
-        f"\n{len(pairs)} entries ({hard} you're struggling with). Type 'q' to quit, '?' or Enter to skip and reveal."
+        f"\n{len(items)} {noun}s ({hard} you're struggling with). Type 'q' to quit, '?' or Enter to skip and reveal."
     )
     print(f"{rank_of(lvl)} · Level {lvl} · {pl['xp']} XP [{progress_bar(pl['xp'])}] {streak_msg}\n")
     last = None
-    asked_at = {}  # word -> question number it was last asked in (this session)
+    asked_at = {}  # key -> question number it was last asked in (this session)
     right = total = combo = session_xp = 0
     missed = []
-    active = 0.0  # seconds spent on questions, idle time capped
+    clock = Clock()  # seconds spent on questions, idle time capped
     # atexit so Ctrl-C / EOF still log the time; reads the final values when it runs
-    atexit.register(lambda: log_session(subject, active, total, right))
+    atexit.register(lambda: log_session(subject, clock.active, total, right))
 
     while True:
-        word, trans = pick(pairs, stats, asked_at, total + 1, last)
-        last = word
-        asked_at[word] = total + 1
-        forward = d == 0 or (d == 2 and random.random() < 0.5)
-        q, a = (word, trans) if forward else (trans, word)
-        asked = time.monotonic()
-        try:
-            guess = input(f"{q}  → ").strip() or "?"  # a blank Enter skips and reveals, like '?'
-        finally:
-            active += min(time.monotonic() - asked, IDLE_CAP)
-        if guess.lower() == "q":
+        item = pick(items, stats, asked_at, total + 1, last)
+        key = item[0]
+        last = key
+        asked_at[key] = total + 1
+        result = ask(item, clock)
+        if result is None:
             break
+        ok, ok_note, wrong_note = result
         total += 1
-        ok = guess != "?" and check(guess, a)
-        was_hard = struggling(stats, word)
-        record(stats, word, ok)
+        was_hard = struggling(stats, key)
+        record(stats, key, ok)
         notes = []
         if ok:
             right += 1
             combo += 1
             mult = 1 + min(combo - 1, 9) // 3  # x1 → x4 as the combo grows
             gain = 10 * mult
-            if was_hard and not struggling(stats, word):
+            if was_hard and not struggling(stats, key):
                 gain += 25
-                notes.append("  ♻ Weak word recovered! +25 XP")
+                notes.append(f"  ♻ Weak {noun} recovered! +25 XP")
                 notes.append(award(pl, "recovered"))
             notes.append(award(pl, "first_blood"))
             for n in (5, 10, 20):
@@ -337,9 +517,8 @@ def main():
             pl["xp"] += gain
             session_xp += gain
             pl["best_combo"] = max(pl["best_combo"], combo)
-            more = others(guess, a)
             combo_txt = f" 🔥x{combo}" if combo >= 3 else ""
-            print(f"  ✓ +{gain} XP{combo_txt}" + (f"  also: {', '.join(more)}" if more else ""))
+            print(f"  ✓ +{gain} XP{combo_txt}" + ok_note)
             if level_of(pl["xp"]) > old:
                 new = level_of(pl["xp"])
                 notes.append(f"  ⬆ LEVEL UP! You are now a {rank_of(new)} (level {new})")
@@ -347,9 +526,10 @@ def main():
             if combo >= 5:
                 print(f"  💔 Combo of {combo} broken")
             combo = 0
-            print(f"  ✗  {a}")
-            if (word, trans) not in missed:
-                missed.append((word, trans))
+            if wrong_note:
+                print(wrong_note)
+            if label(item) not in missed:
+                missed.append(label(item))
         for n in filter(None, notes):
             print(n)
         print()
@@ -361,16 +541,17 @@ def main():
             print(award(pl, "perfect") or "  ✨ Another flawless run!")
             save_stats(stats_path, stats)
         lvl = level_of(pl["xp"])
-        print(f"+{session_xp} XP this session · best combo {pl['best_combo']} · {fmt_time(active)} studied")
+        print(f"+{session_xp} XP this session · best combo {pl['best_combo']} · {fmt_time(clock.active)} studied")
         print(f"{rank_of(lvl)} · Level {lvl} [{progress_bar(pl['xp'])}] {pl['xp']}/{xp_for(lvl + 1)} XP")
         if pl["badges"]:
             print("Badges: " + ", ".join(BADGES[b].split(" (")[0] for b in pl["badges"]))
+        sep = "; " if noun == "word" else "\n  "
         if missed:
-            print("Missed: " + "; ".join(f"{w} :: {t}" for w, t in missed))
-        hard = [w for w, _ in pairs if struggling(stats, w)]
-        solid = [w for w, _ in pairs if w in stats and not struggling(stats, w)]
-        print(f"\nStruggling ({len(hard)}): " + ("; ".join(hard) or "none"))
-        print(f"Comfortable: {len(solid)}/{len(pairs)}")
+            print("Missed:" + (" " if noun == "word" else "\n  ") + sep.join(missed))
+        hard = [k if noun == "word" else label(it) for it in items for k in [it[0]] if struggling(stats, k)]
+        solid = [k for k, _ in items if k in stats and not struggling(stats, k)]
+        print(f"\nStruggling ({len(hard)}):" + (" " if noun == "word" else "\n  ") + (sep.join(hard) or "none"))
+        print(f"Comfortable: {len(solid)}/{len(items)}")
 
 
 if __name__ == "__main__":

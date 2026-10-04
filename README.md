@@ -184,8 +184,12 @@ The **Activity** view (sidebar button, or `a` in the viewer) turns your tasks in
   completion (zero days count, today doesn't until it's over), with the median and +1 sigma marked,
   and how many tasks today still needs to beat the median and reach 1 sigma.
 - **Quiz time:** `quiz.py` logs how long each session took to `notes/.quiz_log.jsonl` (a pause of
-  over 90 seconds on one question counts as 90). The Activity view shows time today, this week and
-  in all, and the calendar tooltip shows each day's quiz minutes.
+  over 90 seconds on one question counts as 90, 10 minutes on a worked problem). The Activity view
+  shows time today, this week and in all, and the calendar tooltip shows each day's quiz minutes.
+  A subject is quizzed from `notes/<subject>/definitions.md` (`word :: translation` vocab) or, if
+  present, `notes/<subject>/questions.md`: blocks of `Q:` with `a)`…`d)` choices and `A: c`,
+  `A: true`/`false`, a short `A:` answer, or a `Solution:` you mark yourself right or wrong, with
+  optional `Why:` and `Src:` lines and `## ` topic headings.
 - **Done is automatic.** Ticking a task (in the viewer or with `<Space>x`) moves it, with its
   nested lines, to the end of the note's `## Done` section, creating it if needed. Unticking one
   in Done moves it back up with the open tasks. New captures land with the open tasks, above
