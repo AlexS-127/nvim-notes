@@ -265,11 +265,14 @@ func daysBetween(a, b time.Time) int {
 type TaskQuery struct {
 	All bool      // include done and moved tasks, not only open ones
 	Now time.Time // reference time for date groups
+	// NewestFirst breaks due-date ties by creation time, newest first (the
+	// Neovim picker); the viewer keeps folder, file, line order.
+	NewestFirst bool
 }
 
 // CollectTasks gathers tasks from every note, assigns date groups and sorts
 // them by group (undated tasks form the last group), due date soonest first,
-// creation time newest first, folder, file and line.
+// folder, file and line.
 func (s *Store) CollectTasks(q TaskQuery) []Task {
 	if q.Now.IsZero() {
 		q.Now = time.Now()
@@ -301,8 +304,10 @@ func (s *Store) CollectTasks(q TaskQuery) []Task {
 		if a.Due != b.Due {
 			return a.Due < b.Due
 		}
-		if ca, cb := createdKey(a, q.Now), createdKey(b, q.Now); !ca.Equal(cb) {
-			return ca.After(cb) // most recently created first
+		if q.NewestFirst {
+			if ca, cb := createdKey(a, q.Now), createdKey(b, q.Now); !ca.Equal(cb) {
+				return ca.After(cb) // most recently created first
+			}
 		}
 		if a.Tag != b.Tag {
 			// tasks outside any folder (empty tag) come after the foldered ones

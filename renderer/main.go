@@ -204,7 +204,7 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	switch cmd {
 	case "tasks":
-		tasks := store.CollectTasks(TaskQuery{All: *all, Now: now})
+		tasks := store.CollectTasks(TaskQuery{All: *all, Now: now, NewestFirst: true})
 		if *asJSON {
 			return printJSON(stdout, tasks)
 		}
