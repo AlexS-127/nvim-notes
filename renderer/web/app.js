@@ -387,28 +387,34 @@
   }
 
   // slope graph: derivative of today's score (points per hour). The step log is smoothed with a gaussian, so the slope is a curve.
+  // slope in points per 10 minutes at time t (ms)
+  function slopeFn(a) {
+    const jumps = a.score_line.slice(1).map((p, i) => ({ t: new Date(p.at).getTime(), dv: p.total - a.score_line[i].total })).filter((j) => j.dv);
+    const sigma = 20 * 60e3, unit = 10 * 60e3;
+    return { jumps, at: (t) => jumps.reduce((s, j) => s + j.dv * Math.exp(-((t - j.t) ** 2) / (2 * sigma * sigma)) / (sigma * Math.sqrt(2 * Math.PI)), 0) * unit };
+  }
+
   function slopeSvg(a) {
-    const W = 1200, H = 266, L = 64, R = 20, B = 46, T = 18;
+    const W = 1200, H = 266, L = 88, R = 20, B = 46, T = 18;
     const day0 = dayOf(a.today).getTime(), span = 24 * 3600e3, now = Math.min(Date.now(), day0 + span);
     const xs = (t) => L + (W - L - R) * Math.min(1, Math.max(0, (t - day0) / span));
     const labels = [0, 3, 6, 9, 12, 15, 18, 21].map((h) => [xs(day0 + h * 3600e3), hhmm(new Date(day0 + h * 3600e3))]);
     const xl = labels.map(([x, l]) => `<text class="hm-label" x="${x}" y="${H - 10}" text-anchor="middle">${l}</text>`).join("");
-    const jumps = a.score_line.slice(1).map((p, i) => ({ t: new Date(p.at).getTime(), dv: p.total - a.score_line[i].total })).filter((j) => j.dv);
-    const sigma = 20 * 60e3, step = 5 * 60e3, hr = 3600e3;
-    const slope = (t) => jumps.reduce((s, j) => s + j.dv * Math.exp(-((t - j.t) ** 2) / (2 * sigma * sigma)) / (sigma * Math.sqrt(2 * Math.PI)), 0) * hr;
+    const { jumps, at: slope } = slopeFn(a), step = 5 * 60e3;
     const pts = [];
     for (let t = day0; t <= now; t += step) pts.push({ t, v: slope(t) });
     pts.push({ t: now, v: slope(now) });
-    const hi = Math.max(1, ...pts.map((p) => p.v)), lo = Math.min(0, ...pts.map((p) => p.v));
-    const top = Math.ceil(hi / 5) * 5, bot = Math.floor(lo / 5) * 5;
+    const hi = Math.max(.5, ...pts.map((p) => p.v)), lo = Math.min(0, ...pts.map((p) => p.v));
+    const top = Math.ceil(hi * 2) / 2, bot = Math.floor(lo * 2) / 2;
     const y = (v) => T + (H - T - B) * (1 - (v - bot) / (top - bot));
     let g = "";
-    for (let i = 0; i <= 4; i++) { const v = bot + (top - bot) * i / 4; g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="hm-label" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 10) / 10}</text>`; }
+    for (let i = 0; i <= 4; i++) { const v = bot + (top - bot) * i / 4; g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="hm-label" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 100) / 100}</text>`; }
+    g += `<text class="hm-label" transform="rotate(-90 18 ${(T + H - B) / 2})" x="18" y="${(T + H - B) / 2}" text-anchor="middle">per 10 min</text>`;
     if (!jumps.length) return `<svg class="weekly" viewBox="0 0 ${W} ${H}">${g}${xl}<text class="hm-label" x="${W / 2}" y="${H / 2}" text-anchor="middle">No score change yet today</text></svg>`;
     let d = "";
     d = curvePath(pts.map((p) => [xs(p.t), y(p.v)]));
     const last = pts[pts.length - 1];
-    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per hour" data-geo="${[L, W - R, T, H - B, bot, top].join()}">${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
+    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per 10 minutes" data-geo="${[L, W - R, T, H - B, bot, top].join()}">${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
   }
 
   function scoreSection(a) {
@@ -438,6 +444,7 @@
           <span class="sub">${fmtStudy(a.study_week)} this week · ${fmtStudy(a.study_total)} in all</span></div>
         <div class="tile"><small>New words</small><div class="big">${(a.words_today || 0).toLocaleString()}<em>today</em></div>
           <span class="sub">${(a.words_week || 0).toLocaleString()} this week · ${(a.words_total || 0).toLocaleString()} in all</span></div>
+        <div class="tile"><small>Current slope</small><div class="big"><span id="act-slope">--.--</span><em>/10 min</em></div></div>
       </div>
       ${scoreSection(a)}
       <div class="act-head"><div class="task-filter act-metric">
@@ -447,6 +454,11 @@
       ${recentSection(a)}`;
     countUp($("#act-total"), a.total_done, !keepScroll);
     note._activity = a;
+    // current slope tile ticks in real time (it decays between score changes)
+    const sl = $("#act-slope"), sf = slopeFn(a).at;
+    let timer;
+    const tick = () => { if (!sl.isConnected) return clearInterval(timer); sl.textContent = sf(Date.now()).toFixed(2); };
+    tick(); timer = setInterval(tick, 1000);
   }
 
   // metric switch, tooltips
