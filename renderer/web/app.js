@@ -367,6 +367,31 @@
     return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Productivity score">${g}${xl}<path class="sc-area" d="${area}"/><path class="sc-path" d="${d}"/>${dots}<circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/></svg>`;
   }
 
+  // slope graph: derivative of today's score (points per hour). The step log is smoothed with a gaussian, so the slope is a curve.
+  function slopeSvg(a) {
+    const W = 1200, H = 250, L = 48, R = 16, B = 34, T = 14;
+    const day0 = dayOf(a.today).getTime(), span = 24 * 3600e3, now = Math.min(Date.now(), day0 + span);
+    const xs = (t) => L + (W - L - R) * Math.min(1, Math.max(0, (t - day0) / span));
+    const labels = [0, 3, 6, 9, 12, 15, 18, 21].map((h) => [xs(day0 + h * 3600e3), hhmm(new Date(day0 + h * 3600e3))]);
+    const xl = labels.map(([x, l]) => `<text class="hm-label" x="${x}" y="${H - 10}" text-anchor="middle">${l}</text>`).join("");
+    const jumps = a.score_line.slice(1).map((p, i) => ({ t: new Date(p.at).getTime(), dv: p.total - a.score_line[i].total })).filter((j) => j.dv);
+    const sigma = 20 * 60e3, step = 5 * 60e3, hr = 3600e3;
+    const slope = (t) => jumps.reduce((s, j) => s + j.dv * Math.exp(-((t - j.t) ** 2) / (2 * sigma * sigma)) / (sigma * Math.sqrt(2 * Math.PI)), 0) * hr;
+    const pts = [];
+    for (let t = day0; t <= now; t += step) pts.push({ t, v: slope(t) });
+    pts.push({ t: now, v: slope(now) });
+    const hi = Math.max(1, ...pts.map((p) => p.v)), lo = Math.min(0, ...pts.map((p) => p.v));
+    const top = Math.ceil(hi / 5) * 5, bot = Math.floor(lo / 5) * 5;
+    const y = (v) => T + (H - T - B) * (1 - (v - bot) / (top - bot));
+    let g = "";
+    for (let i = 0; i <= 4; i++) { const v = bot + (top - bot) * i / 4; g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="hm-label" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 10) / 10}</text>`; }
+    if (!jumps.length) return `<svg class="weekly" viewBox="0 0 ${W} ${H}">${g}${xl}<text class="hm-label" x="${W / 2}" y="${H / 2}" text-anchor="middle">No score change yet today</text></svg>`;
+    let d = "";
+    pts.forEach((p, i) => { d += `${i ? "L" : "M"}${xs(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`; });
+    const last = pts[pts.length - 1];
+    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per hour"><text class="hm-label" x="${L + 4}" y="${T + 10}">points / hour</text>${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/></svg>`;
+  }
+
   function scoreSection(a) {
     const sc = a.scores[a.today];
     return `<div class="score-card">
@@ -374,8 +399,8 @@
         <table class="score-calc"><tbody>${scoreRows(sc, a.score_hints)}</tbody></table>
       </div>
       <div class="act-head"><div class="task-filter score-mode">
-        ${[["today", "Today"], ["daily", "Daily"]].map(([k, l]) => `<button data-mode="${k}" class="${scoreMode === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
-      <div class="wk-wrap">${scoreLineSvg(a, scoreMode)}</div>`;
+        ${[["today", "Today"], ["slope", "Slope"], ["daily", "Daily"]].map(([k, l]) => `<button data-mode="${k}" class="${scoreMode === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="wk-wrap">${scoreMode === "slope" ? slopeSvg(a) : scoreLineSvg(a, scoreMode)}</div>`;
   }
 
   async function renderActivity(keepScroll) {
