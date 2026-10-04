@@ -65,6 +65,9 @@ func TestBuildActivity(t *testing.T) {
 	if a.TotalCreated != 5 || a.Days["2026-10-01"].Created != 3 {
 		t.Errorf("created: %d %+v", a.TotalCreated, a.Days)
 	}
+	if len(a.Recent) != 1 || a.Recent[0].Text != "b" {
+		t.Errorf("recent: %+v", a.Recent)
+	}
 	if a.Streak != 2 || a.BestStreak != 2 {
 		t.Errorf("streak %d best %d", a.Streak, a.BestStreak)
 	}

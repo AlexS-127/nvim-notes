@@ -116,6 +116,12 @@ type Distribution struct {
 	ToSigma  int     `json:"to_sigma"`  // tasks still needed today to reach mean + 1 sigma
 }
 
+// RecentTask is a task completed today, for the Activity view's list.
+type RecentTask struct {
+	Text string `json:"text"`
+	File string `json:"file"`
+}
+
 type Activity struct {
 	Today        string             `json:"today"`
 	Days         map[string]DayStat `json:"days"`
@@ -128,6 +134,7 @@ type Activity struct {
 	Weeks        []WeekStat         `json:"weeks"`
 	Weekdays     []WeekdayStat      `json:"weekdays"`
 	Distribution Distribution       `json:"distribution"`
+	Recent       []RecentTask       `json:"recent"`
 	BestWeekday  int                `json:"best_weekday"` // index into Weekdays, -1 if nothing done yet
 	StudyToday   int                `json:"study_today"`  // seconds of quiz time today
 	StudyWeek    int                `json:"study_week"`   // seconds this week (Monday on)
@@ -211,6 +218,13 @@ func BuildActivity(tasks []Task, now time.Time, nWeeks int) Activity {
 			d.Created++
 			a.Days[c] = d
 			a.TotalCreated++
+		}
+	}
+	for _, t := range tasks {
+		if t.State == StateDone && t.DoneDate == a.Today {
+			_, text := splitDoneStamp(t.Display)
+			text = strings.TrimSpace(createdRe.ReplaceAllString(text, ""))
+			a.Recent = append(a.Recent, RecentTask{Text: text, File: t.File})
 		}
 	}
 	for _, d := range a.Days {

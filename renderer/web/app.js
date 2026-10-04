@@ -271,24 +271,21 @@
     saveHidden();
   });
 
-  // ── activity: calendar heatmap, streaks, milestones and the weekly chart ──
+  // ── activity: calendar heatmap and today's completed tasks ──
   const MILESTONES = [[10, "Getting going"], [25, "On a roll"], [50, "Task slayer"], [100, "Centurion"], [250, "Unstoppable"], [500, "Legend"], [1000, "Mythic"]];
-  const FULLDAY = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  const DOW = ["Mon", "", "Wed", "", "Fri", "", ""];
+  const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const dayOf = (iso) => new Date(iso + "T00:00:00");
   const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const fmtStudy = (sec) => { const m = Math.round(sec / 60); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
-  const fmtAvg = (n) => (Math.round(n * 10) / 10).toString();
   let actMetric = store.get("actMetric", "both");
+  if (actMetric !== "score") actMetric = "both";
   let scoreMode = store.get("scoreMode", "today");
 
   function levelOf(n) { return n <= 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4; }
-  const studyLevel = (sec) => { const m = sec / 60; return sec <= 0 ? 0 : m < 5 ? 1 : m < 15 ? 2 : m < 30 ? 3 : 4; };
   const scoreLevel = (n) => (n <= 0 ? 0 : n < 25 ? 1 : n < 50 ? 2 : n < 75 ? 3 : 4);
-  const metricVal = (d) => !d ? 0 : actMetric === "done" ? d.done : actMetric === "created" ? d.created : d.done + d.created;
-  const wordsLevel = (n) => (n <= 0 ? 0 : n < 100 ? 1 : n < 300 ? 2 : n < 600 ? 3 : 4);
-  const cellLevel = (d) => actMetric === "words" ? wordsLevel(d ? d.words || 0 : 0) : actMetric === "quiz" ? studyLevel(d ? d.study || 0 : 0) : actMetric === "score" ? scoreLevel(d ? d.score || 0 : 0) : levelOf(metricVal(d));
+  const metricVal = (d) => (d ? d.done + d.created : 0);
+  const cellLevel = (d) => actMetric === "score" ? scoreLevel(d ? d.score || 0 : 0) : levelOf(metricVal(d));
 
   function heatmapSvg(a) {
     const today = dayOf(a.today), C = 12, G = 3, left = 28, top = 18;
@@ -311,41 +308,6 @@
     return `<svg class="heatmap" viewBox="0 0 ${W} ${top + 7 * (C + G)}" role="img" aria-label="Calendar of tasks done and created over the last year">${months}${dows}${cells}</svg>`;
   }
 
-  function weeklySvg(a) {
-    const W = 640, H = 220, L = 34, B = 26, T = 14, n = a.weeks.length, slot = (W - L) / n, bw = Math.min(30, slot * .62);
-    const max = Math.max(1, ...a.weeks.map((w) => w.avg_done + w.avg_created));
-    const top = Math.max(1, Math.ceil(max)), y = (v) => T + (H - T - B) * (1 - v / top);
-    let g = "";
-    for (let i = 0; i <= top; i += Math.max(1, Math.ceil(top / 4))) g += `<line class="wk-grid" x1="${L}" x2="${W}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${i}</text>`;
-    const bars = a.weeks.map((w, i) => {
-      const x = L + i * slot + (slot - bw) / 2, last = i === n - 1;
-      const dh = (H - T - B) * w.avg_done / top, ch = (H - T - B) * w.avg_created / top;
-      const base = y(0);
-      const doneRect = dh > 0 ? `<rect class="wk-done${last ? " live" : ""}" x="${x}" y="${base - dh}" width="${bw}" height="${dh}" rx="4"/>` : "";
-      const madeRect = ch > 0 ? `<rect class="wk-made${last ? " live" : ""}" x="${x}" y="${base - dh - ch - (dh > 0 ? 2 : 0)}" width="${bw}" height="${ch}" rx="4"/>` : "";
-      const label = dayOf(w.start).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-      return `<g class="wk" data-i="${i}"><rect class="wk-hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T}"/>${doneRect}${madeRect}` +
-        `<text class="hm-label" x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${i === n - 1 ? "now" : label}</text></g>`;
-    }).join("");
-    return `<svg class="weekly" viewBox="0 0 ${W} ${H}" role="img" aria-label="Average tasks per day, by week">${g}${bars}</svg>`;
-  }
-
-  function weekdaySvg(a) {
-    const W = 640, H = 190, L = 34, B = 26, T = 14, n = 7, slot = (W - L) / n, bw = Math.min(38, slot * .62);
-    const max = Math.max(1, ...a.weekdays.map((w) => w.avg_done + w.avg_created));
-    const top = Math.max(1, Math.ceil(max)), y = (v) => T + (H - T - B) * (1 - v / top), base = y(0);
-    let g = "";
-    for (let i = 0; i <= top; i += Math.max(1, Math.ceil(top / 4))) g += `<line class="wk-grid" x1="${L}" x2="${W}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${i}</text>`;
-    const bars = a.weekdays.map((w, i) => {
-      const x = L + i * slot + (slot - bw) / 2, dh = (H - T - B) * w.avg_done / top, ch = (H - T - B) * w.avg_created / top, best = i === a.best_weekday;
-      return `<g class="wd" data-i="${i}"><rect class="wk-hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T}"/>` +
-        (dh > 0 ? `<rect class="wk-done${best ? " best" : ""}" x="${x}" y="${base - dh}" width="${bw}" height="${dh}" rx="4"/>` : "") +
-        (ch > 0 ? `<rect class="wk-made" x="${x}" y="${base - dh - ch - (dh > 0 ? 2 : 0)}" width="${bw}" height="${ch}" rx="4"/>` : "") +
-        `<text class="hm-label${best ? " best" : ""}" x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${w.name}</text></g>`;
-    }).join("");
-    return `<svg class="weekly" viewBox="0 0 ${W} ${H}" role="img" aria-label="Average tasks done and made per day of the week">${g}${bars}</svg>`;
-  }
-
   function countUp(el, to, animate) {
     if (!animate || matchMedia("(prefers-reduced-motion: reduce)").matches || to < 1) { el.textContent = to; return; }
     const t0 = performance.now(), dur = 900;
@@ -353,29 +315,10 @@
     requestAnimationFrame(step);
   }
 
-  function distSvg(d) {
-    const cap = 12, W = 640, H = 200, L = 34, B = 26, T = 22, n = Math.min(d.counts.length, cap + 1);
-    const counts = d.counts.slice(0, n).map((c, i) => (i === cap ? d.counts.slice(cap).reduce((x, y) => x + y, 0) : c));
-    const slot = (W - L) / Math.max(n, 6), bw = Math.min(34, slot * .7);
-    const top = Math.max(1, ...counts), y = (v) => T + (H - T - B) * (1 - v / top), base = y(0);
-    const cx = (v) => L + slot * (Math.min(v, cap) + .5);
-    let g = "";
-    for (let i = 0; i <= top; i += Math.max(1, Math.ceil(top / 4))) g += `<line class="wk-grid" x1="${L}" x2="${W}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${i}</text>`;
-    const bars = counts.map((c, i) => {
-      const h = base - y(c), x = cx(i) - bw / 2, isToday = Math.min(d.today, cap) === i;
-      return `<g class="ds" data-n="${i}"><rect class="wk-hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T}"/>` +
-        (c > 0 ? `<rect class="wk-done${isToday ? " best" : " dim"}" x="${x}" y="${y(c)}" width="${bw}" height="${h}" rx="4"/>` : "") +
-        `<text class="hm-label${isToday ? " best" : ""}" x="${cx(i)}" y="${H - 8}" text-anchor="middle">${i === cap ? cap + "+" : i}</text></g>`;
-    }).join("");
-    const mark = (v, label, cls, dy) => `<line class="ds-mark ${cls}" x1="${cx(v)}" x2="${cx(v)}" y1="${T - 4}" y2="${base}"/><text class="hm-label ds-lbl" x="${cx(v) + 4}" y="${T + dy}">${label}</text>`;
-    return `<svg class="weekly" viewBox="0 0 ${W} ${H}" role="img" aria-label="Histogram of tasks done per day">${g}${bars}${mark(d.median, "median", "med", 6)}${d.sigma > 0 ? mark(d.mean + d.sigma, "1 sigma", "sig", 6) : ""}</svg>`;
-  }
-
-  function distText(d) {
-    if (d.days < 2) return "Needs a couple of finished days to compare against.";
-    const med = d.to_median > 0 ? `${plural(d.to_median, "task")} away from being better than the median` : "already better than the median";
-    const sig = d.to_sigma > 0 ? `${plural(d.to_sigma, "task")} away from 1 sigma` : "already past 1 sigma";
-    return `${med}, ${sig}`.replace(/^./, (c) => c.toUpperCase());
+  function recentSection(a) {
+    return `<h2>Completed today</h2>${a.recent && a.recent.length
+      ? `<ul class="recent">${a.recent.map((t) => `<li><span class="rt-text">${esc(t.text)}</span></li>`).join("")}</ul>`
+      : `<p class="act-note">Nothing completed yet today.</p>`}`;
   }
 
   // today's breakdown: element, quantity, points; hovering an element shows its rule
@@ -394,27 +337,27 @@
 
   // score line graph. "today": a step line through the day; "daily": one point per day.
   function scoreLineSvg(a, mode) {
-    const W = 640, H = 200, L = 34, R = 10, B = 26, T = 14;
+    const W = 1200, H = 250, L = 48, R = 16, B = 34, T = 14;
     let pts, xs, labels;
     if (mode === "today") {
       const day0 = dayOf(a.today).getTime(), span = 24 * 3600e3, now = Date.now();
       pts = a.score_line.map((p) => ({ t: new Date(p.at).getTime(), v: p.total, tip: `${hhmm(new Date(p.at))}` }));
       if (pts.length) pts.push({ t: Math.max(now, pts[pts.length - 1].t), v: pts[pts.length - 1].v, end: true });
       xs = (t) => L + (W - L - R) * Math.min(1, Math.max(0, (t - day0) / span));
-      labels = [0, 6, 12, 18, 24].map((h) => [xs(day0 + h * 3600e3), h === 24 ? "" : hhmm(new Date(day0 + h * 3600e3))]);
+      labels = [0, 3, 6, 9, 12, 15, 18, 21, 24].map((h) => [xs(day0 + h * 3600e3), h === 24 ? "" : hhmm(new Date(day0 + h * 3600e3))]);
     } else {
       const keys = Object.keys(a.scores).sort(), start = dayOf(keys[0]), today = dayOf(a.today), days = [];
       for (let d = new Date(Math.max(start, new Date(today.getFullYear(), today.getMonth(), today.getDate() - 59))); d <= today; d.setDate(d.getDate() + 1)) days.push(isoOf(d));
       pts = days.map((k, i) => ({ t: i, v: (a.scores[k] || {}).total || 0, tip: dayOf(k).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }), k }));
       const n = Math.max(1, days.length - 1);
       xs = (i) => L + (W - L - R) * (days.length > 1 ? i / n : .5);
-      const every = Math.max(1, Math.ceil(days.length / 7));
+      const every = Math.max(1, Math.ceil(days.length / 14));
       labels = days.map((k, i) => (i % every === 0 || i === days.length - 1) && (days.length - 1 - i >= every / 2 || i === days.length - 1) ? [xs(i), dayOf(k).toLocaleDateString(undefined, { month: "short", day: "numeric" })] : null).filter(Boolean);
     }
     const top = Math.max(10, Math.ceil(Math.max(0, ...pts.map((p) => p.v)) / 10) * 10), y = (v) => T + (H - T - B) * (1 - v / top), base = y(0);
     let g = "";
     for (let i = 0; i <= top; i += top / 4) g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${Math.round(i)}</text>`;
-    const xl = labels.map(([x, l]) => `<text class="hm-label" x="${x}" y="${H - 8}" text-anchor="middle">${l}</text>`).join("");
+    const xl = labels.map(([x, l]) => `<text class="hm-label" x="${x}" y="${H - 10}" text-anchor="middle">${l}</text>`).join("");
     if (!pts.length) return `<svg class="weekly" viewBox="0 0 ${W} ${H}">${g}${xl}<text class="hm-label" x="${W / 2}" y="${H / 2}" text-anchor="middle">No score recorded yet today</text></svg>`;
     let d = "";
     pts.forEach((p, i) => { d += i === 0 ? `M${xs(p.t)} ${y(p.v)}` : mode === "today" ? `H${xs(p.t)}V${y(p.v)}` : `L${xs(p.t)} ${y(p.v)}`; });
@@ -440,19 +383,11 @@
     note.className = "note activity";
     backlinks.hidden = true;
     document.title = "Activity — notesview";
-    const wk = a.weeks[a.weeks.length - 1];
     const today = a.days[a.today] || { done: 0, created: 0 };
-    const next = MILESTONES.find(([m]) => m > a.total_done), prior = [...MILESTONES].reverse().find(([m]) => m <= a.total_done);
-    const rank = prior ? prior[1] : "Fresh start";
-    const pct = next ? Math.round(100 * (a.total_done - (prior ? prior[0] : 0)) / (next[0] - (prior ? prior[0] : 0))) : 100;
-    const streakMsg = a.streak > 0 ? (today.done > 0 ? "Keep it going tomorrow" : "Finish one today to keep it") : "Finish a task to start one";
 
     note.innerHTML = `<h1>Activity</h1>
       <div class="act-tiles">
-        <div class="tile hero"><small>Tasks completed</small><div class="big" id="act-total">${a.total_done}</div>
-          <span class="sub">+${wk.done} this week${a.total_created ? ` · ${a.total_created} created in all` : ""}</span></div>
-        <div class="tile"><small>Streak</small><div class="big">🔥 ${a.streak}<em>${a.streak === 1 ? "day" : "days"}</em></div>
-          <span class="sub">${streakMsg} · best ${a.best_streak}</span></div>
+        <div class="tile hero"><small>Tasks completed</small><div class="big" id="act-total">${a.total_done}</div></div>
         <div class="tile"><small>Today</small><div class="big">${today.done}<em>done</em></div>
           <span class="sub">${today.created} made</span></div>
         <div class="tile"><small>Quiz time</small><div class="big">${fmtStudy(a.study_today)}<em>today</em></div>
@@ -460,23 +395,12 @@
         <div class="tile"><small>New words</small><div class="big">${(a.words_today || 0).toLocaleString()}<em>today</em></div>
           <span class="sub">${(a.words_week || 0).toLocaleString()} this week · ${(a.words_total || 0).toLocaleString()} in all</span></div>
       </div>
-      <div class="level"><span class="rank">${esc(rank)}</span>
-        <div class="bar${next ? "" : " full"}"><i style="width:${pct}%"></i></div>
-        <span class="sub">${next ? `${next[0] - a.total_done} more to <b>${esc(next[1])}</b> (${next[0]})` : "Top rank reached"}</span></div>
       ${scoreSection(a)}
       <div class="act-head"><div class="task-filter act-metric">
-        ${[["both", "Done + made"], ["done", "Done"], ["created", "Made"], ["quiz", "Quiz time"], ["words", "New words"], ["score", "Score"]].map(([k, l]) => `<button data-metric="${k}" class="${actMetric === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+        ${[["both", "Done + made"], ["score", "Score"]].map(([k, l]) => `<button data-metric="${k}" class="${actMetric === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
       <div class="hm-wrap">${heatmapSvg(a)}</div>
       <div class="hm-legend">Less ${[0, 1, 2, 3, 4].map((l) => `<i class="hm-cell l${l}"></i>`).join("")} More</div>
-      <h2>Weekly</h2>
-      <div class="wk-legend"><span><i class="sw done"></i>Done</span><span><i class="sw made"></i>Made</span></div>
-      <div class="wk-wrap">${weeklySvg(a)}</div>
-      <h2>Daily</h2>
-      <div class="wk-wrap">${weekdaySvg(a)}</div>
-      <h2>Distribution</h2>
-      <p class="act-note" style="margin:-2px 0 4px">${esc(distText(a.distribution))}</p>
-      ${a.distribution.days ? `<div class="wk-wrap">${distSvg(a.distribution)}</div>` : ""}
-      ${a.earlier ? `<p class="act-note">${plural(a.earlier, "task")} completed before tracking began count toward your total but not the calendar.</p>` : ""}`;
+      ${recentSection(a)}`;
     countUp($("#act-total"), a.total_done, !keepScroll);
     note._activity = a;
   }
@@ -486,22 +410,12 @@
   tip.className = "act-tip"; tip.hidden = true; document.body.appendChild(tip);
   const showTip = (e, html) => { tip.innerHTML = html; tip.hidden = false; const w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX - w / 2)) + "px"; tip.style.top = e.clientY - tip.offsetHeight - 14 + "px"; };
   note.addEventListener("mousemove", (e) => {
-    const c = e.target.closest && e.target.closest(".hm-cell[data-d]"), w = e.target.closest && e.target.closest("g.wk"), wd = e.target.closest && e.target.closest("g.wd"), ds = e.target.closest && e.target.closest("g.ds"), sd = e.target.closest && e.target.closest(".sc-dot");
+    const c = e.target.closest && e.target.closest(".hm-cell[data-d]"), sd = e.target.closest && e.target.closest(".sc-dot");
     if (sd) {
       showTip(e, `<b>${sd.dataset.tip}</b><br>Score ${sd.dataset.v}`);
     } else if (c) {
       const d = Number(c.dataset.done), m = Number(c.dataset.created);
-      showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}${Number(c.dataset.study) ? `<br>${fmtStudy(Number(c.dataset.study))} of quiz` : ""}${Number(c.dataset.words) ? `<br>${Number(c.dataset.words).toLocaleString()} new words` : ""}${Number(c.dataset.score) ? `<br>Score ${c.dataset.score}/100` : ""}`);
-    } else if (w && note._activity) {
-      const k = note._activity.weeks[Number(w.dataset.i)];
-      showTip(e, `<b>Week of ${dayOf(k.start).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</b><br>${fmtAvg(k.avg_done)} done / day (${k.done} in ${plural(k.days, "day")})<br>${fmtAvg(k.avg_created)} made / day (${k.created})<br>Running total ${k.total}`);
-    } else if (wd && note._activity) {
-      const k = note._activity.weekdays[Number(wd.dataset.i)];
-      showTip(e, `<b>${FULLDAY[Number(wd.dataset.i)]}s</b><br>${fmtAvg(k.avg_done)} done on average (${k.done} over ${plural(k.count, "day")})<br>${fmtAvg(k.avg_created)} made on average (${k.created})`);
-    } else if (ds && note._activity) {
-      const d = note._activity.distribution, n = Number(ds.dataset.n), cap = 12;
-      const days = n === cap ? d.counts.slice(cap).reduce((x, y) => x + y, 0) : d.counts[n] || 0;
-      showTip(e, `<b>${n === cap ? cap + "+" : n} ${n === 1 ? "task" : "tasks"} a day</b><br>${plural(days, "day")} of ${d.days}`);
+      showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}${Number(c.dataset.study) ? `<br>${fmtStudy(Number(c.dataset.study))} of quiz` : ""}${Number(c.dataset.words) ? `<br>${Number(c.dataset.words).toLocaleString()} new words` : ""}${Number(c.dataset.score) ? `<br>Score ${c.dataset.score}` : ""}`);
     } else tip.hidden = true;
   });
   note.addEventListener("mouseleave", () => { tip.hidden = true; });
