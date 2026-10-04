@@ -640,17 +640,37 @@ local function set_task_difficulty(line, diff)
 end
 
 -- Runs fn(buf, line) on a task's line if it is still where the picker saw it.
+-- A note that is open in this instance is edited in its buffer. Otherwise the file is edited in a
+-- scratch buffer and written straight to disk: loading it as a real buffer hits E325 whenever another
+-- nvim instance has the note open, which aborts the load and leaves an empty buffer behind.
 local function with_task_line(t, fn)
-  local buf = vim.fn.bufadd(NOTES .. "/" .. t.file)
-  vim.fn.bufload(buf)
+  local path = NOTES .. "/" .. t.file
+  local buf = vim.fn.bufnr(path)
+  local open = buf > 0 and vim.api.nvim_buf_is_loaded(buf)
+  if not open then
+    if vim.fn.filereadable(path) == 0 then return vim.notify("Could not read " .. t.file, vim.log.levels.ERROR) end
+    buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(path))
+  end
+  local function finish(write)
+    if write then write() end
+    if not open then vim.api.nvim_buf_delete(buf, { force = true }) end
+  end
   local line = vim.api.nvim_buf_get_lines(buf, t.line - 1, t.line, false)[1]
   if not (line and line:match("^%s*[-*+] %[ %]") and line:find(t.text, 1, true)) then
+    finish()
     return vim.notify("That task has moved: reopen the task list", vim.log.levels.WARN)
   end
-  local dirty = vim.bo[buf].modified
+  local dirty = open and vim.bo[buf].modified
   fn(buf, line)
   if dirty then return vim.notify("Changed in the open buffer (it has unsaved edits, so not written)", vim.log.levels.WARN) end
-  vim.api.nvim_buf_call(buf, function() vim.cmd("silent write") end)
+  finish(function()
+    if open then
+      vim.api.nvim_buf_call(buf, function() vim.cmd("silent write") end)
+    elseif vim.fn.writefile(vim.api.nvim_buf_get_lines(buf, 0, -1, false), path) ~= 0 then
+      vim.notify("Could not write " .. t.file, vim.log.levels.ERROR)
+    end
+  end)
 end
 
 local function edit_task_line(t, change, msg)
@@ -725,6 +745,17 @@ local function open_claude(prompt)
   vim.cmd("startinsert")
 end
 
+-- Shift+Enter on a task: run claude from ~ with the task as its first message.
+local function claude_it(item)
+  local t = item.task
+  open_claude(table.concat({
+    "Task from my notes (" .. t.file .. ":" .. t.line .. "): " .. task_plain_text(t),
+    "",
+    "Do this task now, from this directory (~). When you are done, if the work changed files in any git repo,",
+    "commit them in that repo and push to main. Don't commit or push repos you didn't change.",
+  }, "\n"))
+end
+
 local function open_tasks_picker()
   local tasks = nv_json({ "tasks", "--json", "--dir", NOTES })
   if type(tasks) ~= "table" then   -- no (or an older) notesview: plain grep
@@ -745,17 +776,6 @@ local function open_tasks_picker()
   Snacks.picker.pick({
     title = "Open tasks (by due date)",
     items = items,
--- Shift+Enter on a task: run claude from ~ with the task as its first message.
-local function claude_it(item)
-  local t = item.task
-  open_claude(table.concat({
-    "Task from my notes (" .. t.file .. ":" .. t.line .. "): " .. task_plain_text(t),
-    "",
-    "Do this task now, from this directory (~). When you are done, if the work changed files in any git repo,",
-    "commit them in that repo and push to main. Don't commit or push repos you didn't change.",
-  }, "\n"))
-end
-
     sort = { fields = { "idx" } },   -- keep notesview's order (due date, newest first) while filtering
     format = function(item)
       local t = item.task
@@ -860,6 +880,7 @@ map("n", "<leader>o", function()
   if NV.follow then NV.shown = nil end
 end, { desc = "Toggle viewer follow mode" })
 map("n", "<leader>nt", function() notesview({ "open", "--tasks" }) end, { desc = "Open Tasks view" })
+map("n", "<leader>nC", function() open_claude() end, { desc = "Claude (in ~, new tab)" })
 map("n", "<leader>?", function() Snacks.picker.keymaps() end, { desc = "Search all shortcuts" })
 map("n", "<leader>w", "<cmd>write<cr>", { desc = "Save" })
 map("n", "<leader>q", "<cmd>quit<cr>", { desc = "Quit window" })
@@ -880,7 +901,6 @@ vim.api.nvim_create_autocmd("FileType", {
 
     -- Navigation
     bmap({ "n", "x" }, "j", "v:count == 0 ? 'gj' : 'j'", "Down (visual line)", { expr = true })
-map("n", "<leader>nC", function() open_claude() end, { desc = "Claude (in ~, new tab)" })
     bmap({ "n", "x" }, "k", "v:count == 0 ? 'gk' : 'k'", "Up (visual line)", { expr = true })
     bmap("n", "<CR>", follow_link, "Follow link under cursor")
     bmap("n", "<BS>", "<C-o>", "Go back")

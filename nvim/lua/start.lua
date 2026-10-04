@@ -102,12 +102,13 @@ local function run_quiz()
   -- at once. Find nvim's own tty device, point the quiz at it, leave the alternate screen, switch to
   -- cooked mode, turn focus/mouse reporting off (else cmd-tab types ^[[I / ^[[O), then restart nvim.
   -- (The server process has no tty; its parent, the TUI, does.)
-  local tty = vim.trim(vim.fn.system({ "ps", "-o", "tty=", "-p", tostring(uv.os_getppid()) }))
+  -- After `:restart` the new server is orphaned (parent 1), so the TUI pid is handed over via vim.g.
+  local tui = vim.g.notes_tui or uv.os_getppid()
+  local tty = vim.trim(vim.fn.system({ "ps", "-o", "tty=", "-p", tostring(tui) }))
   if tty == "" or tty:find("?", 1, true) then return vim.notify("quiz: can't find the terminal", vim.log.levels.ERROR) end
   tty = "/dev/" .. (tty:match("^tty") and tty or "tty" .. tty)
   -- The TUI also reads this tty and would steal keystrokes (an eaten answer + Enter), so freeze it
   -- (SIGSTOP) while the quiz runs; the trap resumes it however the command ends.
-  local tui = uv.os_getppid()
   local cmd = table.concat({
     "T=" .. vim.fn.shellescape(tty),
     "trap 'kill -CONT " .. tui .. "' EXIT",
@@ -121,7 +122,7 @@ local function run_quiz()
   }, "; ")
   vim.cmd("silent !" .. vim.fn.escape(cmd, "%#!"))
   -- Restart nvim so the normal start page comes up clean (redrawing in place after the quiz looks off).
-  if not pcall(vim.cmd, 'restart lua require("mini.starter").open()') then
+  if not pcall(vim.cmd, ("restart lua vim.g.notes_tui = %d; require('mini.starter').open()"):format(tui)) then
     vim.cmd("redraw!")
     load_tasks()
     pcall(require("mini.starter").open)
