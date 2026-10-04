@@ -287,3 +287,4 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 
 #act-slope[data-sign="up"], .sc-read[data-sign="up"] { color: var(--c-tip); }
 #act-slope[data-sign="down"], .sc-read[data-sign="down"] { color: var(--c-danger); }
+.sc-hover[hidden] { display: none; }
