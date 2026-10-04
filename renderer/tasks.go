@@ -269,7 +269,7 @@ type TaskQuery struct {
 
 // CollectTasks gathers tasks from every note, assigns date groups and sorts
 // them by group (undated tasks form the last group), due date soonest first,
-// folder, file and line.
+// creation time newest first, folder, file and line.
 func (s *Store) CollectTasks(q TaskQuery) []Task {
 	if q.Now.IsZero() {
 		q.Now = time.Now()
@@ -301,6 +301,9 @@ func (s *Store) CollectTasks(q TaskQuery) []Task {
 		if a.Due != b.Due {
 			return a.Due < b.Due
 		}
+		if ca, cb := createdKey(a, q.Now), createdKey(b, q.Now); !ca.Equal(cb) {
+			return ca.After(cb) // most recently created first
+		}
 		if a.Tag != b.Tag {
 			// tasks outside any folder (empty tag) come after the foldered ones
 			if a.Tag == "" || b.Tag == "" {
@@ -314,4 +317,27 @@ func (s *Store) CollectTasks(q TaskQuery) []Task {
 		return a.Line < b.Line
 	})
 	return out
+}
+
+var createdTimeRe = regexp.MustCompile(`_\(([A-Z][a-z]{2} \d{2} \d{2}:\d{2})\)_`)
+
+// createdKey is a task's creation time for sorting: its capture stamp, else the
+// date of the daily note it sits in. Tasks with neither get the zero time and
+// sort last among equals.
+func createdKey(t Task, now time.Time) time.Time {
+	if m := createdTimeRe.FindStringSubmatch(t.Text); m != nil {
+		d, err := time.ParseInLocation("Jan 02 15:04 2006", m[1]+" "+now.Format("2006"), now.Location())
+		if err == nil {
+			if d.After(now) {
+				d = d.AddDate(-1, 0, 0)
+			}
+			return d
+		}
+	}
+	if m := dailyRelRe.FindStringSubmatch(t.File); m != nil {
+		if d, err := time.ParseInLocation(isoDate, m[1], now.Location()); err == nil {
+			return d
+		}
+	}
+	return time.Time{}
 }
