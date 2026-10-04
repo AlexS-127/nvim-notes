@@ -335,9 +335,27 @@
 
   const hhmm = (d) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
-  // score line graph. "today": a step line through the day; "daily": one point per day.
+  // smooth curve through [x, y] points: monotone cubic (Fritsch-Carlson), so it never overshoots the data
+  function curvePath(P) {
+    const n = P.length, f = (v) => v.toFixed(1);
+    if (n < 2) return n ? `M${f(P[0][0])} ${f(P[0][1])}` : "";
+    const dx = [], m = [], t = [];
+    for (let i = 0; i < n - 1; i++) { dx[i] = P[i + 1][0] - P[i][0]; m[i] = dx[i] ? (P[i + 1][1] - P[i][1]) / dx[i] : 0; }
+    t[0] = m[0]; t[n - 1] = m[n - 2];
+    for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {
+      if (m[i] === 0) { t[i] = t[i + 1] = 0; continue; }
+      const a = t[i] / m[i], b = t[i + 1] / m[i], h = Math.hypot(a, b);
+      if (h > 3) { t[i] = 3 * a / h * m[i]; t[i + 1] = 3 * b / h * m[i]; }
+    }
+    let d = `M${f(P[0][0])} ${f(P[0][1])}`;
+    for (let i = 0; i < n - 1; i++) d += `C${f(P[i][0] + dx[i] / 3)} ${f(P[i][1] + t[i] * dx[i] / 3)} ${f(P[i + 1][0] - dx[i] / 3)} ${f(P[i + 1][1] - t[i + 1] * dx[i] / 3)} ${f(P[i + 1][0])} ${f(P[i + 1][1])}`;
+    return d;
+  }
+
+  // score line graph. "today": a curved line through the day; "daily": one point per day.
   function scoreLineSvg(a, mode) {
-    const W = 1200, H = 250, L = 48, R = 16, B = 34, T = 14;
+    const W = 1200, H = 266, L = 48, R = 16, B = 34, T = 30;
     let pts, xs, labels;
     if (mode === "today") {
       const day0 = dayOf(a.today).getTime(), span = 24 * 3600e3, now = Date.now();
@@ -360,16 +378,17 @@
     const xl = labels.map(([x, l]) => `<text class="hm-label" x="${x}" y="${H - 10}" text-anchor="middle">${l}</text>`).join("");
     if (!pts.length) return `<svg class="weekly" viewBox="0 0 ${W} ${H}">${g}${xl}<text class="hm-label" x="${W / 2}" y="${H / 2}" text-anchor="middle">No score recorded yet today</text></svg>`;
     let d = "";
-    pts.forEach((p, i) => { d += i === 0 ? `M${xs(p.t)} ${y(p.v)}` : mode === "today" ? `H${xs(p.t)}V${y(p.v)}` : `L${xs(p.t)} ${y(p.v)}`; });
+    if (mode === "today") d = curvePath(pts.map((p) => [xs(p.t), y(p.v)]));
+    else pts.forEach((p, i) => { d += `${i ? "L" : "M"}${xs(p.t)} ${y(p.v)}`; });
     const last = pts[pts.length - 1];
     const area = `${d}V${base}H${xs(pts[0].t)}Z`;
     const dots = pts.filter((p) => !p.end).map((p) => `<circle class="sc-dot" cx="${xs(p.t)}" cy="${y(p.v)}" r="${mode === "today" ? 3 : 3.5}" data-tip="${esc(p.tip)}" data-v="${p.v}"/>`).join("");
-    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Productivity score">${g}${xl}<path class="sc-area" d="${area}"/><path class="sc-path" d="${d}"/>${dots}<circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/></svg>`;
+    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Productivity score" data-geo="${[L, W - R, T, H - B, 0, top].join()}"><text class="hm-label sc-read" x="${L}" y="${T - 12}"></text>${g}${xl}<path class="sc-area" d="${area}"/><path class="sc-path" d="${d}"/>${dots}<circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
   }
 
   // slope graph: derivative of today's score (points per hour). The step log is smoothed with a gaussian, so the slope is a curve.
   function slopeSvg(a) {
-    const W = 1200, H = 250, L = 48, R = 16, B = 34, T = 14;
+    const W = 1200, H = 266, L = 48, R = 16, B = 34, T = 30;
     const day0 = dayOf(a.today).getTime(), span = 24 * 3600e3, now = Math.min(Date.now(), day0 + span);
     const xs = (t) => L + (W - L - R) * Math.min(1, Math.max(0, (t - day0) / span));
     const labels = [0, 3, 6, 9, 12, 15, 18, 21].map((h) => [xs(day0 + h * 3600e3), hhmm(new Date(day0 + h * 3600e3))]);
@@ -387,9 +406,9 @@
     for (let i = 0; i <= 4; i++) { const v = bot + (top - bot) * i / 4; g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="hm-label" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 10) / 10}</text>`; }
     if (!jumps.length) return `<svg class="weekly" viewBox="0 0 ${W} ${H}">${g}${xl}<text class="hm-label" x="${W / 2}" y="${H / 2}" text-anchor="middle">No score change yet today</text></svg>`;
     let d = "";
-    pts.forEach((p, i) => { d += `${i ? "L" : "M"}${xs(p.t).toFixed(1)} ${y(p.v).toFixed(1)}`; });
+    d = curvePath(pts.map((p) => [xs(p.t), y(p.v)]));
     const last = pts[pts.length - 1];
-    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per hour"><text class="hm-label" x="${L + 4}" y="${T + 10}">points / hour</text>${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/></svg>`;
+    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per hour" data-geo="${[L, W - R, T, H - B, bot, top].join()}"><text class="hm-label sc-read" x="${L}" y="${T - 12}"></text>${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
   }
 
   function scoreSection(a) {
@@ -434,16 +453,30 @@
   const tip = document.createElement("div");
   tip.className = "act-tip"; tip.hidden = true; document.body.appendChild(tip);
   const showTip = (e, html) => { tip.innerHTML = html; tip.hidden = false; const w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX - w / 2)) + "px"; tip.style.top = e.clientY - tip.offsetHeight - 14 + "px"; };
+  // hovering a score/slope graph: read the value of the drawn curve at the cursor into the label above its top-left corner
+  function scoreHover(e) {
+    note.querySelectorAll("svg.score-line").forEach((svg) => {
+      const read = svg.querySelector(".sc-read"), dot = svg.querySelector(".sc-hover"), path = svg.querySelector(".sc-path");
+      if (!read || !dot || !path || !svg.dataset.geo) return;
+      const [L, Rr, T, Bt, bot, top] = svg.dataset.geo.split(",").map(Number), r = svg.getBoundingClientRect();
+      const px = (e.clientX - r.left) * svg.viewBox.baseVal.width / r.width, py = (e.clientY - r.top) * svg.viewBox.baseVal.height / r.height;
+      if (px < L || px > Rr || py < 0 || py > Bt + 34 || !(e.target.closest && e.target.closest("svg") === svg)) { read.textContent = ""; dot.setAttribute("hidden", ""); return; }
+      let lo = 0, hi = path.getTotalLength();
+      for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (path.getPointAtLength(mid).x < px) lo = mid; else hi = mid; }
+      const p = path.getPointAtLength(hi), v = bot + (top - bot) * (1 - (p.y - T) / (Bt - T));
+      read.textContent = (Math.abs(v) < 0.005 ? 0 : v).toFixed(2) + (svg.getAttribute("aria-label").includes("slope") ? " points / hour" : " score");
+      dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.removeAttribute("hidden");
+    });
+  }
   note.addEventListener("mousemove", (e) => {
-    const c = e.target.closest && e.target.closest(".hm-cell[data-d]"), sd = e.target.closest && e.target.closest(".sc-dot");
-    if (sd) {
-      showTip(e, `<b>${sd.dataset.tip}</b><br>Score ${sd.dataset.v}`);
-    } else if (c) {
+    const c = e.target.closest && e.target.closest(".hm-cell[data-d]");
+    scoreHover(e);
+    if (c) {
       const d = Number(c.dataset.done), m = Number(c.dataset.created);
       showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}${Number(c.dataset.study) ? `<br>${fmtStudy(Number(c.dataset.study))} of quiz` : ""}${Number(c.dataset.words) ? `<br>${Number(c.dataset.words).toLocaleString()} new words` : ""}${Number(c.dataset.score) ? `<br>Score ${c.dataset.score}` : ""}`);
     } else tip.hidden = true;
   });
-  note.addEventListener("mouseleave", () => { tip.hidden = true; });
+  note.addEventListener("mouseleave", () => { tip.hidden = true; note.querySelectorAll(".sc-read").forEach((t) => { t.textContent = ""; }); note.querySelectorAll(".sc-hover").forEach((c) => c.setAttribute("hidden", "")); });
   note.addEventListener("click", (e) => {
     const b = e.target.closest && e.target.closest(".act-metric button");
     if (b) { actMetric = b.dataset.metric; store.set("actMetric", actMetric); show(current, true); }
