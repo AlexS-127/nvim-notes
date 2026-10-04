@@ -390,7 +390,7 @@
   // slope in points per 10 minutes at time t (ms)
   function slopeFn(a) {
     const jumps = a.score_line.slice(1).map((p, i) => ({ t: new Date(p.at).getTime(), dv: p.total - a.score_line[i].total })).filter((j) => j.dv);
-    const sigma = 20 * 60e3, unit = 10 * 60e3;
+    const sigma = 8 * 60e3, unit = 10 * 60e3;
     return { jumps, at: (t) => jumps.reduce((s, j) => s + j.dv * Math.exp(-((t - j.t) ** 2) / (2 * sigma * sigma)) / (sigma * Math.sqrt(2 * Math.PI)), 0) * unit };
   }
 
