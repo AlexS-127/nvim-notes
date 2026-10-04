@@ -229,7 +229,8 @@ a.tag-folder.colored:hover { border-color: var(--tc); }
 .bar { height: 8px; border-radius: 99px; background: color-mix(in srgb, var(--fg) 9%, transparent); overflow: hidden; }
 .bar i { display: block; height: 100%; border-radius: 99px; background: var(--accent); transition: width .8s cubic-bezier(.2,.8,.2,1); }
 .bar.full i { background: linear-gradient(90deg, var(--accent), var(--c-tip)); }
-.act-head { display: flex; justify-content: flex-end; }
+.act-head { display: flex; justify-content: space-between; align-items: center; }
+.act-head:not(:has(.sc-read)) { justify-content: flex-end; }
 .act-head .task-filter { margin: 1.2em 0 .4em; }
 .hm-wrap, .wk-wrap { overflow-x: auto; }
 svg.heatmap { width: 100%; min-width: 640px; height: auto; display: block; }
@@ -268,7 +269,7 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 .sc-dot { fill: var(--bg); stroke: var(--accent); stroke-width: 2; }
 .sc-now { fill: var(--accent); }
 .sc-hover { fill: var(--bg); stroke: var(--accent); stroke-width: 2; pointer-events: none; }
-svg.weekly.score-line text.sc-read { font-size: 56px; fill: var(--accent); font-weight: 600; }
+.sc-read { font-size: 56px; line-height: 1; margin-top: .4em; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
 .act-note { color: var(--muted); font: 12.5px var(--font-ui); margin-top: 14px; }
 .act-tip { position: fixed; z-index: 30; pointer-events: none; background: var(--fg); color: var(--bg); padding: 6px 9px; border-radius: 7px; font: 12px/1.45 var(--font-ui); box-shadow: 0 4px 14px rgba(0,0,0,.25); }
 .confetti { position: fixed; z-index: 40; width: 7px; height: 7px; border-radius: 2px; pointer-events: none; }
