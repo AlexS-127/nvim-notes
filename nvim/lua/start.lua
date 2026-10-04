@@ -48,7 +48,14 @@ local function task_label(t)
   local text = t.display:gsub("%s*_%(.-%)_%s*$", "")
   local when = t.due and (t.group == "overdue" and "overdue" or t.due:sub(6)) or "anytime"
   local cat = t.category_name and ("  · " .. t.category_name) or ""
-  return ("%s  (%s)%s"):format(text, when, cat)
+  -- A line wider than the window makes mini.starter's centering give up (everything hugs the left
+  -- edge), so shorten the task text to keep the whole block narrower than the window.
+  local tail = ("  (%s)%s"):format(when, cat)
+  local room = math.max(20, math.min(70, vim.o.columns - 16) - 3 - vim.fn.strdisplaywidth(tail))
+  if vim.fn.strdisplaywidth(text) > room then
+    text = vim.fn.strcharpart(text, 0, room - 1) .. "…"
+  end
+  return text .. tail
 end
 
 local function task_items()
