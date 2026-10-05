@@ -230,6 +230,15 @@ func (m *Markdown) Transform(doc *ast.Document, reader text.Reader, _ parser.Con
 					}
 				}
 				n.SetAttributeString("data-line", []byte(strconv.Itoa(lineOf(off))))
+				// a list on the line right after a paragraph: drop the gap between them
+				if _, isList := n.(*ast.List); isList {
+					if p, ok := n.PreviousSibling().(*ast.Paragraph); ok && p.Lines().Len() > 0 {
+						if last := p.Lines().At(p.Lines().Len() - 1); lineOf(off) == lineOf(last.Stop-1)+1 {
+							p.SetAttributeString("class", []byte("before-list"))
+							n.SetAttributeString("class", []byte("after-text"))
+						}
+					}
+				}
 			}
 		case *ast.Image:
 			if rel, ok := m.relTarget(string(v.Destination)); ok {

@@ -131,6 +131,8 @@ body.sidebar-collapsed .note, body.sidebar-collapsed .backlinks { padding-left: 
 .note th { background: var(--bg2); text-align: left; }
 .note tr:nth-child(even) td { background: color-mix(in srgb, var(--bg2) 55%, transparent); }
 .note img { max-width: 100%; border-radius: 6px; }
+.note p.before-list { margin-bottom: 0; }
+.note .after-text { margin-top: 0; }
 .note hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
 .note ul:has(> li > input[type=checkbox]), .note ul:has(> li.task-moved) { list-style: none; padding-left: 1.2em; }
 .note li > input[type=checkbox] { margin-right: .5em; cursor: pointer; accent-color: var(--accent); }
