@@ -15,7 +15,7 @@ local function greeting()
   return ("good %s, alex\n%s"):format(part, os.date("%A, %B %d"))
 end
 
--- ── Today: score, its graph, tasks made/done/left, quiz time ──────
+-- ── Today: score, its graph, tasks made/done/left, quiz time, words ──────
 -- Read from the running notesview server (/api/activity, the same numbers as the viewer's Activity
 -- view). The local.notesview-serve launch agent keeps it up; if it is down, the page says so.
 local stats = nil   -- nil: still loading, false: server not reachable
@@ -73,7 +73,7 @@ local function score_graph(line, width, rows)
     local label = r == rows and ("%3d"):format(top) or r == 1 and "  0" or "   "
     out[#out + 1] = label .. " ┤" .. table.concat(cells)
   end
-  out[#out + 1] = "     " .. clock(0) .. (" "):rep(math.max(1, width - 10)) .. clock(now)
+  out[#out + 1] = "     " .. (" "):rep(math.max(1, width - 5)) .. clock(now)
   return out
 end
 
@@ -85,8 +85,8 @@ local function stats_lines()
   local day = (stats.days or {})[today] or {}
   local lines = { ("score %d"):format(score) }
   vim.list_extend(lines, score_graph(stats.score_line, math.max(16, math.min(48, vim.o.columns - 30)), 3))
-  lines[#lines + 1] = ("tasks  %d made · %d done · %d left    quiz %s"):format(
-    day.created or 0, day.done or 0, stats.open or 0, duration(stats.study_today or 0))
+  lines[#lines + 1] = ("tasks  %d made · %d done · %d left    quiz %s    words %d"):format(
+    day.created or 0, day.done or 0, stats.open or 0, duration(stats.study_today or 0), stats.words_today or 0)
   return lines
 end
 
