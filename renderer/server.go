@@ -280,7 +280,7 @@ func (s *Server) handleShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rel := req.Path
-	if rel != tasksPath {
+	if rel != tasksPath && rel != activityPath {
 		var err error
 		if rel, err = s.store.Rel(req.Path); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)

@@ -190,7 +190,7 @@ local function restart_renderer()
       vim.wait(3000, function()
         return vim.system({ "curl", "-sf", "-o", "/dev/null", "http://127.0.0.1:" .. (vim.env.NOTESVIEW_PORT or "7777") .. "/api/status" }):wait().code == 0
       end, 200)
-      vim.system({ "notesview", "open", "--tasks" }, { env = { NOTES_DIR = NOTES }, stdout = false, stderr = false }, function() end)
+      vim.system({ "notesview", "open", "--activity" }, { env = { NOTES_DIR = NOTES }, stdout = false, stderr = false }, function() end)
       vim.notify("notesview rebuilt and restarted")
     end)
   end)

@@ -57,17 +57,16 @@
   }
   const go = (path, line) => { location.hash = "#/note/" + enc(path) + (line ? "?line=" + line : ""); };
 
+  let firstRoute = true;
   async function route() {
-    const r = parseHash();
-    if (!r) {
-      try {
-        const st = await api("/api/status");
-        if (st.current && st.current.path === "@tasks") { location.hash = "#/tasks"; return; }
-        if (st.current && st.current.path) return go(st.current.path, st.current.line);
-        const t = await api("/api/today");
-        return go(t.path);
-      } catch (e) { return; }
+    let r = parseHash();
+    if (firstRoute) {
+      firstRoute = false;
+      let reload = false;
+      try { reload = performance.getEntriesByType("navigation")[0].type === "reload"; } catch (e) {}
+      if (!r || reload) { if (r && r.view === "activity") { /* already there */ } else { location.hash = "#/activity"; return; } }
     }
+    if (!r) { location.hash = "#/activity"; return; }
     pendingLine = r.line || 0;
     await show(r, false);
   }
@@ -374,7 +373,7 @@
     }
     const top = Math.max(10, Math.ceil(Math.max(0, ...pts.map((p) => p.v)) / 10) * 10), y = (v) => T + (H - T - B) * (1 - v / top), base = y(0);
     let g = "";
-    for (let i = 0; i <= top; i += top / 4) g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${Math.round(i)}</text>`;
+    for (let i = 0; i <= top; i += top / 4) g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(i)}" y2="${y(i)}"/>`;
     const xl = labels.map(([x, l]) => `<text class="hm-label" x="${x}" y="${H - 10}" text-anchor="middle">${l}</text>`).join("");
     if (!pts.length) return `<svg class="weekly" viewBox="0 0 ${W} ${H}">${g}${xl}<text class="hm-label" x="${W / 2}" y="${H / 2}" text-anchor="middle">No score recorded yet today</text></svg>`;
     let d = "";
@@ -387,10 +386,10 @@
   }
 
   // slope graph: derivative of today's score (points per hour). The step log is smoothed with a gaussian, so the slope is a curve.
-  // slope in points per 10 minutes at time t (ms)
+  // slope in points per 30 minutes at time t (ms)
   function slopeFn(a) {
     const jumps = a.score_line.slice(1).map((p, i) => ({ t: new Date(p.at).getTime(), dv: p.total - a.score_line[i].total })).filter((j) => j.dv);
-    const sigma = 8 * 60e3, unit = 10 * 60e3;
+    const sigma = 8 * 60e3, unit = 30 * 60e3;
     return { jumps, at: (t) => jumps.reduce((s, j) => s + j.dv * Math.exp(-((t - j.t) ** 2) / (2 * sigma * sigma)) / (sigma * Math.sqrt(2 * Math.PI)), 0) * unit };
   }
 
@@ -408,13 +407,13 @@
     const top = Math.ceil(hi * 2) / 2, bot = Math.floor(lo * 2) / 2;
     const y = (v) => T + (H - T - B) * (1 - (v - bot) / (top - bot));
     let g = "";
-    for (let i = 0; i <= 4; i++) { const v = bot + (top - bot) * i / 4; g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="hm-label" x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v * 100) / 100}</text>`; }
-    g += `<text class="hm-label" transform="rotate(-90 18 ${(T + H - B) / 2})" x="18" y="${(T + H - B) / 2}" text-anchor="middle">per 10 min</text>`;
+    for (let i = 0; i <= 4; i++) { const v = bot + (top - bot) * i / 4; g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`; }
+    g += `<text class="hm-label" transform="rotate(-90 18 ${(T + H - B) / 2})" x="18" y="${(T + H - B) / 2}" text-anchor="middle">per 30 min</text>`;
     if (!jumps.length) return `<svg class="weekly" viewBox="0 0 ${W} ${H}">${g}${xl}<text class="hm-label" x="${W / 2}" y="${H / 2}" text-anchor="middle">No score change yet today</text></svg>`;
     let d = "";
     d = curvePath(pts.map((p) => [xs(p.t), y(p.v)]));
     const last = pts[pts.length - 1];
-    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per 10 minutes" data-geo="${[L, W - R, T, H - B, bot, top].join()}">${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
+    return `<svg class="weekly score-line" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score slope, points per 30 minutes" data-geo="${[L, W - R, T, H - B, bot, top].join()}">${g}${xl}<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" style="stroke-width:1.5"/><path class="sc-path" d="${d}"/><circle class="sc-now" cx="${xs(last.t)}" cy="${y(last.v)}" r="4.5"/><circle class="sc-hover" r="4.5" hidden/></svg>`;
   }
 
   // weekday graph: average score per day of the week (Mon first) over finished days since the first scored day; today counts only until its weekday has a finished day
@@ -427,7 +426,7 @@
     const avg = sum.map((s, i) => (n[i] ? s / n[i] : 0));
     const top = Math.max(10, Math.ceil(Math.max(...avg) / 10) * 10), y = (v) => T + (H - T - B) * (1 - v / top), slot = (W - L - R) / 7, bw = slot * .56;
     let g = "";
-    for (let i = 0; i <= top; i += top / 4) g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(i)}" y2="${y(i)}"/><text class="hm-label" x="${L - 6}" y="${y(i) + 4}" text-anchor="end">${Math.round(i)}</text>`;
+    for (let i = 0; i <= top; i += top / 4) g += `<line class="wk-grid" x1="${L}" x2="${W - R}" y1="${y(i)}" y2="${y(i)}"/>`;
     const bars = avg.map((v, i) => { const x = L + slot * i + (slot - bw) / 2;
       return `<g class="wd" data-v="${v.toFixed(2)}"><rect class="wk-hit" x="${L + slot * i}" y="${T}" width="${slot}" height="${H - T - B}"/><rect class="wk-done" x="${x}" y="${y(v)}" width="${bw}" height="${y(0) - y(v)}" rx="3"/><text class="hm-label${i === ti ? " best" : ""}" x="${x + bw / 2}" y="${H - 10}" text-anchor="middle">${DOW[i]}</text></g>`; }).join("");
     return `<svg class="weekly score-bars" viewBox="0 0 ${W} ${H}" role="img" aria-label="Average score by day of the week">${g}${bars}</svg>`;
@@ -439,7 +438,7 @@
         <div class="score-num" id="act-score">${sc.total}<small>Score</small></div>
         <table class="score-calc"><tbody>${scoreRows(sc, a.score_hints)}</tbody></table>
       </div>
-      <div class="act-head"><div class="sc-read">--.--</div><div class="task-filter score-mode">
+      <div class="act-head"><div class="sc-read">${(+sc.total).toFixed(2)}</div><div class="task-filter score-mode">
         ${[["today", "Today"], ["slope", "Slope"], ["daily", "Daily"], ["weekday", "Weekday"]].map(([k, l]) => `<button data-mode="${k}" class="${scoreMode === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
       <div class="wk-wrap">${scoreMode === "slope" ? slopeSvg(a) : scoreMode === "weekday" ? weekdaySvg(a) : scoreLineSvg(a, scoreMode)}</div>`;
   }
@@ -460,7 +459,7 @@
           <span class="sub">${fmtStudy(a.study_week)} this week · ${fmtStudy(a.study_total)} in all</span></div>
         <div class="tile"><small>New words</small><div class="big">${(a.words_today || 0).toLocaleString()}<em>today</em></div>
           <span class="sub">${(a.words_week || 0).toLocaleString()} this week · ${(a.words_total || 0).toLocaleString()} in all</span></div>
-        <div class="tile"><small>Current slope</small><div class="big"><span id="act-slope">--.--</span><em>/10 min</em></div></div>
+        <div class="tile"><small>Current slope</small><div class="big"><span id="act-slope">--.--</span><em>/30 min</em></div></div>
       </div>
       ${scoreSection(a)}
       <div class="act-head"><div class="task-filter act-metric">
@@ -475,7 +474,8 @@
     let timer, prev;
     const tick = () => { if (!sl.isConnected) return clearInterval(timer); const v = +sf(Date.now()).toFixed(2);
       if (prev !== undefined && v !== prev) sl.dataset.sign = v > prev ? "up" : "down"; // colour = direction of the last change
-      prev = v; sl.textContent = v.toFixed(2); };
+      prev = v; sl.textContent = v.toFixed(2);
+      const rd = note.querySelector(".sc-read"); if (rd && !rd.dataset.hov) rd.textContent = idleRead(); };
     tick(); timer = setInterval(tick, 1000);
   }
 
@@ -484,31 +484,40 @@
   tip.className = "act-tip"; tip.hidden = true; document.body.appendChild(tip);
   const showTip = (e, html) => { tip.innerHTML = html; tip.hidden = false; const w = tip.offsetWidth; tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, e.clientX - w / 2)) + "px"; tip.style.top = e.clientY - tip.offsetHeight - 14 + "px"; };
   // hovering a score/slope graph: read the value of the drawn curve at the cursor into the label above its top-left corner
+  // what the readout shows when nothing is hovered: the current score (current slope in Slope mode)
+  const idleRead = () => { const el = scoreMode === "slope" ? $("#act-slope") : $("#act-score"), t = el ? (scoreMode === "slope" ? el.textContent : el.firstChild.textContent) : "";
+    return scoreMode === "slope" ? t : (+t).toFixed(2); };
   function scoreHover(e) {
+    let tipHtml = null;
     const bar = e.target.closest && e.target.closest(".score-bars .wd"), read = note.querySelector(".sc-read");
-    if (read && note.querySelector(".score-bars")) read.textContent = bar ? bar.dataset.v : "--.--";
+    if (read && note.querySelector(".score-bars")) { read.textContent = bar ? bar.dataset.v : idleRead(); read.dataset.hov = bar ? "1" : ""; }
     note.querySelectorAll("svg.score-line").forEach((svg) => {
       const read = note.querySelector(".sc-read"), dot = svg.querySelector(".sc-hover"), path = svg.querySelector(".sc-path");
       if (!read || !dot || !path || !svg.dataset.geo) return;
       const [L, Rr, T, Bt, bot, top] = svg.dataset.geo.split(",").map(Number), r = svg.getBoundingClientRect();
       const px = (e.clientX - r.left) * svg.viewBox.baseVal.width / r.width, py = (e.clientY - r.top) * svg.viewBox.baseVal.height / r.height;
-      if (px < L || px > Rr || py < 0 || py > Bt + 46 || !(e.target.closest && e.target.closest("svg") === svg)) { read.textContent = "--.--"; dot.setAttribute("hidden", ""); return; }
+      if (px < L || px > Rr || py < 0 || py > Bt + 46 || !(e.target.closest && e.target.closest("svg") === svg)) { read.textContent = idleRead(); read.dataset.hov = ""; dot.setAttribute("hidden", ""); return; }
       let lo = 0, hi = path.getTotalLength();
       for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (path.getPointAtLength(mid).x < px) lo = mid; else hi = mid; }
       const p = path.getPointAtLength(hi), v = bot + (top - bot) * (1 - (p.y - T) / (Bt - T));
-      read.textContent = (Math.abs(v) < 0.005 ? 0 : v).toFixed(2);
+      read.textContent = (Math.abs(v) < 0.005 ? 0 : v).toFixed(2); read.dataset.hov = "1";
+      const a = note._activity, f = (px - L) / (Rr - L);
+      if (a && scoreMode === "daily") { const n = Math.round(f * (svg.querySelectorAll(".sc-dot").length - 1)), k = svg.querySelectorAll(".sc-dot")[Math.max(0, n)]; if (k) tipHtml = k.dataset.tip; }
+      else if (a) tipHtml = hhmm(new Date(dayOf(a.today).getTime() + f * 24 * 3600e3));
       dot.setAttribute("cx", p.x); dot.setAttribute("cy", p.y); dot.removeAttribute("hidden");
     });
+    return tipHtml;
   }
   note.addEventListener("mousemove", (e) => {
     const c = e.target.closest && e.target.closest(".hm-cell[data-d]");
-    scoreHover(e);
-    if (c) {
+    const th = scoreHover(e);
+    if (th) showTip(e, th);
+    else if (c) {
       const d = Number(c.dataset.done), m = Number(c.dataset.created);
       showTip(e, `<b>${dayOf(c.dataset.d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</b><br>${d || m ? `${plural(d, "task")} done · ${m} made` : "No activity"}${Number(c.dataset.study) ? `<br>${fmtStudy(Number(c.dataset.study))} of quiz` : ""}${Number(c.dataset.words) ? `<br>${Number(c.dataset.words).toLocaleString()} new words` : ""}${Number(c.dataset.score) ? `<br>Score ${c.dataset.score}` : ""}`);
     } else tip.hidden = true;
   });
-  note.addEventListener("mouseleave", () => { tip.hidden = true; note.querySelectorAll(".sc-read").forEach((t) => { t.textContent = "--.--"; }); note.querySelectorAll(".sc-hover").forEach((c) => c.setAttribute("hidden", "")); });
+  note.addEventListener("mouseleave", () => { tip.hidden = true; note.querySelectorAll(".sc-read").forEach((t) => { t.textContent = idleRead(); t.dataset.hov = ""; }); note.querySelectorAll(".sc-hover").forEach((c) => c.setAttribute("hidden", "")); });
   note.addEventListener("click", (e) => {
     const b = e.target.closest && e.target.closest(".act-metric button");
     if (b) { actMetric = b.dataset.metric; store.set("actMetric", actMetric); show(current, true); }
@@ -710,6 +719,7 @@
       const m = JSON.parse(e.data);
       if (!m.path) return;
       if (m.path === "@tasks") { location.hash = "#/tasks"; return; }
+      if (m.path === "@activity") { location.hash = "#/activity"; return; }
       if (current.view === "note" && current.path === m.path) { if (m.line) scrollToLine(m.line, false); return; }
       go(m.path, m.line);
     });

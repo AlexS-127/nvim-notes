@@ -23,6 +23,9 @@ import (
 // tasksPath is the pseudo-path that selects the Tasks view.
 const tasksPath = "@tasks"
 
+// activityPath is the pseudo-path that selects the Activity view.
+const activityPath = "@activity"
+
 func defaultDir() string {
 	if d := os.Getenv("NOTES_DIR"); d != "" {
 		return d
@@ -86,6 +89,7 @@ func main() {
 	port := fs.Int("port", defaultPort(), "port (127.0.0.1 only)")
 	line := fs.Int("line", 0, "source line to show")
 	tasks := fs.Bool("tasks", false, "show the Tasks view")
+	activity := fs.Bool("activity", false, "show the Activity view")
 	// allow the positional PATH before or after flags
 	var pos []string
 	for len(args) > 0 {
@@ -110,6 +114,9 @@ func main() {
 		}
 		if *tasks {
 			path = tasksPath
+		}
+		if *activity {
+			path = activityPath
 		}
 		fatal(runClient(cmd, path, *line, *dir, *port))
 	default:
@@ -457,6 +464,8 @@ func runClient(cmd, path string, line int, dir string, port int) error {
 		if p, ok := resp["path"].(string); ok && p != "" {
 			if p == tasksPath {
 				target += "#/tasks"
+			} else if p == activityPath {
+				target += "#/activity"
 			} else {
 				target += "#/note/" + (&url.URL{Path: p}).EscapedPath()
 			}
