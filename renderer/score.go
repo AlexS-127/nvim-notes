@@ -35,8 +35,8 @@ const (
 	scoreCreatedCap = 60  // most points tasks created can give
 	scoreQuizPerMin = 2.0 // points per minute of quiz time
 	scoreQuizCap    = 100 // most points quiz time can give
-	scoreWordsPer   = 15  // new words per point
-	scoreWordsCap   = 100 // most points new words can give
+	scoreWordsPer   = 20  // new words per point
+	scoreWordsCap   = 200 // most points new words can give
 	scoreOverduePts = 10  // points lost per overdue task
 	scoreOverdueCap = 100 // most points overdue tasks can cost
 
