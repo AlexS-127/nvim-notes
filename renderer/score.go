@@ -18,8 +18,9 @@ import (
 // breakdown's hover text on the Activity page is generated from them.
 //
 // A task is overdue at the end of a day when its due date is that day or earlier and it
-// was still open then. For today that is a projection: the tasks that would count against
-// you if the day ended now. The total never goes below zero.
+// was still open then. Today, while the day is still running, only tasks due before today
+// count, so adding or still working on a task due today never costs points; it counts
+// against today once the day is over. The total never goes below zero.
 var scoreDonePts = [4]int{
 	3,  // task with no difficulty
 	3,  // difficulty 1 (easy)
@@ -73,7 +74,7 @@ func scoreHints() ScoreHints {
 // Score is one day's score and the calculation behind it.
 type Score struct {
 	Total   int  `json:"total"`
-	Live    bool `json:"live"` // today: still changing, overdue is a projection
+	Live    bool `json:"live"` // today: still changing, tasks due today not overdue yet
 	Done    int  `json:"done"`
 	Created int  `json:"created"`
 	Study   int  `json:"study"` // seconds of quiz time
@@ -114,10 +115,11 @@ func scoreFor(doneBy, focus [4]int, created, studySecs, words, overdue int, live
 }
 
 // overdueAtEndOf counts the tasks that were still open and past due when the given day ended.
-func overdueAtEndOf(tasks []Task, day string, now time.Time, carried map[string]bool) int {
+// For a live day (today) tasks due that day are not overdue yet.
+func overdueAtEndOf(tasks []Task, day string, now time.Time, carried map[string]bool, live bool) int {
 	n := 0
 	for _, t := range tasks {
-		if t.Due == "" || t.Due > day || t.State == StateMoved {
+		if t.Due == "" || t.Due > day || (live && t.Due == day) || t.State == StateMoved {
 			continue
 		}
 		if t.State == StateDone && (t.DoneDate == "" || t.DoneDate <= day) {
@@ -155,7 +157,7 @@ func (a *Activity) AddScores(tasks []Task, now time.Time) {
 			continue // a task stamped in the future
 		}
 		d := a.Days[k]
-		a.Scores[k] = scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried), k == a.Today)
+		a.Scores[k] = scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried, k == a.Today), k == a.Today)
 	}
 }
 

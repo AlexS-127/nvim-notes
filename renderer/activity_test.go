@@ -169,7 +169,8 @@ func TestAddScores(t *testing.T) {
 		"inbox.md": "- [x] a ✅ 2026-09-30 @2026-09-29\n" + // done a day late: overdue at the end of 9/29 only
 			"- [ ] b @2026-09-30\n" + // open since: overdue at the end of 9/30 and 10/1
 			"- [x] c ✅ 2026-10-01 @2026-10-05\n" + // not due yet
-			"- [ ] d @2026-10-09\n",
+			"- [ ] d @2026-10-09\n" +
+			"- [ ] e @2026-10-01\n", // due today: not overdue while the day runs, overdue once it ends
 		quizLog: `{"date":"2026-10-01","seconds":1200}` + "\n",
 	})
 	tasks := s.CollectTasks(TaskQuery{All: true, Now: now})
@@ -183,6 +184,14 @@ func TestAddScores(t *testing.T) {
 	want := max(0, scoreDonePts[0]*scoreFocusMult+quizPts(1200)-scoreOverduePts)
 	if got := a.Scores["2026-10-01"]; !got.Live || got.Total != want || got.Overdue != 1 {
 		t.Errorf("today: %+v", got)
+	}
+	// tomorrow, today's e counts against 10/1
+	later := now.AddDate(0, 0, 1)
+	tasks = s.CollectTasks(TaskQuery{All: true, Now: later})
+	b := BuildActivity(tasks, later, 2)
+	b.AddScores(tasks, later)
+	if got := b.Scores["2026-10-01"]; got.Live || got.Overdue != 2 {
+		t.Errorf("10/1 after it ended: %+v", got)
 	}
 	if _, ok := a.Scores["2026-09-29"]; ok {
 		t.Error("a day with no activity should not be scored")
