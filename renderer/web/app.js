@@ -474,7 +474,7 @@
     let timer, prev;
     const tick = () => { if (!sl.isConnected) return clearInterval(timer); const v = +sf(Date.now()).toFixed(2);
       if (prev !== undefined && v !== prev) sl.dataset.sign = v > prev ? "up" : "down"; // colour = direction of the last change
-      prev = v; sl.textContent = v.toFixed(2);
+      prev = v; sl.textContent = Math.round(v);
       const rd = note.querySelector(".sc-read"); if (rd && !rd.dataset.hov) rd.textContent = idleRead(); };
     tick(); timer = setInterval(tick, 1000);
   }
