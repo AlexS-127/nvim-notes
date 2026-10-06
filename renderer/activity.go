@@ -88,6 +88,7 @@ type DayStat struct {
 	QuizXP   int `json:"quiz_xp"`   // XP earned in quizzes, see quiz.py
 	LevelUps int `json:"level_ups"` // quiz levels gained
 	Checkins int `json:"checkins"`  // classes checked in to, see calendar.go
+	Pages    int `json:"pages"`     // pages read, see reading.go
 	// DoneBy counts completed tasks by difficulty: [0] has none set, [1]-[3] are !1-!3.
 	DoneBy [4]int `json:"-"`
 	// DoneFocus is the part of DoneBy outside the workflow folder, scored double (score.go).
@@ -158,6 +159,7 @@ type Activity struct {
 	ScoreLine    []ScorePoint       `json:"score_line"`  // today's score as it changed
 	ScoreHints   ScoreHints         `json:"score_hints"` // hover text for the breakdown
 	Attendance   AttendanceSummary  `json:"attendance"`  // class attendance, see calendar.go
+	Reading      ReadingSummary     `json:"reading"`     // books being read, pages, see reading.go
 }
 
 // quizLog is where quiz.py appends one JSON line per session: {"date","seconds",...}.

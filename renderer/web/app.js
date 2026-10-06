@@ -53,6 +53,7 @@
     if (p === "/tasks") return { view: "tasks", line: 0 };
     if (p === "/activity") return { view: "activity", line: 0 };
     if (p === "/classes") return { view: "classes", line: 0 };
+    if (p === "/reading") return { view: "reading", line: 0 };
     if (p.startsWith("/note/")) return { view: "note", path: dec(p.slice(6)), line };
     if (p.startsWith("/folder/")) return { view: "folder", path: dec(p.slice(8)), line: 0 };
     return null;
@@ -83,6 +84,8 @@
       await renderActivity(keepScroll);
     } else if (r.view === "classes") {
       await window.nvCalendar.render(calEnv);
+    } else if (r.view === "reading") {
+      await window.nvReading.render(calEnv);
     } else if (r.view === "folder") {
       await renderFolder(r.path);
     } else {
@@ -346,6 +349,7 @@
       ["Quiz XP", (sc.quiz_xp || 0).toLocaleString(), hints.xp, sc.xp_pts || 0],
       ["Level ups", sc.level_ups || 0, hints.level, sc.level_pts || 0],
       ["Class check-ins", sc.checkins || 0, hints.checkin, sc.checkin_pts || 0],
+      ["Pages read", sc.pages || 0, hints.read, sc.pages_pts || 0],
       ["New words", (sc.words || 0).toLocaleString(), hints.words, sc.words_pts || 0],
       ["Overdue tasks", sc.overdue, hints.overdue, sc.overdue_pts],
     ];
@@ -477,6 +481,13 @@
     return `<div class="tile"><small>Attendance</small><div class="big">${t.total_pct < 0 ? "–" : t.total_pct + "%"}</div></div>`;
   }
 
+  // pages read (hidden until a book has been added)
+  function pagesTile(r) {
+    if (!r || !(r.reading.length || r.to_read || r.read)) return "";
+    return `<div class="tile"><small>Pages read</small><div class="big">${r.pages_today}<em>today</em></div>
+      <span class="sub">${r.pages_week} this week · ${r.pages_total} in all</span></div>`;
+  }
+
   async function renderActivity(keepScroll) {
     const [a, up] = await Promise.all([api("/api/activity"), api("/api/calendar/upcoming").catch(() => null)]);
     note.className = "note activity";
@@ -486,6 +497,7 @@
 
     note.innerHTML = `<h1>Activity</h1>
       ${window.nvCalendar.nextClassHtml(up)}
+      ${window.nvReading.cardHtml(a.reading)}
       <div class="act-tiles">
         <div class="tile hero"><small>Tasks completed</small><div class="big" id="act-total">${a.total_done}</div></div>
         <div class="tile"><small>Today</small><div class="big">${today.done}<em>done</em></div>
@@ -495,6 +507,7 @@
         <div class="tile"><small>New words</small><div class="big">${(a.words_today || 0).toLocaleString()}<em>today</em></div>
           <span class="sub">${(a.words_week || 0).toLocaleString()} this week · ${(a.words_total || 0).toLocaleString()} in all</span></div>
         ${attendanceTile(a.attendance)}
+        ${pagesTile(a.reading)}
         <div class="tile"><small>Current pace</small><div class="big"><span id="act-slope">--.--</span></div></div>
       </div>
       ${scoreSection(a)}
@@ -727,6 +740,7 @@
   $("#btn-tasks").onclick = () => { location.hash = "#/tasks"; };
   $("#btn-activity").onclick = () => { location.hash = "#/activity"; };
   $("#btn-classes").onclick = () => { location.hash = "#/classes"; };
+  $("#btn-reading").onclick = () => { location.hash = "#/reading"; };
   $("#btn-today").onclick = goToday;
   // creates today's daily note (with carry-over) if it doesn't exist yet
   async function goToday() { const t = await post("/api/daily", {}); go(t.path); }
@@ -746,6 +760,7 @@
       case "t": location.hash = "#/tasks"; break;
       case "a": location.hash = "#/activity"; break;
       case "c": location.hash = "#/classes"; break;
+      case "r": location.hash = "#/reading"; break;
       case "g": goToday(); break;
       case "b": toggleSidebar(); break;
       default: return;
@@ -762,6 +777,7 @@
     setTitle: (t) => { document.title = t + " — notesview"; },
   };
   window.nvCalendar.bind(calEnv);
+  window.nvReading.bind(calEnv);
 
   // ── live updates ──
   function connect() {

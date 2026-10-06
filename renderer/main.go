@@ -44,7 +44,7 @@ func defaultPort() int {
 // version is the notesview release. Release builds override it with
 // -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
 // relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
-var version = "0.5.0"
+var version = "0.6.0"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
@@ -67,6 +67,10 @@ func usage() {
                                                        .ics calendars and class check-in:
                                                        import [--name N] [--not-class] FILE.ics…, next [--json],
                                                        checkin [ID], today, attendance, remove ID
+  notesview read     [list|add|log|start|done|later|pages|remove]
+                                                       reading list and log: add "TITLE" "AUTHOR" [PAGES],
+                                                       log [BOOK] PAGES | log [BOOK] --to PAGE, done BOOK
+                                                       (BOOK = id or start of the title; log scores pages)
   notesview doctor                                     check the installation
   notesview themes                                     list themes (* = current)
   notesview theme    NAME                              choose a theme (writes config.json)
@@ -85,7 +89,7 @@ func main() {
 		return
 	case "-h", "--help", "help":
 		usage()
-	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words", "calendar":
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words", "calendar", "read":
 		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
@@ -302,6 +306,8 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 			return printJSON(stdout, map[string]string{"line": line, "path": filepath.Join(store.Root, "inbox.md")})
 		}
 		fmt.Fprintln(stdout, "Added to inbox:", line)
+	case "read":
+		return runReadCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
 	case "calendar":
 		return runCalendarCommand(store, fs.Args(), *calName, *notClass, *asJSON, stdout, stderr, now)
 	case "words":

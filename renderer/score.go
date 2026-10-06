@@ -39,13 +39,14 @@ var scoreWorkflowPts = [4]int{ // tasks in the workflow folder
 }
 
 const (
-	scoreCreatedPts = 1   // points per task created
-	scoreQuizPerMin = 2.0 // points per minute of quiz time
-	scoreWordsPer   = 20  // new words per point
-	scoreOverduePts = 10  // points lost per overdue task
-	scoreXPPer      = 10  // quiz XP per point (a correct answer is 10 XP, up to 40 with a combo)
-	scoreLevelPts   = 5   // points per quiz level gained
-	scoreCheckinPts = 5   // points per class checked in to (calendar.go)
+	scoreCreatedPts   = 1   // points per task created
+	scoreQuizPerMin   = 2.0 // points per minute of quiz time
+	scoreWordsPer     = 20  // new words per point
+	scoreOverduePts   = 10  // points lost per overdue task
+	scoreXPPer        = 10  // quiz XP per point (a correct answer is 10 XP, up to 40 with a combo)
+	scoreLevelPts     = 5   // points per quiz level gained
+	scoreCheckinPts   = 5   // points per class checked in to (calendar.go)
+	scoreReadPagesPer = 1   // pages read per point (reading.go)
 
 	scoreRecordEvery = 10 * time.Second // how often the viewer records today's score for the graph
 )
@@ -67,6 +68,7 @@ type ScoreHints struct {
 	XP      string `json:"xp"`
 	Level   string `json:"level"`
 	Checkin string `json:"checkin"`
+	Read    string `json:"read"`
 }
 
 func scoreHints() ScoreHints {
@@ -80,6 +82,8 @@ func scoreHints() ScoreHints {
 		Overdue: fmt.Sprintf("−%d each", scoreOverduePts),
 		XP:      fmt.Sprintf("1 per %d quiz XP (correct answers, combos and recovered weak words earn XP)", scoreXPPer),
 		Level:   fmt.Sprintf("%d each time you level up in a quiz", scoreLevelPts),
+		Checkin: fmt.Sprintf("%d per class checked in to", scoreCheckinPts),
+		Read:    fmt.Sprintf("1 per %d page(s) logged on the Reading page or start page", scoreReadPagesPer),
 	}
 }
 
@@ -106,11 +110,14 @@ type Score struct {
 	// classes checked in to, see withCheckins
 	Checkins   int `json:"checkins"`
 	CheckinPts int `json:"checkin_pts"`
+	// pages read, see withReading
+	Pages    int `json:"pages"`
+	PagesPts int `json:"pages_pts"`
 }
 
 // sum is the total of every part, floored at 0.
 func (s Score) sum() int {
-	return max(0, s.DonePts+s.CreatedPts+s.StudyPts+s.WordsPts+s.OverduePts+s.XPPts+s.LevelPts+s.CheckinPts)
+	return max(0, s.DonePts+s.CreatedPts+s.StudyPts+s.WordsPts+s.OverduePts+s.XPPts+s.LevelPts+s.CheckinPts+s.PagesPts)
 }
 
 // withQuiz adds the day's quiz XP and level-ups to a score and refreshes the total.
@@ -124,6 +131,13 @@ func (s Score) withQuiz(xp, levels int) Score {
 // withCheckins adds the day's class check-ins to a score and refreshes the total.
 func (s Score) withCheckins(n int) Score {
 	s.Checkins, s.CheckinPts = n, n*scoreCheckinPts
+	s.Total = s.sum()
+	return s
+}
+
+// withReading adds the day's pages read to a score and refreshes the total.
+func (s Score) withReading(pages int) Score {
+	s.Pages, s.PagesPts = pages, max(0, pages)/scoreReadPagesPer
 	s.Total = s.sum()
 	return s
 }
@@ -189,7 +203,7 @@ func (a *Activity) AddScores(tasks []Task, now time.Time) {
 			continue // a task stamped in the future
 		}
 		d := a.Days[k]
-		a.Scores[k] = scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried, k == a.Today), k == a.Today).withQuiz(d.QuizXP, d.LevelUps).withCheckins(d.Checkins)
+		a.Scores[k] = scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried, k == a.Today), k == a.Today).withQuiz(d.QuizXP, d.LevelUps).withCheckins(d.Checkins).withReading(d.Pages)
 	}
 }
 
@@ -246,7 +260,7 @@ func (s *Store) RecordScore(now time.Time, total int) []ScorePoint {
 // A source without a time (date-only ✅ stamps, tasks with no capture stamp) counts from 00:00.
 type ScoreEvent struct {
 	At       string `json:"at"`                   // local time, 2006-01-02T15:04:05
-	Kind     string `json:"kind"`                 // done, made, quiz, words, checkin
+	Kind     string `json:"kind"`                 // done, made, quiz, words, checkin, read
 	Text     string `json:"text,omitempty"`       // done/made: task text
 	Diff     int    `json:"difficulty,omitempty"` // done: 0 (none) to 3
 	Workflow bool   `json:"workflow,omitempty"`   // done: task in the workflow folder (see isFocusTask)
@@ -254,6 +268,7 @@ type ScoreEvent struct {
 	XP       int    `json:"xp,omitempty"`         // quiz
 	Levels   int    `json:"levels,omitempty"`     // quiz
 	Words    int    `json:"words,omitempty"`      // words
+	Pages    int    `json:"pages,omitempty"`      // read (negative: a correction)
 	Pts      int    `json:"pts"`                  // change in the total it caused (set by scoreCurve)
 }
 
@@ -344,6 +359,9 @@ func (s *Store) ScoreEvents(tasks []Task, now time.Time) map[string][]ScoreEvent
 			add(c.Date, ScoreEvent{At: dayClock(c.Date, c.At), Kind: "checkin", Text: c.Title})
 		}
 	}
+	for _, e := range s.ReadLog() {
+		add(e.Date, ScoreEvent{At: dayClock(e.Date, e.At), Kind: "read", Text: e.Title, Pages: e.Pages})
+	}
 	for _, evs := range out {
 		sort.SliceStable(evs, func(i, j int) bool { return evs[i].At < evs[j].At })
 	}
@@ -398,7 +416,7 @@ func scoreCurve(tasks []Task, evs []ScoreEvent, day string, now time.Time) []Sco
 	sort.Strings(at)
 
 	var d DayStat
-	var xp, levels, checkins int
+	var xp, levels, checkins, pages int
 	total := func(t string, endOfDay bool) int {
 		over := 0
 		for _, sp := range due {
@@ -409,7 +427,7 @@ func scoreCurve(tasks []Task, evs []ScoreEvent, day string, now time.Time) []Sco
 		if endOfDay {
 			over = overdueAtEndOf(tasks, day, now, carried, false)
 		}
-		return scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, over, live).withQuiz(xp, levels).withCheckins(checkins).Total
+		return scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, over, live).withQuiz(xp, levels).withCheckins(checkins).withReading(max(0, pages)).Total
 	}
 	var pts []ScorePoint
 	next, before := 0, total(at[0], false)
@@ -433,6 +451,8 @@ func scoreCurve(tasks []Task, evs []ScoreEvent, day string, now time.Time) []Sco
 				d.Words += e.Words
 			case "checkin":
 				checkins++
+			case "read":
+				pages += e.Pages
 			}
 			after := total(t, false)
 			e.Pts, before = after-before, after
@@ -474,6 +494,7 @@ func (s *Store) FullActivity(now time.Time, nWeeks int) Activity {
 	s.RecordWords(now)
 	a.AddWords(s.WordsPerDay(), now)
 	a.AddCheckins(s.CheckinsPerDay())
+	a.AddReading(s, now)
 	s.RecordAttendance(now)
 	a.Attendance = s.AttendanceSummary(now)
 	a.AddScores(tasks, now)

@@ -215,6 +215,16 @@ The **Classes** page (sidebar button, or `c` in the viewer) is where you import 
 
 CLI: `notesview calendar [list | import | remove | next | today | checkin | attendance]`.
 
+## Reading list and log
+
+The **Reading** page (sidebar button, or `r` in the viewer) keeps books to read, being read and read. Adding a book needs a title and an author; the number of pages is optional and gives a % read.
+
+- **Log pages** in the box next to a book: `20` = pages just read, `p150` = "I'm on page 150" (a negative number corrects an overcount). Each page logged scores 1 point (`scoreReadPagesPer` in `score.go`). Started a book before tracking it? Put the page you're on in *Already on page* when adding it, or type `=150` in its log box (start page too): that sets the bookmark without scoring. A book with a page count is finished when you reach its last page; *Finished* marks any book read without logging pages.
+- **From home:** the Activity view has a Reading card (same log box) and a Pages read tile; the Neovim start page lists the books being read with their %, `l` logs pages (Enter on a book's line for that book), `b` adds a book.
+- Books are in `<notes>/.reading/books.json`, logged pages in the append-only `.reading/log.jsonl` (both committed with your notes). Removing a book keeps its points.
+
+CLI: `notesview read [list | add "TITLE" "AUTHOR" [PAGES] | log [BOOK] PAGES | log [BOOK] --to PAGE | at [BOOK] PAGE | start | done | later | pages BOOK N | remove] BOOK` (BOOK = id or the start of the title).
+
 ## Capture
 
 Capture adds `- [ ] text #folder-tag @due _(timestamp)_` to `inbox.md` in three steps:
@@ -343,7 +353,7 @@ The window opens as a tab-less app window if Chrome, Chromium, Brave or Edge is 
   sidebar (`b`, or « / ») is remembered. `~/.config/notesview/custom.css` loads last and overrides
   the theme: `:root { --accent: … }` changes both themes, `:root[data-theme="dark"] { … }` just one.
 
-Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `a` activity · `c` classes · `g` today's daily note (created if needed) · `b` sidebar.
+Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `a` activity · `c` classes · `r` reading · `g` today's daily note (created if needed) · `b` sidebar.
 
 ## Development
 

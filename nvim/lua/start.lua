@@ -87,6 +87,10 @@ local function stats_lines()
   vim.list_extend(lines, score_graph(stats.score_line, math.max(16, math.min(48, vim.o.columns - 30)), 3))
   lines[#lines + 1] = ("tasks  %d made · %d done · %d left    quiz %s    words %d"):format(
     day.created or 0, day.done or 0, stats.open or 0, duration(stats.study_today or 0), stats.words_today or 0)
+  local rd = stats.reading
+  if type(rd) == "table" and ((rd.pages_today or 0) > 0 or #(rd.reading or {}) > 0) then
+    lines[#lines] = lines[#lines] .. ("    pages %d"):format(rd.pages_today or 0)
+  end
   local att = stats.attendance
   if type(att) == "table" and (att.classes or 0) > 0 then
     local function p(v) return (v or -1) < 0 and "–" or (v .. "%") end
@@ -217,6 +221,94 @@ local function class_items()
   return { { name = "a  " .. class_label(c, w - 3), section = "Next class", action = check_in } }
 end
 
+-- ── Reading ───────────────────────────────────────────────────────
+-- Books being read come with the stats (/api/activity `reading`); logging and adding go through
+-- `notesview read` (works on the files, no server). `l` logs pages for the first book, Enter on a
+-- line for that one; `b` adds a book to the to-read list. Pages score (see reading.go).
+local function nv_read(args, done)
+  local cmd = { "notesview", "read", "--dir", NOTES }
+  vim.list_extend(cmd, args)
+  vim.system(cmd, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      local msg = vim.trim((r.code == 0 and r.stdout or r.stderr) or "")
+      vim.notify(msg ~= "" and msg or "notesview read failed", r.code == 0 and vim.log.levels.INFO or vim.log.levels.WARN)
+      load_stats()
+      if done then done(r.code == 0) end
+    end)
+  end)
+end
+
+local function reading_books()
+  local r = stats and stats.reading
+  return (type(r) == "table" and type(r.reading) == "table") and r.reading or {}
+end
+
+-- "20" = pages read, "p150" (or "@150") = now on page 150, "=150" = already on page 150 (no points)
+local function log_pages(b)
+  b = b or reading_books()[1]
+  if not b then
+    -- nothing on the go: pick one from the list (logging its first pages starts it)
+    local r = vim.system({ "notesview", "read", "--dir", NOTES, "--json", "list" }, { text = true, env = { NOTES_DIR = NOTES } }):wait()
+    local ok, list = pcall(vim.json.decode, r.stdout or "")
+    local open = {}
+    for _, x in ipairs((ok and type(list) == "table") and list or {}) do
+      if x.status ~= "read" then open[#open + 1] = x end
+    end
+    if #open == 0 then return vim.notify("No books to read: add one with b", vim.log.levels.INFO) end
+    return vim.ui.select(open, { prompt = "Start reading", format_item = function(x) return x.title .. " — " .. x.author end },
+      function(x) if x then log_pages(x) end end)
+  end
+  vim.ui.input({ prompt = ("Pages read in %s (p150 = on page 150, =150 = already there, no points): "):format(b.title) }, function(v)
+    v = vim.trim(v or "")
+    if v == "" then return end
+    local at = v:match("^=%s*(%d+)$")
+    if at then return nv_read({ "at", tostring(b.id), at }) end
+    local to = v:match("^[pP@](%d+)$")
+    if to then return nv_read({ "log", tostring(b.id), "--to", to }) end
+    if not v:match("^[+-]?%d+$") or tonumber(v) == 0 then return vim.notify("Type a number of pages, or p150", vim.log.levels.WARN) end
+    nv_read({ "log", tostring(b.id), (v:gsub("^%+", "")) })
+  end)
+end
+
+local function add_book()
+  vim.ui.input({ prompt = "Title: " }, function(title)
+    title = vim.trim(title or "")
+    if title == "" then return end
+    vim.ui.input({ prompt = "Author: " }, function(author)
+      author = vim.trim(author or "")
+      if author == "" then return vim.notify("A book needs an author", vim.log.levels.WARN) end
+      vim.ui.input({ prompt = "Pages (optional): " }, function(pages)
+        pages = vim.trim(pages or "")
+        if pages ~= "" and not pages:match("^%d+$") then return vim.notify("Pages must be a number", vim.log.levels.WARN) end
+        vim.ui.input({ prompt = "Already on page (optional, started before tracking; no points): " }, function(at)
+          at = vim.trim(at or "")
+          if at ~= "" and not at:match("^%d+$") then return vim.notify("Page must be a number", vim.log.levels.WARN) end
+          local args = { "add", title, author }
+          if pages ~= "" then args[#args + 1] = pages end
+          if at ~= "" and at ~= "0" then vim.list_extend(args, { "--at", at }) end
+          nv_read(args)
+        end)
+      end)
+    end)
+  end)
+end
+
+local function book_label(b, w)
+  local prog = (b.pages or 0) > 0 and ("%d%% (%d/%d)"):format(b.pct, b.page, b.pages) or ("%d pages"):format(b.page or 0)
+  local tail = cut("  · " .. prog, w - 10)
+  return fit(cut(("%s — %s"):format(b.title, b.author), w - vim.fn.strdisplaywidth(tail)) .. tail, w)
+end
+
+local function reading_items()
+  local books, w, items = reading_books(), next_width(), {}
+  for i = 1, math.min(2, #books) do
+    local b = books[i]
+    -- only the first line has a key; the other is reached with the cursor and Enter
+    items[i] = { name = (i == 1 and "l  " or "   ") .. book_label(b, w - 3), section = "Reading", action = function() log_pages(b) end }
+  end
+  return items
+end
+
 local function task_label(t, w)
   local text = t.display:gsub("%s*_%(.-%)_%s*$", "")
   local when = t.due and (t.group == "overdue" and "overdue" or t.due:sub(6)) or "anytime"
@@ -344,6 +436,7 @@ local actions = {
   { "o", "Go to folder", function() feed("<leader>nF") end },
   { "g", "Search notes", function() feed("<leader>ng") end },
   { "s", "Study (vocab quiz)", run_quiz },
+  { "b", "Add a book", add_book },
   { "r", "Restart renderer (rebuild)", restart_renderer },
   { "q", "Terminal", function() vim.cmd("qa") end },
 }
@@ -380,7 +473,7 @@ function M.setup()
 
   starter.setup({
     header = header,
-    items = { class_items, task_items, action_items },
+    items = { class_items, reading_items, task_items, action_items },
     footer = "",
     content_hooks = { split_keys, starter.gen_hook.aligning("center", "center") },
   })
@@ -428,6 +521,7 @@ function M.setup()
     callback = function(ev)
       local function bmap(key, fn) vim.keymap.set("n", key, fn, { buffer = ev.buf, nowait = true, silent = true }) end
       for _, a in ipairs(actions) do bmap(a[1], a[3]) end
+      bmap("l", function() log_pages() end)
       for i = 1, 3 do
         bmap(tostring(i), function() if tasks and tasks[i] then
           vim.cmd.edit(vim.fn.fnameescape(NOTES .. "/" .. tasks[i].file))

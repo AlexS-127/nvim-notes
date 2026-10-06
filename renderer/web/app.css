@@ -58,7 +58,7 @@ body.sidebar-collapsed #sidebar { display: none; }
   background: color-mix(in srgb, var(--fg) 6%, transparent); color: var(--fg); font: inherit; outline: none; }
 #search::placeholder { color: var(--muted); }
 #search:focus { border-color: var(--accent); background: var(--bg); }
-.side-actions { display: flex; gap: 2px; margin-top: 8px; }
+.side-actions { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 8px; }
 .side-actions button, .icon-btn { padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: var(--muted);
   cursor: pointer; font: inherit; font-size: 12.5px; }
 .side-actions button:hover, .icon-btn:hover { background: var(--hl); color: var(--accent); }
@@ -347,3 +347,35 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 .att-bar { position: relative; width: 45%; }
 .att-bar span { position: absolute; left: 8px; top: 9px; height: 10px; border-radius: 99px; background: var(--tc); opacity: .55; max-width: calc(100% - 16px); }
 .att-bar b { position: relative; font-weight: 600; padding-left: 8px; }
+
+/* ── reading (reading.js): the Reading page and the Activity card ── */
+.reading-card { background: var(--bg2); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 12px; padding: 10px 16px; margin: .2em 0 14px; font-family: var(--font-ui); }
+.rc-top { display: flex; justify-content: space-between; align-items: baseline; }
+.rc-top small { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.rc-top a { color: var(--muted); font-size: 12.5px; }
+.rd-book { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 16px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-family: var(--font-ui); }
+.rd-book:last-child { border-bottom: 0; }
+.note.reading .rd-book { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; margin-bottom: 8px; }
+.rd-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-title { font-weight: 650; font-size: 16px; }
+.rd-author { color: var(--muted); font-size: 13.5px; margin-left: 8px; }
+.rd-prog { grid-column: 1; display: flex; align-items: center; gap: 10px; }
+.rd-prog small { color: var(--muted); font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rd-bar { flex: 1; max-width: 320px; height: 6px; border-radius: 3px; background: var(--hl); overflow: hidden; }
+.rd-bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.rd-pct { font-size: 13px; font-variant-numeric: tabular-nums; }
+.rd-log { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 6px; align-items: center; }
+.rd-log input, .rd-add input { width: 92px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font: 13.5px var(--font-ui); padding: 4px 8px; border-radius: 6px; }
+.rd-log button, .rd-add button, .rd-item button:not(.cp-del) { border: 1px solid var(--border); background: var(--bg); color: var(--fg); font: 13px var(--font-ui); padding: 4px 12px; border-radius: 999px; cursor: pointer; }
+.rd-log button:first-of-type, .rd-add button { border-color: var(--accent); color: var(--accent); }
+.rd-log button:hover, .rd-add button:hover, .rd-item button:hover { background: var(--hl); }
+.rd-log button:disabled { opacity: .5; cursor: default; }
+.rd-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin: 10px 0 4px; }
+.rd-add input[name=title], .rd-add input[name=author] { flex: 1; min-width: 140px; width: auto; }
+.rd-add input[name=pages], .rd-add input[name=at] { width: 130px; }
+.rd-list { list-style: none; padding: 0; margin: 0; font-family: var(--font-ui); }
+.rd-item { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.rd-item:last-child { border-bottom: 0; }
+.rd-item .spacer { flex: 1; }
+.rd-item small { color: var(--muted); font-size: 12.5px; }
+@media (max-width: 760px) { .rd-book { grid-template-columns: 1fr; } .rd-log { grid-column: 1; grid-row: auto; } .rd-author { display: block; margin-left: 0; } }
