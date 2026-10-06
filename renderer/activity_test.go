@@ -128,7 +128,7 @@ func TestAddStudy(t *testing.T) {
 func clampInt(v, lo, hi int) int { return max(lo, min(hi, v)) }
 
 func quizPts(seconds int) int {
-	return min(scoreQuizCap, int(float64(seconds)/60*scoreQuizPerMin))
+	return int(float64(seconds) / 60 * scoreQuizPerMin)
 }
 
 func TestScoreFor(t *testing.T) {
@@ -144,21 +144,20 @@ func TestScoreFor(t *testing.T) {
 	}
 	// done points depend on difficulty: 1 plain + 2 easy + 1 medium + 1 hard
 	wantDone = scoreDonePts[0] + 2*scoreDonePts[1] + scoreDonePts[2] + scoreDonePts[3]
-	if s := scoreFor([4]int{1, 2, 1, 1}, [4]int{}, 0, 0, 0, 0, false); s.Done != 5 || s.DonePts != min(scoreDoneCap, wantDone) {
+	if s := scoreFor([4]int{1, 2, 1, 1}, [4]int{}, 0, 0, 0, 0, false); s.Done != 5 || s.DonePts != wantDone {
 		t.Errorf("difficulty points: %+v", s)
 	}
-	// each part is capped, the penalty is capped, and the total never goes below 0
-	s = scoreFor([4]int{1000}, [4]int{}, 1000, 1000*3600, 1000*scoreWordsPer*scoreWordsCap, 0, false)
-	if s.DonePts != scoreDoneCap || s.CreatedPts != scoreCreatedCap || s.StudyPts != scoreQuizCap || s.WordsPts != scoreWordsCap ||
-		s.Total != scoreDoneCap+scoreCreatedCap+scoreQuizCap+scoreWordsCap {
-		t.Errorf("max: %+v", s)
+	// nothing is capped (a big day keeps scoring), but the total never goes below 0
+	s = scoreFor([4]int{1000}, [4]int{}, 1000, 1000*3600, 1000*scoreWordsPer*1000, 0, false)
+	if s.DonePts != 1000*scoreDonePts[0] || s.CreatedPts != 1000*scoreCreatedPts || s.StudyPts != quizPts(1000*3600) || s.WordsPts != 1000*1000 {
+		t.Errorf("uncapped: %+v", s)
 	}
-	if s := scoreFor([4]int{1}, [4]int{}, 0, 0, 0, 1000, false); s.OverduePts != -scoreOverdueCap || s.Total != 0 {
-		t.Errorf("penalty cap and floor: %+v", s)
+	if s := scoreFor([4]int{1}, [4]int{}, 0, 0, 0, 1000, false); s.OverduePts != -1000*scoreOverduePts || s.Total != 0 {
+		t.Errorf("penalty and floor: %+v", s)
 	}
 	// tasks outside the workflow folder earn scoreFocusMult times the points: 2 plain done, 1 of them focus
 	wantDone = scoreDonePts[0] + scoreDonePts[0]*scoreFocusMult
-	if s := scoreFor([4]int{2}, [4]int{1}, 0, 0, 0, 0, false); s.Done != 2 || s.DonePts != min(scoreDoneCap, wantDone) {
+	if s := scoreFor([4]int{2}, [4]int{1}, 0, 0, 0, 0, false); s.Done != 2 || s.DonePts != wantDone {
 		t.Errorf("focus points: %+v", s)
 	}
 }
@@ -210,7 +209,7 @@ func TestScoreFocusVsWorkflow(t *testing.T) {
 	a.AddScores(tasks, now)
 	// workflow: !2 + plain at 1x; act200: !2 + plain at scoreFocusMult
 	want := scoreDonePts[2] + scoreDonePts[0] + (scoreDonePts[2]+scoreDonePts[0])*scoreFocusMult
-	if got := a.Scores["2026-10-01"]; got.Done != 4 || got.DonePts != min(scoreDoneCap, want) {
+	if got := a.Scores["2026-10-01"]; got.Done != 4 || got.DonePts != want {
 		t.Errorf("got %+v, want done_pts %d", got, want)
 	}
 }
@@ -231,8 +230,7 @@ func TestRecordScore(t *testing.T) {
 		t.Errorf("change: %+v", p)
 	}
 	h := scoreHints()
-	if !strings.Contains(h.Done, fmt.Sprintf("up to %d", scoreDoneCap)) || !strings.Contains(h.Study, fmt.Sprintf("up to %d", scoreQuizCap)) ||
-		!strings.Contains(h.Overdue, fmt.Sprint(scoreOverduePts)) {
+	if strings.Contains(h.Done, "up to") || !strings.Contains(h.Overdue, fmt.Sprint(scoreOverduePts)) {
 		t.Errorf("hints: %+v", h)
 	}
 }
