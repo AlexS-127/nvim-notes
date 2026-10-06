@@ -58,6 +58,17 @@
 :where(:root[data-palette="catppuccin"]) .note pre,
 :where(:root[data-palette="tokyo-night"]) .note pre { border-radius: 12px; }
 :where(:root[data-palette="catppuccin"]) .note blockquote.callout { border-radius: 12px; }
+/* catppuccin: coloured headings and emphasis (mauve, blue, teal, peach, yellow, pink; latte / mocha) */
+:where(:root[data-palette="catppuccin"][data-theme="light"]) { --h1: #8839ef; --h2: #1e66f5; --h3: #179299; --h4: #fe640b; --h5: #df8e1d; --h6: #ea76cb; --strong: #d20f39; --em: #ea76cb; }
+:where(:root[data-palette="catppuccin"][data-theme="dark"]) { --h1: #cba6f7; --h2: #89b4fa; --h3: #94e2d5; --h4: #fab387; --h5: #f9e2af; --h6: #f5c2e7; --strong: #fab387; --em: #f5c2e7; }
+:where(:root[data-palette="catppuccin"]) .note h1 { color: var(--h1); }
+:where(:root[data-palette="catppuccin"]) .note h2 { color: var(--h2); }
+:where(:root[data-palette="catppuccin"]) .note h3 { color: var(--h3); }
+:where(:root[data-palette="catppuccin"]) .note h4 { color: var(--h4); }
+:where(:root[data-palette="catppuccin"]) .note h5 { color: var(--h5); }
+:where(:root[data-palette="catppuccin"]) .note h6 { color: var(--h6); }
+:where(:root[data-palette="catppuccin"]) .note strong { color: var(--strong); }
+:where(:root[data-palette="catppuccin"]) .note em { color: var(--em); }
 :where(:root[data-palette="nord"]) .note h1, :where(:root[data-palette="nord"]) .note h2 { border-bottom-color: var(--accent); }
 :where(:root[data-palette="dracula"]) .note h1 { color: var(--accent); }
 :where(:root[data-palette="dracula"]) .note h2 { color: #ff79c6; }
@@ -88,3 +99,45 @@
 :where(:root[data-palette="terminal"]) .note blockquote.callout,
 :where(:root[data-palette="terminal"]) #search,
 :where(:root[data-palette="terminal"]) .note a { text-decoration: underline; text-underline-offset: 3px; }
+
+/* cappuccino: the catppuccin palette (latte / mocha) set in Times New Roman, with monospace for numbers */
+:where(:root[data-palette="cappuccino"][data-theme="light"]) { color-scheme: light; --bg: #eff1f5; --bg2: #e6e9ef; --fg: #4c4f69; --muted: #6c6f85; --border: #ccd0da; --accent: #8839ef; --missing: #d20f39; --hl: color-mix(in srgb, #8839ef 16%, transparent); --overdue: #d20f39; --code-bg: #e6e9ef; --code-fg: #4c4f69; --code-border: #ccd0da; --icode-bg: #dce0e8; --icode-fg: #e64553; --c-note: #1e66f5; --c-tip: #40a02b; --c-warning: #df8e1d; --c-danger: #d20f39; --c-important: #8839ef; --callout-bg: #e9ecf1; }
+:where(:root[data-palette="cappuccino"][data-theme="dark"]) { color-scheme: dark; --bg: #1e1e2e; --bg2: #181825; --fg: #cdd6f4; --muted: #9399b2; --border: #313244; --accent: #cba6f7; --missing: #fab387; --hl: color-mix(in srgb, #cba6f7 16%, transparent); --overdue: #f38ba8; --code-bg: #11111b; --code-fg: #cdd6f4; --code-border: #313244; --icode-bg: #313244; --icode-fg: #f5c2e7; --c-note: #89b4fa; --c-tip: #a6e3a1; --c-warning: #f9e2af; --c-danger: #f38ba8; --c-important: #cba6f7; --callout-bg: #232334; }
+:where(:root[data-palette="cappuccino"]) {
+  --font-body: "Times New Roman", Times, serif;
+  --font-heading: var(--font-body);
+  --font-ui: var(--font-body);
+  --font-size: 19px;
+  --line-height: 1.6;
+}
+:where(:root[data-palette="cappuccino"]) body { font-size: 18px; }
+:where(:root[data-palette="cappuccino"]) .note pre,
+:where(:root[data-palette="cappuccino"]) .note blockquote.callout { border-radius: 12px; }
+/* every number readout is monospace (tiles, score, breakdown table, graph labels, tooltips) */
+:where(:root[data-palette="cappuccino"]) .tile .big,
+:where(:root[data-palette="cappuccino"]) .score-num,
+:where(:root[data-palette="cappuccino"]) .sc-read,
+:where(:root[data-palette="cappuccino"]) .score-calc .n,
+:where(:root[data-palette="cappuccino"]) .score-calc .pts,
+:where(:root[data-palette="cappuccino"]) .hm-label,
+:where(:root[data-palette="cappuccino"]) .act-tip { font-family: var(--font-code); }
+:where(:root[data-palette="cappuccino"]) .score-num small { font-family: var(--font-ui); }
+
+/* borland: Turbo Pascal / Borland C++ text-mode IDE. A blue desk, yellow text, white double-ruled headings,
+   cyan bars and selection; monospace throughout (dark only, like borland.lua in Neovim) */
+:where(:root[data-palette="borland"][data-theme="dark"]) { color-scheme: dark; --bg: #0000aa; --bg2: #0000d0; --fg: #ffff55; --muted: #aaaaaa; --border: #3a3ae0; --accent: #55ffff; --missing: #ff5555; --hl: color-mix(in srgb, #55ffff 22%, transparent); --overdue: #ff5555; --code-bg: #000080; --code-fg: #ffffff; --code-border: #5555ff; --icode-bg: #00aaaa; --icode-fg: #000000; --c-note: #55ffff; --c-tip: #55ff55; --c-warning: #ffaa55; --c-danger: #ff5555; --c-important: #ff77ff; --callout-bg: #0000d0; }
+:where(:root[data-palette="borland"]) {
+  --font-body: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-heading: var(--font-body);
+  --font-ui: var(--font-body);
+  --font-size: 15px;
+  --line-height: 1.7;
+}
+:where(:root[data-palette="borland"]) .note h1 { color: #ffffff; border-bottom: 3px double #ffffff; letter-spacing: .02em; }
+:where(:root[data-palette="borland"]) .note h2 { color: #55ffff; border-bottom: 1px solid #55ffff; }
+:where(:root[data-palette="borland"]) .note h3, :where(:root[data-palette="borland"]) .note h4 { color: #ffffff; }
+:where(:root[data-palette="borland"]) .note a { color: #55ffff; }
+:where(:root[data-palette="borland"]) .note blockquote.callout, :where(:root[data-palette="borland"]) .note pre { border-radius: 0; border: 2px double #ffffff; }
+:where(:root[data-palette="borland"]) .note code { border-radius: 0; }
+:where(:root[data-palette="borland"]) #tree a.note-link.active { background: #00aaaa; color: #000000; }
+:where(:root[data-palette="borland"]) ::selection { background: #00aaaa; color: #000000; }

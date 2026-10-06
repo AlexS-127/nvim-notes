@@ -81,7 +81,7 @@ func main() {
 		return
 	case "-h", "--help", "help":
 		usage()
-	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "words":
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words":
 		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
@@ -174,6 +174,40 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 		if warn != "" {
 			fmt.Fprintln(stderr, "warning:", warn)
 		}
+		return 0
+	case "fonts":
+		cur, _ := LoadConfig()
+		curKey := fontKey(cur.Font)
+		if curKey == "" {
+			curKey = "default"
+		}
+		custom := true
+		for _, f := range fonts {
+			mark := " "
+			if f.Name == curKey {
+				mark, custom = "*", false
+			}
+			fmt.Fprintf(stdout, "%s %-15s %s\n", mark, f.Name, f.Desc)
+		}
+		if custom {
+			fmt.Fprintf(stdout, "* %-15s custom (%s)\n", cur.Font, fontStack(cur.Font))
+		}
+		fmt.Fprintln(stdout, "\nAny installed family name also works: notesview font \"Gill Sans\"")
+		return 0
+	case "font":
+		cur, _ := LoadConfig()
+		cur.Font = text
+		if fontKey(text) == "default" {
+			cur.Font = ""
+		}
+		b, _ := json.MarshalIndent(cur, "", "  ")
+		if err := os.MkdirAll(configDir(), 0o755); err != nil {
+			return fail(err)
+		}
+		if err := os.WriteFile(configPath(), append(b, '\n'), 0o644); err != nil {
+			return fail(err)
+		}
+		fmt.Fprintf(stdout, "font set to %s (%s)\n", map[bool]string{true: "default", false: text}[cur.Font == ""], configPath())
 		return 0
 	case "theme":
 		t, ok := findTheme(text)

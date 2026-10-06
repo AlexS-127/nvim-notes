@@ -1,3 +1,10 @@
+/* Inter, Lora and Merriweather (SIL OFL 1.1, latin subset, see /fonts/OFL.md) are the other bundled fonts, chosen with the "font" config key. */
+@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/Inter-Variable-Roman.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-style: italic; font-weight: 100 900; font-display: swap; src: url("/fonts/Inter-Variable-Italic.woff2") format("woff2"); }
+@font-face { font-family: "Lora"; font-style: normal; font-weight: 400 700; font-display: swap; src: url("/fonts/Lora-Variable-Roman.woff2") format("woff2"); }
+@font-face { font-family: "Lora"; font-style: italic; font-weight: 400 700; font-display: swap; src: url("/fonts/Lora-Variable-Italic.woff2") format("woff2"); }
+@font-face { font-family: "Merriweather"; font-style: normal; font-weight: 300 900; font-display: swap; src: url("/fonts/Merriweather-Variable-Roman.woff2") format("woff2"); }
+@font-face { font-family: "Merriweather"; font-style: italic; font-weight: 300 900; font-display: swap; src: url("/fonts/Merriweather-Variable-Italic.woff2") format("woff2"); }
 /* Source Serif 4 (SIL OFL 1.1, see /fonts/OFL.md) is embedded as the
    fallback for machines without Georgia. */
 @font-face { font-family: "Source Serif 4"; font-style: normal; font-weight: 200 900; font-display: swap;
@@ -235,7 +242,7 @@ a.tag-folder.colored:hover { border-color: var(--tc); }
 .act-head:not(:has(.sc-read)) { justify-content: flex-end; }
 .act-head .task-filter { margin: 1.2em 0 .4em; }
 .hm-wrap, .wk-wrap { overflow-x: auto; }
-svg.heatmap { width: 100%; min-width: 640px; height: auto; display: block; }
+svg.heatmap { width: 100%; min-width: 560px; height: auto; display: block; }
 svg.weekly { width: 100%; height: auto; display: block; }
 .score-line .hm-label, svg.weekly .hm-label { font-size: 20px; }
 .hm-label { fill: var(--muted); font: 10px var(--font-ui); }
@@ -283,6 +290,15 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 #act-slope[data-tier="mid"], .sc-read[data-tier="mid"] { color: var(--c-warning); }
 #act-slope[data-tier="good"], .sc-read[data-tier="good"] { color: var(--c-tip); }
 #act-slope[data-tier="high"], .sc-read[data-tier="high"] { color: var(--c-important); }
+/* pace above 1 (also the score numbers while the current pace is above 1): shimmering gradient with a glow */
+#act-slope[data-tier="max"], .sc-read[data-tier="max"], .note[data-hot="1"] #act-score, .note[data-hot="1"] .sc-read:not([data-tier]) {
+  background: linear-gradient(90deg, var(--c-important), #ff5ca8, #ffb02e, #ff5ca8, var(--c-important)); background-size: 300% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--c-important) 55%, transparent));
+  animation: pace-blaze 2.4s linear infinite;
+}
+@keyframes pace-blaze { to { background-position: -300% 0; } }
+@media (prefers-reduced-motion: reduce) { #act-slope[data-tier="max"], .sc-read[data-tier="max"], .note[data-hot="1"] #act-score, .note[data-hot="1"] .sc-read:not([data-tier]) { animation: none; } }
 .sc-hover[hidden] { display: none; }
 @media (max-width: 760px) { .score-card { grid-template-columns: 1fr; } .act-tiles { grid-template-columns: 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { .wk-done.best { fill: color-mix(in srgb, var(--accent) 100%, var(--c-warning) 25%); } }

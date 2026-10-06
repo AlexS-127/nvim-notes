@@ -23,10 +23,12 @@ var themes = []Theme{
 	{Name: "gruvbox", Desc: "warm retro earth tones", Light: "gruvbox-light", Dark: "gruvbox"},
 	{Name: "solarized", Desc: "Ethan Schoonover's low-contrast classic", Light: "solarized-light", Dark: "solarized-dark"},
 	{Name: "catppuccin", Desc: "soft pastels (latte / mocha)", Light: "catppuccin-latte", Dark: "catppuccin-mocha"},
+	{Name: "cappuccino", Desc: "catppuccin colours in Times New Roman, monospace numbers", Light: "catppuccin-latte", Dark: "catppuccin-mocha"},
 	{Name: "rose-pine", Desc: "dusky rose and gold (dawn / moon)", Light: "rose-pine-dawn", Dark: "rose-pine"},
 	{Name: "tokyo-night", Desc: "neon-lit city night (day / night)", Light: "tokyonight-day", Dark: "tokyonight-night"},
 	{Name: "horizon", Desc: "white, orange and blue: colourful headings, tinted sidebar", Light: "xcode", Dark: "xcode-dark"},
 	{Name: "dracula", Desc: "purple and pink on charcoal (dark only)", Dark: "dracula", Only: "dark"},
+	{Name: "borland", Desc: "Turbo Pascal blue desk, yellow text, double rules, monospace (dark only)", Dark: "vim", Only: "dark"},
 	{Name: "terminal", Desc: "green phosphor CRT, monospace, scanlines (dark only)", Dark: "monokai", Only: "dark"},
 }
 
@@ -51,12 +53,14 @@ func themeNames() string {
 
 // Config is ~/.config/notesview/config.json:
 //
-//	{ "theme": "nord", "appearance": "auto" }
+//	{ "theme": "nord", "appearance": "auto", "font": "inter" }
 //
-// appearance is auto (follow the system), light or dark.
+// appearance is auto (follow the system), light or dark. font is optional and independent
+// of the theme.
 type Config struct {
 	Theme      string `json:"theme"`
 	Appearance string `json:"appearance"`
+	Font       string `json:"font,omitempty"` // a preset name, any installed family name or a CSS stack, see fonts.go
 }
 
 func configPath() string { return filepath.Join(configDir(), "config.json") }
@@ -81,6 +85,7 @@ func LoadConfig() (Config, string) {
 			warn = fmt.Sprintf("unknown theme %q (available: %s)", raw.Theme, themeNames())
 		}
 	}
+	c.Font = strings.TrimSpace(raw.Font)
 	switch a := strings.ToLower(raw.Appearance); a {
 	case "light", "dark":
 		c.Appearance = a

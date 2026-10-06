@@ -91,3 +91,8 @@ INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
 DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
+
+
+---
+
+Inter (Copyright The Inter Project Authors), Lora (Copyright The Lora Project Authors, Cyreal) and Merriweather (Copyright The Merriweather Project Authors, Sorkin Type) are also bundled, as latin-subset variable woff2 files from Google Fonts, under the same SIL Open Font License 1.1 as above.

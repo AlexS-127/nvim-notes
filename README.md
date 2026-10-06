@@ -101,14 +101,16 @@ switches live when the file changes.
 | `gruvbox` | warm retro earth tones |
 | `solarized` | low-contrast classic |
 | `catppuccin` | soft pastels (latte / mocha) |
+| `cappuccino` | catppuccin colours in Times New Roman, with monospace numbers |
 | `rose-pine` | dusky rose and gold (dawn / moon) |
 | `tokyo-night` | neon-lit city night (day / night) |
 | `horizon` | white, orange and blue: colourful headings, tinted sidebar, blue table headers |
 | `dracula` | purple and pink on charcoal, dark only |
+| `borland` | Turbo Pascal IDE: blue desk, yellow text, double-ruled headings, monospace, dark only |
 | `terminal` | green phosphor CRT: monospace, glow, scanlines, dark only |
 
 `appearance` is `auto` (follow the system, the default), `light` or `dark`. Themes that only
-exist in one appearance (`dracula`, `terminal`) ignore it. Each theme also sets the code
+exist in one appearance (`dracula`, `borland`, `terminal`) ignore it. Each theme also sets the code
 highlighting colours. An unknown theme falls back to `default`. Your `custom.css` loads after the theme, so it can still
 override anything. Note that font variables set there beat the theme's: remove
 `--font-body` from `custom.css` to let `terminal` be monospace.

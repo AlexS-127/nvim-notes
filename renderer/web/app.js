@@ -28,6 +28,7 @@
     const c = await api("/api/config");
     forcedMode = c.mode || "";
     if (c.palette) document.documentElement.dataset.palette = c.palette;
+    ["body", "heading", "ui"].forEach((k) => c.font ? document.documentElement.style.setProperty("--font-" + k, c.font) : document.documentElement.style.removeProperty("--font-" + k)); // font choice beats the theme's
     applyTheme();
   };
   applyTheme();
@@ -407,7 +408,7 @@
   // spike that then decays exponentially (half-life SLOPE_HALF_LIFE_MIN); only past jumps count, so the value
   // at any moment never changes later and the tile and graph use the same function.
   const SLOPE_HALF_LIFE_MIN = 20;
-  const paceTier = (v) => (v < .25 ? "low" : v < .5 ? "mid" : v < .75 ? "good" : "high"); // colour band of a pace value
+  const paceTier = (v) => (v > 1 ? "max" : v < .25 ? "low" : v < .5 ? "mid" : v < .75 ? "good" : "high"); // colour band of a pace value ("max": above 1, animated)
   const slopeFmt = (v) => (Math.round(v * 100) / 100 || 0).toFixed(2);
   function slopeFn(a) {
     const jumps = a.score_line.slice(1).map((p, i) => ({ t: new Date(p.at).getTime(), dv: p.total - a.score_line[i].total })).filter((j) => j.dv);
@@ -491,12 +492,15 @@
       <div class="hm-legend">Less ${[0, 1, 2, 3, 4].map((l) => `<i class="hm-cell l${l}"></i>`).join("")} More</div>
       ${recentSection(a)}`;
     countUp($("#act-total"), a.total_done, !keepScroll);
+    // narrow windows: start at the newest weeks (the scrollbar is hidden, so a left-aligned start looks cut off)
+    const hm = $(".hm-wrap"); if (hm) hm.scrollLeft = hm.scrollWidth;
     note._activity = a;
     // current slope tile ticks in real time (it decays between score changes)
     const sl = $("#act-slope"), sf = slopeFn(a).at;
     let timer;
-    const tick = () => { if (!sl.isConnected) return clearInterval(timer); const v = sf(Date.now());
+    const tick = () => { if (!sl.isConnected) { delete note.dataset.hot; return clearInterval(timer); } const v = sf(Date.now());
       sl.dataset.tier = paceTier(v); // colour = which band the pace is in
+      note.dataset.hot = v > 1 ? "1" : ""; // pace above 1 also lights up the score numbers
       sl.textContent = slopeFmt(v);
       const rd = note.querySelector(".sc-read"); if (rd && !rd.dataset.hov) rd.textContent = idleRead(); };
     tick(); timer = setInterval(tick, 1000);

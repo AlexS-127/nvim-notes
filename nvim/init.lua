@@ -721,13 +721,20 @@ local function task_actions(item)
   end
 end
 
--- Run claude from ~ outside nvim (optionally with a first message). The launcher (ghostty-nvim, or the
+-- Run claude from ~ outside nvim (optionally with a first message). Without a launcher it runs through `:!`
+-- instead and returns to nvim afterwards. The launcher (ghostty-nvim, or the
 -- `notes` shell function) sets $NVIM_NOTES_CLAUDE to a file path; nvim writes the prompt there and
 -- quits, then the launcher runs claude in the real terminal and leaves a normal shell when it exits.
 local function open_claude(prompt)
   local handoff = vim.env.NVIM_NOTES_CLAUDE
   if not handoff or handoff == "" then
-    return vim.notify("claude: start nvim via ghostty-nvim or `notes` to run claude outside nvim", vim.log.levels.WARN)
+    -- Not started through a launcher (plain `nvim`, restored window, ...): run claude in this terminal
+    -- from ~ with `:!` and come back to nvim when it exits.
+    pcall(vim.cmd, "silent! wall")
+    local cmd = 'cd ~ && PATH="$HOME/.local/bin:$PATH" claude'
+    if prompt and prompt ~= "" then cmd = cmd .. " " .. vim.fn.shellescape(prompt) end
+    vim.cmd("!" .. vim.fn.escape(cmd, "!%#"))
+    return vim.cmd("redraw!")
   end
   pcall(vim.cmd, "silent! wall")
   if vim.fn.writefile(vim.split(prompt or "", "\n", { plain = true }), handoff) ~= 0 then

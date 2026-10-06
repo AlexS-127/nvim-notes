@@ -136,7 +136,7 @@ func (s *Server) Handler() http.Handler {
 func themeInfo() map[string]string {
 	c, _ := LoadConfig()
 	palette, mode := c.Resolved()
-	return map[string]string{"palette": palette, "mode": mode}
+	return map[string]string{"palette": palette, "mode": mode, "font": fontStack(c.Font)}
 }
 
 func noCache(h http.Handler) http.Handler {
@@ -523,9 +523,29 @@ func findAppBrowser() string {
 	return ""
 }
 
-// openViewerWindow opens a chrome-less app window if a Chromium-family
-// browser exists, otherwise the default browser.
+// nativeApp returns the NotesView.app bundle (macapp/build.sh) if installed.
+func nativeApp() string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	home, _ := os.UserHomeDir()
+	for _, p := range []string{filepath.Join(home, "Applications", "NotesView.app"), "/Applications/NotesView.app"} {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// openViewerWindow opens the native NotesView app (translucent, like the
+// terminal) if installed, else a chrome-less window in a Chromium-family
+// browser, otherwise the default browser.
 func openViewerWindow(target string) {
+	if app := nativeApp(); app != "" && os.Getenv("NOTESVIEW_BROWSER") == "" {
+		if exec.Command("open", "-a", app, "--args", target).Run() == nil {
+			return
+		}
+	}
 	if b := findAppBrowser(); b != "" {
 		cmd := exec.Command(b, "--app="+target)
 		if cmd.Start() == nil {
