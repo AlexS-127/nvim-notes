@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>notesview overlay</title>
+<link rel="icon" href="data:,">
+<script src="/theme.js"></script>
+<script>
+  // same palette choice as index.html: the theme for the current appearance
+  (function () {
+    var t = window.__notesviewTheme || {}, h = document.documentElement;
+    var a = t.appearance || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    var slot = t[a] || { palette: t.palette, mode: t.mode };
+    if (slot.palette) h.dataset.palette = slot.palette;
+    if (t.font) ["body", "heading", "ui"].forEach(function (k) { h.style.setProperty("--font-" + k, t.font); });
+    h.dataset.theme = slot.mode || a;
+  })();
+</script>
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/themes.css">
+<link rel="stylesheet" href="/overlay.css">
+<link rel="stylesheet" href="/custom.css">
+</head>
+<body class="overlay">
+<div class="ov" id="ov">
+  <div class="ov-stat"><b id="ov-score">–</b><small>score</small></div>
+  <div class="ov-stat"><b id="ov-pace" class="ov-pace">–</b><small>pace</small></div>
+  <div class="ov-stat"><b id="ov-done">–</b><small>done</small></div>
+  <div class="ov-stat"><b id="ov-quiz">–</b><small>quiz</small></div>
+  <div class="ov-stat"><b id="ov-words">–</b><small>words</small></div>
+</div>
+<script src="/pace.js"></script>
+<script src="/overlay.js"></script>
+</body>
+</html>

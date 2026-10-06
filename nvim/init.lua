@@ -16,7 +16,7 @@ vim.g.maplocalleader = " "
 local NOTES = vim.fn.expand((vim.env.NOTES_DIR and vim.env.NOTES_DIR ~= "") and vim.env.NOTES_DIR or "~/notes")
 local uv = vim.uv or vim.loop
 -- Oldest notesview this config works with. Bump together with `version` in renderer/main.go.
-local NOTESVIEW_MIN_VERSION = "0.7.0"
+local NOTESVIEW_MIN_VERSION = "0.8.0"
 
 -- ── Options ──────────────────────────────────────────────────────
 local o = vim.opt
@@ -67,7 +67,7 @@ vim.pack.add({
   "https://github.com/nvim-mini/mini.starter",
 }, { confirm = false })
 
--- ── Theme: Borland (light) / Catppuccin mocha (dark), follows the macOS appearance ─
+-- ── Theme: notesview's light / dark themes (default Borland / Catppuccin mocha), follows macOS ─
 require("catppuccin").setup({
   background = { light = "latte", dark = "mocha" },
   transparent_background = true,   -- keep the terminal's own background (Ghostty's opacity + blur)
@@ -87,24 +87,15 @@ require("catppuccin").setup({
     }
   end,
 })
-local function set_theme(bg)
-  vim.o.background = bg
-  vim.cmd.colorscheme("catppuccin")
-  if bg == "light" then require("borland").apply() end   -- opaque, high-contrast overrides
-end
--- Re-apply if something (e.g. :colorscheme) resets the highlights while in light mode.
-vim.api.nvim_create_autocmd("ColorScheme", {
-  callback = function()
-    if vim.o.background == "light" and vim.g.colors_name == "catppuccin" then
-      require("borland").apply()
-    end
-  end,
-})
-set_theme(vim.o.background)   -- no flash before auto-dark-mode's first check
+-- The colorscheme for each appearance comes from notesview's theme_light / theme_dark (viewer
+-- Settings page), see lua/themesync.lua; auto-dark-mode tells it which one applies.
+local themesync = require("themesync")
+themesync.setup()
+themesync.apply(vim.o.background)   -- no flash before auto-dark-mode's first check
 require("auto-dark-mode").setup({
   fallback = "dark",
-  set_dark_mode = function() set_theme("dark") end,
-  set_light_mode = function() set_theme("light") end,
+  set_dark_mode = function() themesync.apply("dark") end,
+  set_light_mode = function() themesync.apply("light") end,
 })
 
 -- Code-block syntax highlighting (needs: brew install tree-sitter-cli)

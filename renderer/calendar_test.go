@@ -11,6 +11,8 @@ func init() {
 	if l, err := time.LoadLocation("America/New_York"); err == nil {
 		time.Local = l
 	}
+	// never touch the real Ghostty config (theme changes sync to it)
+	os.Setenv("NOTESVIEW_GHOSTTY_CONFIG", "off")
 }
 
 func ics(events ...string) string {

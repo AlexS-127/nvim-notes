@@ -21,13 +21,19 @@
 
   // ── theme: palette and appearance come from config.json (index.html sets them before paint);
   // with no forced appearance it follows the system, live ──
+  // theme_light / theme_dark: the palette follows the appearance (forced in config.json, or the system's)
   const systemDark = matchMedia("(prefers-color-scheme: dark)");
-  let forcedMode = (window.__notesviewTheme || {}).mode || "";
-  const applyTheme = () => { document.documentElement.dataset.theme = forcedMode || (systemDark.matches ? "dark" : "light"); };
+  let themeCfg = window.__notesviewTheme || {};
+  const applyTheme = () => {
+    const h = document.documentElement, a = themeCfg.appearance || (systemDark.matches ? "dark" : "light");
+    const slot = themeCfg[a] || { palette: themeCfg.palette, mode: themeCfg.mode };
+    if (slot.palette) h.dataset.palette = slot.palette;
+    h.dataset.theme = slot.mode || a;
+    if (themeCfg.opacity) h.style.setProperty("--glass", Math.round(themeCfg.opacity * 100) + "%"); // native app background (NotesView.swift)
+  };
   const loadConfig = async () => {
-    const c = await api("/api/config");
-    forcedMode = c.mode || "";
-    if (c.palette) document.documentElement.dataset.palette = c.palette;
+    themeCfg = await api("/api/config");
+    const c = themeCfg;
     ["body", "heading", "ui"].forEach((k) => c.font ? document.documentElement.style.setProperty("--font-" + k, c.font) : document.documentElement.style.removeProperty("--font-" + k)); // font choice beats the theme's
     applyTheme();
   };
@@ -54,6 +60,7 @@
     if (p === "/activity") return { view: "activity", line: 0 };
     if (p === "/classes") return { view: "classes", line: 0 };
     if (p === "/reading") return { view: "reading", line: 0 };
+    if (p === "/settings") return { view: "settings", line: 0 };
     if (p.startsWith("/note/")) return { view: "note", path: dec(p.slice(6)), line };
     if (p.startsWith("/folder/")) return { view: "folder", path: dec(p.slice(8)), line: 0 };
     return null;
@@ -86,6 +93,8 @@
       await window.nvCalendar.render(calEnv);
     } else if (r.view === "reading") {
       await window.nvReading.render(calEnv);
+    } else if (r.view === "settings") {
+      await window.nvSettings.render(calEnv);
     } else if (r.view === "folder") {
       await renderFolder(r.path);
     } else {
@@ -416,14 +425,7 @@
   // slope = how fast the score is rising right now, in points per minute (1 = 30 points per 30 minutes). Every jump in the score log adds a
   // spike that then decays exponentially (half-life SLOPE_HALF_LIFE_MIN); only past jumps count, so the value
   // at any moment never changes later and the tile and graph use the same function.
-  const SLOPE_HALF_LIFE_MIN = 20;
-  const paceTier = (v) => (v > 1 ? "max" : v < .25 ? "low" : v < .5 ? "mid" : v < .75 ? "good" : "high"); // colour band of a pace value ("max": above 1, animated)
-  const slopeFmt = (v) => (Math.round(v * 100) / 100 || 0).toFixed(2);
-  function slopeFn(a) {
-    const jumps = a.score_line.slice(1).map((p, i) => ({ t: new Date(p.at).getTime(), dv: p.total - a.score_line[i].total })).filter((j) => j.dv);
-    const k = Math.LN2 / (SLOPE_HALF_LIFE_MIN * 60e3), unit = 60e3;
-    return { jumps, at: (t) => jumps.reduce((s, j) => (j.t <= t ? s + j.dv * k * Math.exp(-k * (t - j.t)) : s), 0) * unit };
-  }
+  const { SLOPE_HALF_LIFE_MIN, paceTier, slopeFmt, slopeFn } = window.nvPace; // pace.js, shared with the overlay
 
   function slopeSvg(a) {
     const W = 1200, H = 266, L = 100, R = 20, B = 46, T = 18;
@@ -744,9 +746,17 @@
   $("#btn-activity").onclick = () => { location.hash = "#/activity"; };
   $("#btn-classes").onclick = () => { location.hash = "#/classes"; };
   $("#btn-reading").onclick = () => { location.hash = "#/reading"; };
+  $("#btn-settings").onclick = () => { location.hash = "#/settings"; };
   $("#btn-today").onclick = goToday;
   // creates today's daily note (with carry-over) if it doesn't exist yet
   async function goToday() { const t = await post("/api/daily", {}); go(t.path); }
+
+  // the overlay is a window of NotesView.app: ask the app (only there) to show or hide it
+  function toggleOverlay() {
+    const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nv;
+    if (h) h.postMessage("overlay");
+    return !!h;
+  }
 
   // ── keyboard ──
   document.addEventListener("keydown", (e) => {
@@ -764,6 +774,8 @@
       case "a": location.hash = "#/activity"; break;
       case "c": location.hash = "#/classes"; break;
       case "r": location.hash = "#/reading"; break;
+      case ",": location.hash = "#/settings"; break;
+      case "o": if (!toggleOverlay()) return; break;
       case "g": goToday(); break;
       case "b": toggleSidebar(); break;
       default: return;
@@ -778,10 +790,14 @@
     refresh: () => show(current, true),
     show: (r, keep) => show(r, keep),
     setTitle: (t) => { document.title = t + " — notesview"; },
+    reloadConfig: () => loadConfig().catch(() => {}),
+    reloadTree: () => loadTree().catch(() => {}),
+    toggleOverlay: () => toggleOverlay(),
   };
   window.nvCalendar.bind(calEnv);
   window.nvReading.bind(calEnv);
   window.nvRoutine.bind(calEnv);
+  window.nvSettings.bind(calEnv);
 
   // ── live updates ──
   function connect() {

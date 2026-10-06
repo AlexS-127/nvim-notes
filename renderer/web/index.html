@@ -9,13 +9,16 @@
 <script src="/theme.js"></script>
 <script>
   // Before first paint: the palette and appearance from config.json (default: follow the system, like
-  // Ghostty and Neovim); the saved sidebar state.
+  // Ghostty and Neovim; theme_light / theme_dark per appearance); the saved sidebar state.
   (function () {
     var get = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
-    var t = window.__notesviewTheme || {};
-    if (t.palette) document.documentElement.dataset.palette = t.palette;
-    if (t.font) ["body", "heading", "ui"].forEach(function (k) { document.documentElement.style.setProperty("--font-" + k, t.font); });
-    document.documentElement.dataset.theme = t.mode || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    var t = window.__notesviewTheme || {}, h = document.documentElement;
+    var a = t.appearance || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    var slot = t[a] || { palette: t.palette, mode: t.mode };
+    if (slot.palette) h.dataset.palette = slot.palette;
+    if (t.font) ["body", "heading", "ui"].forEach(function (k) { h.style.setProperty("--font-" + k, t.font); });
+    if (t.opacity) h.style.setProperty("--glass", Math.round(t.opacity * 100) + "%");
+    h.dataset.theme = slot.mode || a;
     if (get("sidebar") === "collapsed") document.documentElement.classList.add("sidebar-collapsed-pending");
   })();
 </script>
@@ -40,6 +43,7 @@
       <button id="btn-classes" title="Classes: import a schedule, attendance (c)">Classes</button>
       <button id="btn-reading" title="Reading list: books, pages read (r)">Reading</button>
       <button id="btn-today" title="Today's note (g)">Today</button>
+      <button id="btn-settings" title="Settings: themes, transparency, calendars, routine, books… ( , )">Settings</button>
     </div>
   </div>
   <nav id="tree"></nav>
@@ -49,9 +53,11 @@
   <section id="backlinks" class="backlinks" hidden></section>
 </main>
 <script src="/katex/katex.min.js"></script>
+<script src="/pace.js"></script>
 <script src="/calendar.js"></script>
 <script src="/reading.js"></script>
 <script src="/routine.js"></script>
+<script src="/settings.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

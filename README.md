@@ -205,9 +205,24 @@ leaves no stamp. Tasks done before stamps existed count toward the total but not
 written in; tasks carried over from an earlier daily note are not counted as new.
 The data is at `/api/activity`.
 
+## Settings
+
+The **Settings** page (sidebar button, or `,` in the viewer):
+
+- **Appearance:** a light theme and a dark theme. The viewer, Neovim and Ghostty all use whichever matches the macOS appearance (or force Light/Dark). Neovim switches live and installs the matching colorscheme the first time a theme is used; Ghostty's `theme =` line is rewritten to match (switch that off with "Change Ghostty's theme too"). Also the font.
+- **Transparency** of the NotesView app's window (or "Same as Ghostty").
+- **Calendars** (import `.ics`, rename, colour, classes switch, remove), **Morning routine** items, **Books** (edit title, author, pages, status), **New words** folders, **Folder colours**.
+- **About:** version and paths, *Restart server* and *Rebuild & restart* (builds from this repo, like the start page's `r`).
+
+CLI: `notesview theme [light|dark] NAME`, `notesview font NAME`.
+
+## Overlay (NotesView app)
+
+A small see-through strip that floats above every app, on every Space and over full-screen apps, with today's **score, pace, tasks done, quiz time and new words**. Toggle it with **⌥⌘O** from anywhere, ⇧⌘O or the app's *Overlay* menu, `o` in the viewer, or Settings → Overlay. Drag it to move it; right-click for *Click-Through* (clicks go to the window under it) and *Reset Position*. It remembers where it was and whether it was showing, and keeps the app running when you close the main window (click the Dock icon to get the window back).
+
 ## Classes and check-in
 
-The **Classes** page (sidebar button, or `c` in the viewer) is where you import `.ics` schedules; there is no calendar display (use your calendar app for that).
+Calendars are imported on the **Settings** page (Calendars section); the **Classes** page (sidebar button, or `c`) shows attendance. There is no calendar display (use your calendar app for that).
 
 - **Import** with *Import .ics…* (or drop files on the page), or `notesview calendar import --name School school.ics`. Each file is a separate calendar with a colour, a use/ignore switch and a *classes* switch. Importing a file with the same name updates that calendar. Files are copied to `<notes>/.calendar/` and committed with your notes.
 - **Check in from home:** the next class is shown on the Activity view (Check-in button) and on the Neovim start page (`a`). The window opens 15 minutes before the class and closes when it ends; a check-in earns 5 points (`scoreCheckinPts` in `score.go`) on the day of the class.
@@ -363,7 +378,7 @@ The window opens as a tab-less app window if Chrome, Chromium, Brave or Edge is 
   sidebar (`b`, or « / ») is remembered. `~/.config/notesview/custom.css` loads last and overrides
   the theme: `:root { --accent: … }` changes both themes, `:root[data-theme="dark"] { … }` just one.
 
-Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `a` activity · `c` classes · `r` reading · `g` today's daily note (created if needed) · `b` sidebar.
+Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `a` activity · `c` classes · `r` reading · `,` settings · `o` overlay (app) · `g` today's daily note (created if needed) · `b` sidebar.
 
 ## Development
 

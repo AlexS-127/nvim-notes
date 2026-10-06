@@ -1,4 +1,5 @@
-// Classes page (import schedules, attendance) and the "next class" card of the Activity view. app.js calls in through
+// Classes page (attendance), the calendars panel of the Settings page (import schedules) and the
+// "next class" card of the Activity view. app.js calls in through
 // window.nvCalendar with its own helpers (env), so this file has no globals besides that.
 (() => {
   "use strict";
@@ -99,13 +100,21 @@
 
   async function render(env) {
     const d = await env.api("/api/calendar"), note = env.note;
-    if (asClass === null) asClass = env.store.get("calAsClass", "1") === "1";
     note.className = "note classes";
     env.setTitle("Classes");
     note.innerHTML = `<h1>Classes</h1>
-      <p class="act-note">Import your class schedule (.ics). The next class shows on the Activity view and the start page, where you can check in from ${d.early_min} minutes before it starts until it ends, for ${d.points} points.</p>
-      ${panelHtml(d)}<h2>Attendance</h2>${attendanceHtml(d)}`;
+      <p class="act-note">The next class shows on the Activity view and the start page, where you can check in from ${d.early_min} minutes before it starts until it ends, for ${d.points} points. Import or change calendars in <a href="#/settings">Settings</a>.</p>
+      ${d.calendars.length ? "" : `<p class="act-note">No calendars yet: <a href="#/settings">import your class schedule (.ics)</a>.</p>`}
+      <h2>Attendance</h2>${attendanceHtml(d)}`;
     note._cal = { env, d };
+  }
+
+  // the calendars panel for the Settings page (import, rename, colour, classes switch, remove)
+  async function panel(env) {
+    const d = await env.api("/api/calendar");
+    if (asClass === null) asClass = env.store.get("calAsClass", "1") === "1";
+    env.note._cal = { env, d };
+    return panelHtml(d);
   }
 
   async function importFiles(env, files) {
@@ -123,7 +132,7 @@
 
   // one set of listeners on the page element
   function bind(env) {
-    const note = env.note, onPage = () => note.classList.contains("classes") && note._cal;
+    const note = env.note, onPage = () => (note.classList.contains("classes") || note.classList.contains("settings")) && note._cal;
     note.addEventListener("click", async (ev) => {
       const t = ev.target, q = (sel) => t.closest && t.closest(sel);
       let b;
@@ -166,5 +175,5 @@
     });
   }
 
-  window.nvCalendar = { render, bind, nextClassHtml, startNextClassTimer };
+  window.nvCalendar = { render, bind, panel, nextClassHtml, startNextClassTimer };
 })();

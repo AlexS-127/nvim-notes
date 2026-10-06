@@ -44,7 +44,7 @@ func defaultPort() int {
 // version is the notesview release. Release builds override it with
 // -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
 // relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
-var version = "0.7.0"
+var version = "0.8.0"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
@@ -75,8 +75,9 @@ func usage() {
                                                        morning routine: tick items, forecast = the score you
                                                        are 80% sure to reach today; items in .routine/routine.json
   notesview doctor                                     check the installation
-  notesview themes                                     list themes (* = current)
-  notesview theme    NAME                              choose a theme (writes config.json)
+  notesview themes                                     list themes (* = both, L = light, D = dark)
+  notesview theme    [light|dark] NAME                 choose a theme for both appearances, or one
+                                                       (writes config.json; syncs Ghostty unless off)
   notesview --version`)
 	os.Exit(2)
 }
@@ -179,8 +180,13 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 		cur, warn := LoadConfig()
 		for _, t := range themes {
 			mark := " "
-			if t.Name == cur.Theme {
+			switch {
+			case t.Name == cur.ThemeLight && t.Name == cur.ThemeDark:
 				mark = "*"
+			case t.Name == cur.ThemeLight:
+				mark = "L"
+			case t.Name == cur.ThemeDark:
+				mark = "D"
 			}
 			fmt.Fprintf(stdout, "%s %-12s %s\n", mark, t.Name, t.Desc)
 		}
@@ -213,30 +219,37 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 		if fontKey(text) == "default" {
 			cur.Font = ""
 		}
-		b, _ := json.MarshalIndent(cur, "", "  ")
-		if err := os.MkdirAll(configDir(), 0o755); err != nil {
-			return fail(err)
-		}
-		if err := os.WriteFile(configPath(), append(b, '\n'), 0o644); err != nil {
+		if err := SaveConfig(cur); err != nil {
 			return fail(err)
 		}
 		fmt.Fprintf(stdout, "font set to %s (%s)\n", map[bool]string{true: "default", false: text}[cur.Font == ""], configPath())
 		return 0
 	case "theme":
-		t, ok := findTheme(text)
+		// `theme NAME` sets both appearances, `theme light NAME` / `theme dark NAME` one of them
+		which, name := "both", text
+		if f := strings.Fields(text); len(f) == 2 && (f[0] == "light" || f[0] == "dark") {
+			which, name = f[0], f[1]
+		}
+		t, ok := findTheme(name)
 		if !ok {
-			return fail(fmt.Errorf("unknown theme %q (available: %s)", text, themeNames()))
+			return fail(fmt.Errorf("unknown theme %q (available: %s)", name, themeNames()))
 		}
 		cur, _ := LoadConfig()
-		cur.Theme = t.Name
-		b, _ := json.MarshalIndent(cur, "", "  ")
-		if err := os.MkdirAll(configDir(), 0o755); err != nil {
+		if which != "dark" {
+			cur.ThemeLight = t.Name
+		}
+		if which != "light" {
+			cur.ThemeDark = t.Name
+		}
+		if err := SaveConfig(cur); err != nil {
 			return fail(err)
 		}
-		if err := os.WriteFile(configPath(), append(b, '\n'), 0o644); err != nil {
-			return fail(err)
+		if cur.GhosttySync() {
+			if _, err := SyncGhosttyTheme(cur, ghosttyConfigPath()); err != nil {
+				fmt.Fprintln(stderr, "notesview: Ghostty:", err)
+			}
 		}
-		fmt.Fprintf(stdout, "theme set to %s (%s)\n", t.Name, configPath())
+		fmt.Fprintf(stdout, "theme set: light %s, dark %s (%s)\n", cur.ThemeLight, cur.ThemeDark, configPath())
 		return 0
 	case "due":
 		d, ok := ParseDue(text, now)

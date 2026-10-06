@@ -141,13 +141,28 @@ func (s *Server) Handler() http.Handler {
 	s.calendarRoutes(mux)
 	s.readingRoutes(mux)
 	s.routineRoutes(mux)
+	s.settingsRoutes(mux)
 	return s.guardHost(mux)
 }
 
-func themeInfo() map[string]string {
+// themeInfo is what the page needs before paint (/theme.js) and on config changes (/api/config):
+// the palette and forced mode for each appearance, the forced appearance ("" = follow the
+// system), the font, and the native app's background opacity.
+func themeInfo() map[string]any {
 	c, _ := LoadConfig()
 	palette, mode := c.Resolved()
-	return map[string]string{"palette": palette, "mode": mode, "font": fontStack(c.Font)}
+	lp, lm := c.Resolved("light")
+	dp, dm := c.Resolved("dark")
+	forced := ""
+	if c.Appearance != "auto" {
+		forced = c.Appearance
+	}
+	op := c.Opacity
+	if op <= 0 {
+		op = ghosttyOpacity()
+	}
+	return map[string]any{"palette": palette, "mode": mode, "font": fontStack(c.Font), "appearance": forced,
+		"light": map[string]string{"palette": lp, "mode": lm}, "dark": map[string]string{"palette": dp, "mode": dm}, "opacity": op}
 }
 
 func noCache(h http.Handler) http.Handler {
