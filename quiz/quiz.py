@@ -30,6 +30,7 @@ import random
 import re
 import sys
 import textwrap
+import threading
 import time
 import unicodedata
 from datetime import date, datetime
@@ -42,9 +43,9 @@ LOG = NOTES / ".quiz_log.jsonl"
 IDLE_CAP = 90  # seconds; a longer pause on one question counts as this much
 
 
-def log_session(subject, seconds, answered, correct):
+def log_session(subject, seconds, answered, correct, xp=0, levels=0):
     """Append one line per session; the viewer's Activity view sums them per day."""
-    if seconds < 1:
+    if seconds < 1 and not (answered or xp or levels):
         return
     entry = {
         "date": date.today().isoformat(),
@@ -54,6 +55,8 @@ def log_session(subject, seconds, answered, correct):
         "answered": answered,
         "correct": correct,
     }
+    if xp or levels:  # quiz progress also scores in the viewer
+        entry["xp"], entry["levels"] = xp, levels
     with LOG.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
@@ -257,13 +260,42 @@ class Clock:
 
     def __init__(self):
         self.active = 0.0
+        self.pending = None  # (monotonic time the open prompt was shown, its cap)
+        self.logged = 0  # whole seconds already written to the log
+        self.xp = self.levels = 0  # XP earned and levels gained this session
+        self.logged_xp = self.logged_levels = 0
 
     def input(self, prompt, cap=IDLE_CAP):
         asked = time.monotonic()
+        self.pending = (asked, cap)
         try:
             return input(prompt)
         finally:  # so quitting or Ctrl-C at a prompt still counts
+            self.pending = None
             self.active += min(time.monotonic() - asked, cap)
+
+    def live(self):
+        """Active seconds so far, including the prompt that is still open (capped like a finished one).
+        Never decreases, and equals `active` once the prompt is answered."""
+        p = self.pending
+        return self.active + (min(time.monotonic() - p[0], p[1]) if p else 0.0)
+
+    def flush(self, subject, answered=0, correct=0):
+        """Log the seconds not written yet as their own line (the viewer sums lines per day)."""
+        n = max(round(self.live()) - self.logged, 0)
+        xp, levels = self.xp - self.logged_xp, self.levels - self.logged_levels
+        if n > 0 or answered or xp or levels:
+            self.logged += n
+            self.logged_xp, self.logged_levels = self.xp, self.levels
+            log_session(subject, n, answered, correct, xp, levels)
+
+    def log_every_minute(self, subject, every=60):
+        """Background thread: write the new study time once a minute, so score points arrive while quizzing."""
+        def loop():
+            while True:
+                time.sleep(every)
+                self.flush(subject)
+        threading.Thread(target=loop, daemon=True).start()
 
 
 # ---- vocab (definitions.md) -------------------------------------------------------------
@@ -483,7 +515,8 @@ def main():
     missed = []
     clock = Clock()  # seconds spent on questions, idle time capped
     # atexit so Ctrl-C / EOF still log the time; reads the final values when it runs
-    atexit.register(lambda: log_session(subject, clock.active, total, right))
+    clock.log_every_minute(subject)
+    atexit.register(lambda: clock.flush(subject, total, right))
 
     while True:
         item = pick(items, stats, asked_at, total + 1, last)
@@ -516,6 +549,8 @@ def main():
             old = level_of(pl["xp"])
             pl["xp"] += gain
             session_xp += gain
+            clock.xp += gain
+            clock.levels += level_of(pl["xp"]) - old
             pl["best_combo"] = max(pl["best_combo"], combo)
             combo_txt = f" 🔥x{combo}" if combo >= 3 else ""
             print(f"  ✓ +{gain} XP{combo_txt}" + ok_note)
@@ -534,6 +569,7 @@ def main():
             print(n)
         print()
         save_stats(stats_path, stats)
+        clock.flush(subject)  # XP and level-ups score right away, not at the next minute tick
 
     if total:
         print(f"\nScore: {right}/{total} ({100 * right // total}%)")
