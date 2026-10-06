@@ -34,6 +34,8 @@ const (
 	scoreQuizPerMin = 2.0 // points per minute of quiz time
 	scoreWordsPer   = 20  // new words per point
 	scoreOverduePts = 10  // points lost per overdue task
+	scoreXPPer      = 10  // quiz XP per point (a correct answer is 10 XP, up to 40 with a combo)
+	scoreLevelPts   = 5   // points per quiz level gained
 
 	scoreRecordEvery = 10 * time.Second // how often the viewer records today's score for the graph
 )
@@ -52,6 +54,8 @@ type ScoreHints struct {
 	Study   string `json:"study"`
 	Words   string `json:"words"`
 	Overdue string `json:"overdue"`
+	XP      string `json:"xp"`
+	Level   string `json:"level"`
 }
 
 func scoreHints() ScoreHints {
@@ -63,6 +67,8 @@ func scoreHints() ScoreHints {
 		Study:   fmt.Sprintf("%g a minute", scoreQuizPerMin),
 		Words:   fmt.Sprintf("1 per %d words in tracked folders", scoreWordsPer),
 		Overdue: fmt.Sprintf("−%d each", scoreOverduePts),
+		XP:      fmt.Sprintf("1 per %d quiz XP (correct answers, combos and recovered weak words earn XP)", scoreXPPer),
+		Level:   fmt.Sprintf("%d each time you level up in a quiz", scoreLevelPts),
 	}
 }
 
@@ -81,6 +87,24 @@ type Score struct {
 	StudyPts   int `json:"study_pts"`
 	WordsPts   int `json:"words_pts"`
 	OverduePts int `json:"overdue_pts"`
+	// quiz progress (quiz.py's XP and levels), see withQuiz
+	QuizXP   int `json:"quiz_xp"`
+	LevelUps int `json:"level_ups"`
+	XPPts    int `json:"xp_pts"`
+	LevelPts int `json:"level_pts"`
+}
+
+// sum is the total of every part, floored at 0.
+func (s Score) sum() int {
+	return max(0, s.DonePts+s.CreatedPts+s.StudyPts+s.WordsPts+s.OverduePts+s.XPPts+s.LevelPts)
+}
+
+// withQuiz adds the day's quiz XP and level-ups to a score and refreshes the total.
+func (s Score) withQuiz(xp, levels int) Score {
+	s.QuizXP, s.LevelUps = xp, levels
+	s.XPPts, s.LevelPts = xp/scoreXPPer, levels*scoreLevelPts
+	s.Total = s.sum()
+	return s
 }
 
 // scoreFor turns one day's counts into a score. doneBy counts the completed tasks by
@@ -97,8 +121,7 @@ func scoreFor(doneBy, focus [4]int, created, studySecs, words, overdue int, live
 	s.StudyPts = int(math.Round(float64(studySecs) / 60 * scoreQuizPerMin))
 	s.WordsPts = words / scoreWordsPer
 	s.OverduePts = -overdue * scoreOverduePts
-	total := s.DonePts + s.CreatedPts + s.StudyPts + s.WordsPts + s.OverduePts
-	s.Total = max(0, total)
+	s.Total = s.sum()
 	return s
 }
 
@@ -145,7 +168,7 @@ func (a *Activity) AddScores(tasks []Task, now time.Time) {
 			continue // a task stamped in the future
 		}
 		d := a.Days[k]
-		a.Scores[k] = scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried, k == a.Today), k == a.Today)
+		a.Scores[k] = scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried, k == a.Today), k == a.Today).withQuiz(d.QuizXP, d.LevelUps)
 	}
 }
 
@@ -200,6 +223,7 @@ func (s *Store) FullActivity(now time.Time, nWeeks int) Activity {
 	tasks := s.CollectTasks(TaskQuery{All: true, Now: now})
 	a := BuildActivity(tasks, now, nWeeks)
 	a.AddStudy(s.StudySeconds(), now)
+	a.AddQuizGains(s.StudyGains())
 	s.RecordWords(now)
 	a.AddWords(s.WordsPerDay(), now)
 	a.AddScores(tasks, now)

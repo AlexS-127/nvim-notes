@@ -74,10 +74,12 @@ func createdDate(t Task, now time.Time, carried map[string]bool) string {
 }
 
 type DayStat struct {
-	Done    int `json:"done"`
-	Created int `json:"created"`
-	Study   int `json:"study"` // seconds of quiz time
-	Words   int `json:"words"` // new words written in tracked folders, see words.go
+	Done     int `json:"done"`
+	Created  int `json:"created"`
+	Study    int `json:"study"`     // seconds of quiz time
+	Words    int `json:"words"`     // new words written in tracked folders, see words.go
+	QuizXP   int `json:"quiz_xp"`   // XP earned in quizzes, see quiz.py
+	LevelUps int `json:"level_ups"` // quiz levels gained
 	// DoneBy counts completed tasks by difficulty: [0] has none set, [1]-[3] are !1-!3.
 	DoneBy [4]int `json:"-"`
 	// DoneFocus is the part of DoneBy outside the workflow folder, scored double (score.go).
@@ -174,6 +176,46 @@ func (s *Store) StudySeconds() map[string]int {
 		}
 	}
 	return out
+}
+
+// QuizGain is the XP and level-ups quiz.py logged on one day.
+type QuizGain struct{ XP, Levels int }
+
+// StudyGains sums the quiz log's "xp" and "levels" fields by day (older lines have none).
+func (s *Store) StudyGains() map[string]QuizGain {
+	out := map[string]QuizGain{}
+	f, err := os.Open(filepath.Join(s.Root, quizLog))
+	if err != nil {
+		return out
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		var e struct {
+			Date   string `json:"date"`
+			XP     int    `json:"xp"`
+			Levels int    `json:"levels"`
+		}
+		if json.Unmarshal(sc.Bytes(), &e) != nil || (e.XP <= 0 && e.Levels <= 0) {
+			continue
+		}
+		if _, err := time.Parse(isoDate, e.Date); err == nil {
+			g := out[e.Date]
+			g.XP += max(e.XP, 0)
+			g.Levels += max(e.Levels, 0)
+			out[e.Date] = g
+		}
+	}
+	return out
+}
+
+// AddQuizGains folds per-day quiz XP and level-ups into an Activity.
+func (a *Activity) AddQuizGains(gains map[string]QuizGain) {
+	for k, g := range gains {
+		d := a.Days[k]
+		d.QuizXP, d.LevelUps = g.XP, g.Levels
+		a.Days[k] = d
+	}
 }
 
 // AddStudy folds per-day quiz seconds into an Activity built from tasks.

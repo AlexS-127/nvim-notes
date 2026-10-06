@@ -107,6 +107,29 @@ func TestDistributionThresholds(t *testing.T) {
 	}
 }
 
+func TestQuizGains(t *testing.T) {
+	s := newTestStore(t, map[string]string{
+		quizLog: `{"date":"2026-10-01","seconds":60,"xp":35,"levels":1}` + "\n" + `{"date":"2026-10-01","seconds":60}` + "\n" +
+			`{"date":"2026-10-01","xp":20}` + "\n" + `{"date":"2026-09-30","xp":9}` + "\n",
+	})
+	g := s.StudyGains()
+	if g["2026-10-01"] != (QuizGain{55, 1}) || g["2026-09-30"] != (QuizGain{9, 0}) {
+		t.Errorf("gains: %+v", g)
+	}
+	// 55 XP is 5 points, one level-up is scoreLevelPts; both add to the total
+	sc := scoreFor([4]int{}, [4]int{}, 0, 0, 0, 0, false).withQuiz(55, 1)
+	if sc.XPPts != 55/scoreXPPer || sc.LevelPts != scoreLevelPts || sc.Total != 55/scoreXPPer+scoreLevelPts {
+		t.Errorf("quiz score: %+v", sc)
+	}
+	// through the whole pipeline
+	a := BuildActivity(nil, time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local), 2)
+	a.AddQuizGains(g)
+	a.AddScores(nil, time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local))
+	if a.Scores["2026-10-01"].Total != sc.Total {
+		t.Errorf("activity score: %+v", a.Scores["2026-10-01"])
+	}
+}
+
 func TestAddStudy(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local) // Thursday
 	s := newTestStore(t, map[string]string{

@@ -339,6 +339,8 @@
       ["Tasks completed", sc.done, hints.done, sc.done_pts],
       ["Tasks created", sc.created, hints.created, sc.created_pts],
       ["Quiz time", fmtStudy(sc.study), hints.study, sc.study_pts],
+      ["Quiz XP", (sc.quiz_xp || 0).toLocaleString(), hints.xp, sc.xp_pts || 0],
+      ["Level ups", sc.level_ups || 0, hints.level, sc.level_pts || 0],
       ["New words", (sc.words || 0).toLocaleString(), hints.words, sc.words_pts || 0],
       ["Overdue tasks", sc.overdue, hints.overdue, sc.overdue_pts],
     ];
@@ -405,6 +407,7 @@
   // spike that then decays exponentially (half-life SLOPE_HALF_LIFE_MIN); only past jumps count, so the value
   // at any moment never changes later and the tile and graph use the same function.
   const SLOPE_HALF_LIFE_MIN = 20;
+  const paceTier = (v) => (v < .25 ? "low" : v < .5 ? "mid" : v < .75 ? "good" : "high"); // colour band of a pace value
   const slopeFmt = (v) => (Math.round(v * 100) / 100 || 0).toFixed(2);
   function slopeFn(a) {
     const jumps = a.score_line.slice(1).map((p, i) => ({ t: new Date(p.at).getTime(), dv: p.total - a.score_line[i].total })).filter((j) => j.dv);
@@ -493,10 +496,17 @@
     const sl = $("#act-slope"), sf = slopeFn(a).at;
     let timer;
     const tick = () => { if (!sl.isConnected) return clearInterval(timer); const v = sf(Date.now());
-      sl.dataset.tier = v < .25 ? "low" : v < .5 ? "mid" : v < .75 ? "good" : "high"; // colour = which band the pace is in
+      sl.dataset.tier = paceTier(v); // colour = which band the pace is in
       sl.textContent = slopeFmt(v);
       const rd = note.querySelector(".sc-read"); if (rd && !rd.dataset.hov) rd.textContent = idleRead(); };
     tick(); timer = setInterval(tick, 1000);
+    // in Pace mode the number above the graph (current or hovered pace) is coloured by the same bands
+    const rd0 = note.querySelector(".sc-read");
+    if (rd0) {
+      const paint = () => { if (scoreMode === "slope") rd0.dataset.tier = paceTier(parseFloat(rd0.textContent)); else delete rd0.dataset.tier; };
+      new MutationObserver(paint).observe(rd0, { childList: true, characterData: true, subtree: true });
+      paint();
+    }
   }
 
   // metric switch, tooltips
