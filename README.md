@@ -215,6 +215,16 @@ The **Classes** page (sidebar button, or `c` in the viewer) is where you import 
 
 CLI: `notesview calendar [list | import | remove | next | today | checkin | attendance]`.
 
+## Morning routine
+
+Every day the Activity view (top card) and the Neovim start page (top section) show the morning routine until every item is done or you press *End routine*: shower, brush teeth, breakfast, drink water, make bed, and **buy a call option**: the score you are 80% sure to reach today. Each item scores 1 point, the whole routine 5 more. A Forecast tile then shows your strike against the live score.
+
+- Start page: `m` does the next item (the call option asks for the score), Enter toggles the item under the cursor, `M` ends the routine.
+- Edit the items in `<notes>/.routine/routine.json` (`{"items": [{"id": "shower", "label": "Shower"}, …]}`; `"kind": "forecast"` marks the call option).
+- Everything is logged to `.routine/log.jsonl`; the forecasts are kept as training data for the score market.
+
+CLI: `notesview routine [show | tick ITEM | untick ITEM | forecast SCORE | end]` (ITEM = id, number or start of the label).
+
 ## Reading list and log
 
 The **Reading** page (sidebar button, or `r` in the viewer) keeps books to read, being read and read. Adding a book needs a title and an author; the number of pages is optional and gives a % read.

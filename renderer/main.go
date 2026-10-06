@@ -44,7 +44,7 @@ func defaultPort() int {
 // version is the notesview release. Release builds override it with
 // -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
 // relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
-var version = "0.6.0"
+var version = "0.7.0"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
@@ -71,6 +71,9 @@ func usage() {
                                                        reading list and log: add "TITLE" "AUTHOR" [PAGES],
                                                        log [BOOK] PAGES | log [BOOK] --to PAGE, done BOOK
                                                        (BOOK = id or start of the title; log scores pages)
+  notesview routine  [show|tick ITEM|untick ITEM|forecast SCORE|end]
+                                                       morning routine: tick items, forecast = the score you
+                                                       are 80% sure to reach today; items in .routine/routine.json
   notesview doctor                                     check the installation
   notesview themes                                     list themes (* = current)
   notesview theme    NAME                              choose a theme (writes config.json)
@@ -89,7 +92,7 @@ func main() {
 		return
 	case "-h", "--help", "help":
 		usage()
-	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words", "calendar", "read":
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words", "calendar", "read", "routine":
 		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
@@ -306,6 +309,8 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 			return printJSON(stdout, map[string]string{"line": line, "path": filepath.Join(store.Root, "inbox.md")})
 		}
 		fmt.Fprintln(stdout, "Added to inbox:", line)
+	case "routine":
+		return runRoutineCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
 	case "read":
 		return runReadCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
 	case "calendar":

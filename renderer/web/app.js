@@ -350,6 +350,7 @@
       ["Level ups", sc.level_ups || 0, hints.level, sc.level_pts || 0],
       ["Class check-ins", sc.checkins || 0, hints.checkin, sc.checkin_pts || 0],
       ["Pages read", sc.pages || 0, hints.read, sc.pages_pts || 0],
+      ["Morning routine", (sc.routine || 0) + (sc.routine_complete ? " ✓" : ""), hints.routine, sc.routine_pts || 0],
       ["New words", (sc.words || 0).toLocaleString(), hints.words, sc.words_pts || 0],
       ["Overdue tasks", sc.overdue, hints.overdue, sc.overdue_pts],
     ];
@@ -496,6 +497,7 @@
     const today = a.days[a.today] || { done: 0, created: 0 };
 
     note.innerHTML = `<h1>Activity</h1>
+      ${window.nvRoutine.cardHtml(a.routine)}
       ${window.nvCalendar.nextClassHtml(up)}
       ${window.nvReading.cardHtml(a.reading)}
       <div class="act-tiles">
@@ -508,6 +510,7 @@
           <span class="sub">${(a.words_week || 0).toLocaleString()} this week · ${(a.words_total || 0).toLocaleString()} in all</span></div>
         ${attendanceTile(a.attendance)}
         ${pagesTile(a.reading)}
+        ${window.nvRoutine.tileHtml(a.routine, (a.scores[a.today] || {}).total || 0)}
         <div class="tile"><small>Current pace</small><div class="big"><span id="act-slope">--.--</span></div></div>
       </div>
       ${scoreSection(a)}
@@ -778,6 +781,7 @@
   };
   window.nvCalendar.bind(calEnv);
   window.nvReading.bind(calEnv);
+  window.nvRoutine.bind(calEnv);
 
   // ── live updates ──
   function connect() {

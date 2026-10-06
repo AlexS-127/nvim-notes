@@ -16,7 +16,7 @@ vim.g.maplocalleader = " "
 local NOTES = vim.fn.expand((vim.env.NOTES_DIR and vim.env.NOTES_DIR ~= "") and vim.env.NOTES_DIR or "~/notes")
 local uv = vim.uv or vim.loop
 -- Oldest notesview this config works with. Bump together with `version` in renderer/main.go.
-local NOTESVIEW_MIN_VERSION = "0.6.0"
+local NOTESVIEW_MIN_VERSION = "0.7.0"
 
 -- ── Options ──────────────────────────────────────────────────────
 local o = vim.opt

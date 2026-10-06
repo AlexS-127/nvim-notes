@@ -221,6 +221,81 @@ local function class_items()
   return { { name = "a  " .. class_label(c, w - 3), section = "Next class", action = check_in } }
 end
 
+-- ── Morning routine ───────────────────────────────────────────────
+-- From `notesview routine --json` (works on the files, no server). Shown at the top every day until
+-- every item is done or the routine is ended. `m` does the first item not done yet, Enter on a line
+-- toggles that item, `M` ends the routine. The forecast item ("buy a call option") asks for the score
+-- you are 80% sure to reach today. Items: ~/notes/.routine/routine.json; points in score.go.
+local routine = nil   -- nil: still loading
+
+local function load_routine()
+  if vim.fn.executable("notesview") == 0 then routine = false; return end
+  vim.system({ "notesview", "routine", "--dir", NOTES, "--json" }, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      local ok, decoded = pcall(vim.json.decode, r.stdout or "", { luanil = { object = true, array = true } })
+      routine = (r.code == 0 and ok and type(decoded) == "table") and decoded or false
+      refresh()
+    end)
+  end)
+end
+
+local function nv_routine(args)
+  local cmd = { "notesview", "routine", "--dir", NOTES }
+  vim.list_extend(cmd, args)
+  vim.system(cmd, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      if r.code ~= 0 then vim.notify(vim.trim(r.stderr or "routine failed"), vim.log.levels.WARN) end
+      local out = r.stdout or ""
+      if out:match("Routine done") or out:match("Routine ended") then vim.notify(vim.trim(out:match("Routine [^\n]*")), vim.log.levels.INFO) end
+      load_routine()
+      load_stats()
+    end)
+  end)
+end
+
+local function routine_do(it)
+  if not it then return end
+  if it.kind == "forecast" then
+    local f = routine and routine.forecast
+    local prompt = ("Buy a call option: the score you're %d%% sure to reach today%s: "):format(
+      math.floor((routine and routine.conf or 0.8) * 100 + 0.5), f and (" (now " .. f.strike .. ")") or "")
+    vim.ui.input({ prompt = prompt }, function(v)
+      v = vim.trim(v or "")
+      if v == "" then return end
+      if not v:match("^%d+$") then return vim.notify("The forecast is a score: a whole number", vim.log.levels.WARN) end
+      nv_routine({ "forecast", v })
+    end)
+    return
+  end
+  nv_routine({ it.done and "untick" or "tick", it.id })
+end
+
+local function routine_next()
+  if not (routine and routine.show) then return vim.notify("Morning routine done for today", vim.log.levels.INFO) end
+  for _, it in ipairs(routine.items or {}) do
+    if not it.done then return routine_do(it) end
+  end
+end
+
+local function routine_end()
+  if not (routine and routine.show) then return end
+  nv_routine({ "end" })
+end
+
+local function routine_items()
+  if not (routine and routine.show and #(routine.items or {}) > 0) then return {} end
+  local w, items, keyed = next_width(), {}, false
+  for _, it in ipairs(routine.items) do
+    local label = it.label
+    if it.kind == "forecast" and routine.forecast then label = label .. ": " .. routine.forecast.strike end
+    local key = "   "
+    if not it.done and not keyed then key, keyed = "m  ", true end
+    items[#items + 1] = { name = key .. fit((it.done and "[x] " or "[ ] ") .. label, w - 3), section = "Morning routine", action = function() routine_do(it) end }
+  end
+  items[#items + 1] = { name = "M  " .. fit(("End routine (%d of %d done)"):format(routine.done or 0, #routine.items), w - 3), section = "Morning routine", action = routine_end }
+  return items
+end
+
 -- ── Reading ───────────────────────────────────────────────────────
 -- Books being read come with the stats (/api/activity `reading`); logging and adding go through
 -- `notesview read` (works on the files, no server). `l` logs pages for the first book, Enter on a
@@ -469,11 +544,12 @@ function M.setup()
   local starter = require("mini.starter")
   load_tasks()
   load_classes()
+  load_routine()
   load_stats()
 
   starter.setup({
     header = header,
-    items = { class_items, reading_items, task_items, action_items },
+    items = { routine_items, class_items, reading_items, task_items, action_items },
     footer = "",
     content_hooks = { split_keys, starter.gen_hook.aligning("center", "center") },
   })
@@ -509,10 +585,10 @@ function M.setup()
   })
 
   -- fresh tasks and numbers when you come back; the numbers also tick over once a minute while the page is up
-  vim.api.nvim_create_autocmd("FocusGained", { callback = function() load_tasks(); load_classes(); load_stats() end })
-  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = function() load_classes(); load_stats() end })
+  vim.api.nvim_create_autocmd("FocusGained", { callback = function() load_tasks(); load_classes(); load_routine(); load_stats() end })
+  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = function() load_classes(); load_routine(); load_stats() end })
   uv.new_timer():start(60000, 60000, vim.schedule_wrap(function()
-    if vim.bo.filetype == "ministarter" then load_classes(); load_stats() end
+    if vim.bo.filetype == "ministarter" then load_classes(); load_routine(); load_stats() end
   end))
 
   -- mini.starter turns letters into a search query; give them back as direct keys.
@@ -522,6 +598,8 @@ function M.setup()
       local function bmap(key, fn) vim.keymap.set("n", key, fn, { buffer = ev.buf, nowait = true, silent = true }) end
       for _, a in ipairs(actions) do bmap(a[1], a[3]) end
       bmap("l", function() log_pages() end)
+      bmap("m", routine_next)
+      bmap("M", routine_end)
       for i = 1, 3 do
         bmap(tostring(i), function() if tasks and tasks[i] then
           vim.cmd.edit(vim.fn.fnameescape(NOTES .. "/" .. tasks[i].file))
