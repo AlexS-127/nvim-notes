@@ -199,11 +199,21 @@ The **Activity** view (sidebar button, or `a` in the viewer) turns your tasks in
 - Ticking a task in the viewer throws confetti, with a toast when you pass a milestone.
 
 Completion dates come from a stamp added when you tick a task, in the viewer or with `<Space>x`:
-`- [x] read ch 5 ✅ 2026-10-01` (unticking removes it). Ticking a box by hand-editing the file
+`- [x] read ch 5 ✅ 2026-10-01 14:30` (unticking removes it; older stamps have only the date). The time places the tick on the Today score curve. Ticking a box by hand-editing the file
 leaves no stamp. Tasks done before stamps existed count toward the total but not the calendar.
 "Made" uses the capture timestamp (`_(Oct 01 10:12)_`), or the date of the daily note the task was
 written in; tasks carried over from an earlier daily note are not counted as new.
 The data is at `/api/activity`.
+
+## Classes and check-in
+
+The **Classes** page (sidebar button, or `c` in the viewer) is where you import `.ics` schedules; there is no calendar display (use your calendar app for that).
+
+- **Import** with *Import .ics…* (or drop files on the page), or `notesview calendar import --name School school.ics`. Each file is a separate calendar with a colour, a use/ignore switch and a *classes* switch. Importing a file with the same name updates that calendar. Files are copied to `<notes>/.calendar/` and committed with your notes.
+- **Check in from home:** the next class is shown on the Activity view (Check-in button) and on the Neovim start page (`a`). The window opens 15 minutes before the class and closes when it ends; a check-in earns 5 points (`scoreCheckinPts` in `score.go`) on the day of the class.
+- **Attendance:** an Activity tile shows the overall attendance %; the Classes page lists attended/held per class. Every ended class (attended or missed) is logged to `.calendar/attendance.jsonl` as a signal for later features.
+
+CLI: `notesview calendar [list | import | remove | next | today | checkin | attendance]`.
 
 ## Capture
 
@@ -333,7 +343,7 @@ The window opens as a tab-less app window if Chrome, Chromium, Brave or Edge is 
   sidebar (`b`, or « / ») is remembered. `~/.config/notesview/custom.css` loads last and overrides
   the theme: `:root { --accent: … }` changes both themes, `:root[data-theme="dark"] { … }` just one.
 
-Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `a` activity · `g` today's daily note (created if needed) · `b` sidebar.
+Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `a` activity · `c` classes · `g` today's daily note (created if needed) · `b` sidebar.
 
 ## Development
 

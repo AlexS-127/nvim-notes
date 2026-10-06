@@ -87,6 +87,11 @@ local function stats_lines()
   vim.list_extend(lines, score_graph(stats.score_line, math.max(16, math.min(48, vim.o.columns - 30)), 3))
   lines[#lines + 1] = ("tasks  %d made · %d done · %d left    quiz %s    words %d"):format(
     day.created or 0, day.done or 0, stats.open or 0, duration(stats.study_today or 0), stats.words_today or 0)
+  local att = stats.attendance
+  if type(att) == "table" and (att.classes or 0) > 0 then
+    local function p(v) return (v or -1) < 0 and "–" or (v .. "%") end
+    lines[#lines + 1] = ("attendance  %s"):format(p(att.total_pct))
+  end
   return lines
 end
 
@@ -143,6 +148,73 @@ end
 local function fit(s, w)
   s = cut(s, w)
   return s .. (" "):rep(w - vim.fn.strdisplaywidth(s))
+end
+
+-- ── Next class ────────────────────────────────────────────────────
+-- From `notesview calendar next` (works on the .ics files directly, no server). Shown above "Next up";
+-- `a` checks in while the window is open (from 15 minutes before the class until it ends), for points.
+local classes = nil   -- nil: still loading; {} none
+
+local function load_classes()
+  if vim.fn.executable("notesview") == 0 then classes = {}; return end
+  vim.system({ "notesview", "calendar", "--json", "--dir", NOTES, "next" }, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      local ok, decoded = pcall(vim.json.decode, r.stdout or "")
+      classes = (r.code == 0 and ok and type(decoded) == "table" and decoded.classes) or {}
+      refresh()
+    end)
+  end)
+end
+
+local function hhmm(stamp) return tostring(stamp):match("T(%d+:%d+)") or "" end
+
+local function until_text(secs)
+  local m = math.floor(secs / 60)
+  if m < 1 then return "now" end
+  if m < 60 then return ("in %dm"):format(m) end
+  if m < 24 * 60 then return ("in %dh %02dm"):format(math.floor(m / 60), m % 60) end
+  return ("in %dd"):format(math.floor(m / (24 * 60)))
+end
+
+local function class_label(c, w)
+  local when = hhmm(c.start) .. "-" .. hhmm(c["end"])
+  if c.date ~= os.date("%Y-%m-%d") then
+    local y, mo, d = c.date:match("(%d+)-(%d+)-(%d+)")
+    when = os.date("%a", os.time({ year = y, month = mo, day = d, hour = 12 })) .. " " .. hhmm(c.start)
+  end
+  local where = (c.location and c.location ~= "") and (" · " .. c.location) or ""
+  local state
+  if c.checked then
+    state = "  ✓ checked in"
+  elseif c.can_check then
+    state = "  check in now (a)"
+  else
+    local at = tonumber(tostring(c.id):match("|(%d+)$"))
+    state = at and ("  (" .. until_text(at - os.time()) .. ")") or ""
+  end
+  local tail = cut(state, w - 10)
+  return fit(cut(("%s · %s%s"):format(c.title, when, where), w - vim.fn.strdisplaywidth(tail)) .. tail, w)
+end
+
+local function check_in()
+  local c = classes and classes[1]
+  if not c then return vim.notify("No upcoming class", vim.log.levels.INFO) end
+  if c.checked then return vim.notify("Already checked in to " .. c.title, vim.log.levels.INFO) end
+  vim.system({ "notesview", "calendar", "--dir", NOTES, "checkin" }, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      local msg = vim.trim((r.code == 0 and r.stdout or r.stderr) or "")
+      vim.notify(msg ~= "" and msg or "check-in failed", r.code == 0 and vim.log.levels.INFO or vim.log.levels.WARN)
+      load_classes()
+      load_stats()
+    end)
+  end)
+end
+
+local function class_items()
+  if not classes or #classes == 0 then return {} end
+  local c = classes[1]
+  local w = next_width()
+  return { { name = "a  " .. class_label(c, w - 3), section = "Next class", action = check_in } }
 end
 
 local function task_label(t, w)
@@ -209,6 +281,7 @@ local function run_quiz_in_terminal(script)
       vim.schedule(function()
         if vim.api.nvim_buf_is_valid(buf) then pcall(vim.api.nvim_buf_delete, buf, { force = true }) end
         load_tasks()
+        load_classes()
         load_stats()
       end)
     end,
@@ -252,6 +325,7 @@ local function run_quiz()
   if not pcall(vim.cmd, ("restart lua vim.g.notes_tui = %d; require('mini.starter').open()"):format(tui)) then
     vim.cmd("redraw!")
     load_tasks()
+    load_classes()
     load_stats()
     pcall(require("mini.starter").open)
   end
@@ -260,6 +334,7 @@ end
 -- ── One-key actions ──────────────────────────────────────────────
 local actions = {
   { "t", "Task list", function() feed("<leader>no") end },
+  { "a", "Check in to class", check_in },
   { "v", "Capture a task", function() feed("<leader>ni") end },
   { "c", "Claude (in ~)", function() feed("<leader>nC") end },
   { "e", "Inbox", function() feed("<leader>nI") end },
@@ -284,14 +359,20 @@ end
 function M.setup()
   local starter = require("mini.starter")
   load_tasks()
+  load_classes()
   load_stats()
 
   starter.setup({
     header = header,
-    items = { task_items, action_items },
+    items = { class_items, task_items, action_items },
     footer = "",
     content_hooks = { starter.gen_hook.aligning("center", "center") },
   })
+
+  -- no white "current item" block on the first line: it made the first key letter differ from the rest
+  local function clear_current() vim.api.nvim_set_hl(0, "MiniStarterCurrent", {}) end
+  clear_current()
+  vim.api.nvim_create_autocmd("ColorScheme", { callback = clear_current })
 
   vim.keymap.set("n", "<leader>H", function() starter.open() end, { desc = "Home (start page)" })
   vim.api.nvim_create_user_command("Home", function() starter.open() end, {})
@@ -314,10 +395,10 @@ function M.setup()
   })
 
   -- fresh tasks and numbers when you come back; the numbers also tick over once a minute while the page is up
-  vim.api.nvim_create_autocmd("FocusGained", { callback = function() load_tasks(); load_stats() end })
-  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = load_stats })
+  vim.api.nvim_create_autocmd("FocusGained", { callback = function() load_tasks(); load_classes(); load_stats() end })
+  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = function() load_classes(); load_stats() end })
   uv.new_timer():start(60000, 60000, vim.schedule_wrap(function()
-    if vim.bo.filetype == "ministarter" then load_stats() end
+    if vim.bo.filetype == "ministarter" then load_classes(); load_stats() end
   end))
 
   -- mini.starter turns letters into a search query; give them back as direct keys.

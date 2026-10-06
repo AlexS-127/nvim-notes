@@ -308,3 +308,42 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 .recent li { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--border); }
 .recent li:last-child { border-bottom: 0; }
 .rt-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── calendar (calendar.js) and the next-class card ── */
+.cp-import button.on { color: var(--accent); border-color: var(--accent); background: var(--hl); }
+.cal-panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; margin-bottom: 12px; font-family: var(--font-ui); font-size: 13.5px; }
+.cp-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.cp-row small, .cp-import small { color: var(--muted); }
+.cp-row input[type=checkbox], .cp-class input { accent-color: var(--accent); cursor: pointer; }
+.cp-dot { width: 14px; height: 14px; border-radius: 50%; border: 0; background: var(--tc); cursor: pointer; padding: 0; flex: none; }
+.cp-name { flex: 1; min-width: 80px; border: 1px solid transparent; background: none; color: var(--fg); font: inherit; padding: 2px 6px; border-radius: 6px; }
+.cp-name:hover, .cp-name:focus { border-color: var(--border); background: var(--bg); outline: none; }
+.cp-class { color: var(--muted); display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+.cp-del { border: 0; background: none; color: var(--muted); font-size: 18px; cursor: pointer; line-height: 1; padding: 0 4px; }
+.cp-del:hover { color: var(--overdue); }
+.cp-import { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 8px; }
+.note.classes.dropping { outline: 2px dashed var(--accent); outline-offset: 6px; }
+
+.next-class { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 12px; padding: 12px 16px; margin: .2em 0 14px; font-family: var(--font-ui); }
+.next-class[data-state="open"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--bg2)); }
+.nc-main small { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.nc-title { font-size: 22px; font-weight: 650; line-height: 1.2; }
+.nc-meta { color: var(--muted); font-size: 13.5px; }
+.nc-later { grid-column: 1 / -1; list-style: none; margin: 4px 0 0; padding: 6px 0 0; border-top: 1px solid var(--border); display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.nc-later span { font-variant-numeric: tabular-nums; margin-right: 4px; }
+.nc-btn { border: 0; border-radius: 999px; background: var(--accent); color: var(--bg); padding: 8px 18px; font: 600 14px var(--font-ui); cursor: pointer; }
+.nc-btn:hover { filter: brightness(1.1); } .nc-btn:disabled { opacity: .5; cursor: default; }
+.nc-btn.small { padding: 3px 12px; font-size: 12.5px; }
+.nc-status { font: 13px var(--font-ui); color: var(--muted); white-space: nowrap; }
+.nc-status.nc-done { color: var(--c-tip); font-weight: 600; } .nc-status.nc-missed { color: var(--overdue); }
+.nc-hint a { color: var(--accent); }
+@media (max-width: 760px) { .cal-day { min-height: 70px; } .ag-row { grid-template-columns: 90px 1fr auto; } .ag-loc { display: none; } .next-class { grid-template-columns: 1fr; } }
+
+.act-tiles { grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); }
+.att-table { width: 100%; border-collapse: collapse; font: 14px var(--font-ui); }
+.att-table th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; padding: 4px 8px; }
+.att-table td { padding: 6px 8px; border-top: 1px solid var(--border); }
+.att-table td i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--tc); margin-right: 8px; }
+.att-bar { position: relative; width: 45%; }
+.att-bar span { position: absolute; left: 8px; top: 9px; height: 10px; border-radius: 99px; background: var(--tc); opacity: .55; max-width: calc(100% - 16px); }
+.att-bar b { position: relative; font-weight: 600; padding-left: 8px; }

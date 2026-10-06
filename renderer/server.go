@@ -130,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/show", s.post(s.handleShow))
 	mux.HandleFunc("/api/scroll", s.post(s.handleScroll))
 	mux.HandleFunc("/api/openurl", s.post(s.handleOpenURL))
+	s.calendarRoutes(mux)
 	return s.guardHost(mux)
 }
 

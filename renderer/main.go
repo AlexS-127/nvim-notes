@@ -44,7 +44,7 @@ func defaultPort() int {
 // version is the notesview release. Release builds override it with
 // -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
 // relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
-var version = "0.4.0"
+var version = "0.5.0"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
@@ -63,6 +63,10 @@ func usage() {
   notesview words    [track|untrack DIR…] [--dir DIR]  list, add or remove the folders whose new words count
                                                        (DIR is relative to the notes folder, or one note)
   notesview words    [exclude|include PATH…]           skip (or count again) a note or folder inside a tracked one
+  notesview calendar [list|import|remove|next|today|checkin|attendance]
+                                                       .ics calendars and class check-in:
+                                                       import [--name N] [--not-class] FILE.ics…, next [--json],
+                                                       checkin [ID], today, attendance, remove ID
   notesview doctor                                     check the installation
   notesview themes                                     list themes (* = current)
   notesview theme    NAME                              choose a theme (writes config.json)
@@ -81,7 +85,7 @@ func main() {
 		return
 	case "-h", "--help", "help":
 		usage()
-	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words":
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words", "calendar":
 		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
@@ -141,6 +145,8 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 	folder := fs.String("folder", "", "folder tag or path for the captured task")
 	due := fs.String("due", "", "due date for the captured task (fri, oct6, +3d, …)")
 	diff := fs.Int("difficulty", 0, "difficulty for the captured task (1-3, 3 hardest)")
+	calName := fs.String("name", "", "calendar import: name of the calendar (default: the file name)")
+	notClass := fs.Bool("not-class", false, "calendar import: the events are not classes (no check-in)")
 	interactive := fs.Bool("i", false, "capture step by step")
 	parse := fs.Bool("parse", false, "capture: only report which steps the text already answers (JSON)")
 	now := time.Now()
@@ -296,6 +302,8 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 			return printJSON(stdout, map[string]string{"line": line, "path": filepath.Join(store.Root, "inbox.md")})
 		}
 		fmt.Fprintln(stdout, "Added to inbox:", line)
+	case "calendar":
+		return runCalendarCommand(store, fs.Args(), *calName, *notClass, *asJSON, stdout, stderr, now)
 	case "words":
 		tracked, excluded := store.TrackedWords(), store.ExcludedWords()
 		if len(fs.Args()) > 0 {

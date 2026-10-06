@@ -36,6 +36,7 @@ const (
 	scoreOverduePts = 10  // points lost per overdue task
 	scoreXPPer      = 10  // quiz XP per point (a correct answer is 10 XP, up to 40 with a combo)
 	scoreLevelPts   = 5   // points per quiz level gained
+	scoreCheckinPts = 5   // points per class checked in to (calendar.go)
 
 	scoreRecordEvery = 10 * time.Second // how often the viewer records today's score for the graph
 )
@@ -56,6 +57,7 @@ type ScoreHints struct {
 	Overdue string `json:"overdue"`
 	XP      string `json:"xp"`
 	Level   string `json:"level"`
+	Checkin string `json:"checkin"`
 }
 
 func scoreHints() ScoreHints {
@@ -69,6 +71,7 @@ func scoreHints() ScoreHints {
 		Overdue: fmt.Sprintf("−%d each", scoreOverduePts),
 		XP:      fmt.Sprintf("1 per %d quiz XP (correct answers, combos and recovered weak words earn XP)", scoreXPPer),
 		Level:   fmt.Sprintf("%d each time you level up in a quiz", scoreLevelPts),
+		Checkin: fmt.Sprintf("%d each class you check in to (from %d minutes before it starts until it ends)", scoreCheckinPts, int(checkinEarly.Minutes())),
 	}
 }
 
@@ -92,17 +95,27 @@ type Score struct {
 	LevelUps int `json:"level_ups"`
 	XPPts    int `json:"xp_pts"`
 	LevelPts int `json:"level_pts"`
+	// classes checked in to, see withCheckins
+	Checkins   int `json:"checkins"`
+	CheckinPts int `json:"checkin_pts"`
 }
 
 // sum is the total of every part, floored at 0.
 func (s Score) sum() int {
-	return max(0, s.DonePts+s.CreatedPts+s.StudyPts+s.WordsPts+s.OverduePts+s.XPPts+s.LevelPts)
+	return max(0, s.DonePts+s.CreatedPts+s.StudyPts+s.WordsPts+s.OverduePts+s.XPPts+s.LevelPts+s.CheckinPts)
 }
 
 // withQuiz adds the day's quiz XP and level-ups to a score and refreshes the total.
 func (s Score) withQuiz(xp, levels int) Score {
 	s.QuizXP, s.LevelUps = xp, levels
 	s.XPPts, s.LevelPts = xp/scoreXPPer, levels*scoreLevelPts
+	s.Total = s.sum()
+	return s
+}
+
+// withCheckins adds the day's class check-ins to a score and refreshes the total.
+func (s Score) withCheckins(n int) Score {
+	s.Checkins, s.CheckinPts = n, n*scoreCheckinPts
 	s.Total = s.sum()
 	return s
 }
@@ -168,7 +181,7 @@ func (a *Activity) AddScores(tasks []Task, now time.Time) {
 			continue // a task stamped in the future
 		}
 		d := a.Days[k]
-		a.Scores[k] = scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried, k == a.Today), k == a.Today).withQuiz(d.QuizXP, d.LevelUps)
+		a.Scores[k] = scoreFor(d.DoneBy, d.DoneFocus, d.Created, d.Study, d.Words, overdueAtEndOf(tasks, k, now, carried, k == a.Today), k == a.Today).withQuiz(d.QuizXP, d.LevelUps).withCheckins(d.Checkins)
 	}
 }
 
@@ -226,6 +239,9 @@ func (s *Store) FullActivity(now time.Time, nWeeks int) Activity {
 	a.AddQuizGains(s.StudyGains())
 	s.RecordWords(now)
 	a.AddWords(s.WordsPerDay(), now)
+	a.AddCheckins(s.CheckinsPerDay())
+	s.RecordAttendance(now)
+	a.Attendance = s.AttendanceSummary(now)
 	a.AddScores(tasks, now)
 	a.ScoreHints = scoreHints()
 	a.ScoreLine = s.RecordScore(now, a.Scores[a.Today].Total)

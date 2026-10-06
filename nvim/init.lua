@@ -16,7 +16,7 @@ vim.g.maplocalleader = " "
 local NOTES = vim.fn.expand((vim.env.NOTES_DIR and vim.env.NOTES_DIR ~= "") and vim.env.NOTES_DIR or "~/notes")
 local uv = vim.uv or vim.loop
 -- Oldest notesview this config works with. Bump together with `version` in renderer/main.go.
-local NOTESVIEW_MIN_VERSION = "0.4.0"
+local NOTESVIEW_MIN_VERSION = "0.5.0"
 
 -- ── Options ──────────────────────────────────────────────────────
 local o = vim.opt
@@ -323,14 +323,16 @@ end
 
 local function toggle_checkbox_line(line)
   if line:match("^%s*[-*+] %[>%]") then return line end   -- moved to a later note: leave it
-  -- ticking stamps the day (✅ YYYY-MM-DD) for the viewer's Activity view; unticking removes it
+  -- ticking stamps the moment (✅ YYYY-MM-DD HH:MM) for the viewer's Activity view and the
+  -- score curve; unticking removes it (older stamps have the date only)
   if line:match("^%s*[-*+] %[ %]") then
     local l = line:gsub("%[ %]", "[x]", 1)
-    if not l:find("✅ %d%d%d%d%-%d%d%-%d%d") then l = l:gsub("%s+$", "") .. " ✅ " .. os.date("%Y-%m-%d") end
+    if not l:find("✅ %d%d%d%d%-%d%d%-%d%d") then l = l:gsub("%s+$", "") .. " ✅ " .. os.date("%Y-%m-%d %H:%M") end
     return l
   end
   if line:match("^%s*[-*+] %[[xX]%]") then
     local l = line:gsub("%[[xX]%]", "[ ]", 1)
+    l = l:gsub("%s*✅ %d%d%d%d%-%d%d%-%d%d %d%d:%d%d", "")
     return (l:gsub("%s*✅ %d%d%d%d%-%d%d%-%d%d", ""))
   end
   if line:match("^%s*[-*+] ") then return (line:gsub("^(%s*[-*+] )", "%1[ ] ", 1)) end

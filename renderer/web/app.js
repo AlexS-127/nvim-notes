@@ -52,6 +52,7 @@
     const line = Number(new URLSearchParams(q || "").get("line")) || 0;
     if (p === "/tasks") return { view: "tasks", line: 0 };
     if (p === "/activity") return { view: "activity", line: 0 };
+    if (p === "/classes") return { view: "classes", line: 0 };
     if (p.startsWith("/note/")) return { view: "note", path: dec(p.slice(6)), line };
     if (p.startsWith("/folder/")) return { view: "folder", path: dec(p.slice(8)), line: 0 };
     return null;
@@ -80,6 +81,8 @@
       await renderTasks();
     } else if (r.view === "activity") {
       await renderActivity(keepScroll);
+    } else if (r.view === "classes") {
+      await window.nvCalendar.render(calEnv);
     } else if (r.view === "folder") {
       await renderFolder(r.path);
     } else {
@@ -342,6 +345,7 @@
       ["Quiz time", fmtStudy(sc.study), hints.study, sc.study_pts],
       ["Quiz XP", (sc.quiz_xp || 0).toLocaleString(), hints.xp, sc.xp_pts || 0],
       ["Level ups", sc.level_ups || 0, hints.level, sc.level_pts || 0],
+      ["Class check-ins", sc.checkins || 0, hints.checkin, sc.checkin_pts || 0],
       ["New words", (sc.words || 0).toLocaleString(), hints.words, sc.words_pts || 0],
       ["Overdue tasks", sc.overdue, hints.overdue, sc.overdue_pts],
     ];
@@ -467,14 +471,21 @@
       <div class="wk-wrap">${scoreMode === "slope" ? slopeSvg(a) : scoreMode === "weekday" ? weekdaySvg(a) : scoreLineSvg(a, scoreMode)}</div>`;
   }
 
+  // class attendance: the overall percentage (hidden with no class calendar)
+  function attendanceTile(t) {
+    if (!t || !t.classes) return "";
+    return `<div class="tile"><small>Attendance</small><div class="big">${t.total_pct < 0 ? "–" : t.total_pct + "%"}</div></div>`;
+  }
+
   async function renderActivity(keepScroll) {
-    const a = await api("/api/activity");
+    const [a, up] = await Promise.all([api("/api/activity"), api("/api/calendar/upcoming").catch(() => null)]);
     note.className = "note activity";
     backlinks.hidden = true;
     document.title = "Activity — notesview";
     const today = a.days[a.today] || { done: 0, created: 0 };
 
     note.innerHTML = `<h1>Activity</h1>
+      ${window.nvCalendar.nextClassHtml(up)}
       <div class="act-tiles">
         <div class="tile hero"><small>Tasks completed</small><div class="big" id="act-total">${a.total_done}</div></div>
         <div class="tile"><small>Today</small><div class="big">${today.done}<em>done</em></div>
@@ -483,6 +494,7 @@
           <span class="sub">${fmtStudy(a.study_week)} this week · ${fmtStudy(a.study_total)} in all</span></div>
         <div class="tile"><small>New words</small><div class="big">${(a.words_today || 0).toLocaleString()}<em>today</em></div>
           <span class="sub">${(a.words_week || 0).toLocaleString()} this week · ${(a.words_total || 0).toLocaleString()} in all</span></div>
+        ${attendanceTile(a.attendance)}
         <div class="tile"><small>Current pace</small><div class="big"><span id="act-slope">--.--</span></div></div>
       </div>
       ${scoreSection(a)}
@@ -491,6 +503,7 @@
       <div class="hm-wrap">${heatmapSvg(a)}</div>
       <div class="hm-legend">Less ${[0, 1, 2, 3, 4].map((l) => `<i class="hm-cell l${l}"></i>`).join("")} More</div>
       ${recentSection(a)}`;
+    window.nvCalendar.startNextClassTimer(calEnv, note);
     countUp($("#act-total"), a.total_done, !keepScroll);
     // narrow windows: start at the newest weeks (the scrollbar is hidden, so a left-aligned start looks cut off)
     const hm = $(".hm-wrap"); if (hm) hm.scrollLeft = hm.scrollWidth;
@@ -713,6 +726,7 @@
   });
   $("#btn-tasks").onclick = () => { location.hash = "#/tasks"; };
   $("#btn-activity").onclick = () => { location.hash = "#/activity"; };
+  $("#btn-classes").onclick = () => { location.hash = "#/classes"; };
   $("#btn-today").onclick = goToday;
   // creates today's daily note (with carry-over) if it doesn't exist yet
   async function goToday() { const t = await post("/api/daily", {}); go(t.path); }
@@ -731,11 +745,23 @@
         break;
       case "t": location.hash = "#/tasks"; break;
       case "a": location.hash = "#/activity"; break;
+      case "c": location.hash = "#/classes"; break;
       case "g": goToday(); break;
       case "b": toggleSidebar(); break;
       default: return;
     }
   });
+
+  // ── calendar (calendar.js): the page, and the next-class card on the Activity view ──
+  const calEnv = {
+    api, post, note, store, toast,
+    current: () => current,
+    isActive: (view) => current.view === view,
+    refresh: () => show(current, true),
+    show: (r, keep) => show(r, keep),
+    setTitle: (t) => { document.title = t + " — notesview"; },
+  };
+  window.nvCalendar.bind(calEnv);
 
   // ── live updates ──
   function connect() {
