@@ -491,10 +491,10 @@
     note._activity = a;
     // current slope tile ticks in real time (it decays between score changes)
     const sl = $("#act-slope"), sf = slopeFn(a).at;
-    let timer, prev;
-    const tick = () => { if (!sl.isConnected) return clearInterval(timer); const v = +sf(Date.now()).toFixed(3);
-      if (prev !== undefined && v !== prev) sl.dataset.sign = v > prev ? "up" : "down"; // colour = direction of the last change
-      prev = v; sl.textContent = slopeFmt(v);
+    let timer;
+    const tick = () => { if (!sl.isConnected) return clearInterval(timer); const v = sf(Date.now());
+      sl.dataset.tier = v < .25 ? "low" : v < .5 ? "mid" : v < .75 ? "good" : "high"; // colour = which band the pace is in
+      sl.textContent = slopeFmt(v);
       const rd = note.querySelector(".sc-read"); if (rd && !rd.dataset.hov) rd.textContent = idleRead(); };
     tick(); timer = setInterval(tick, 1000);
   }

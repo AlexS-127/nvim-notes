@@ -279,8 +279,10 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
   font: 14px var(--font-ui); box-shadow: 0 6px 20px rgba(0,0,0,.3); animation: toast-in .3s cubic-bezier(.2,1.4,.4,1); }
 .toast.out { opacity: 0; transition: opacity .5s; }
 @keyframes toast-in { from { transform: translate(-50%, 20px); opacity: 0; } }
-#act-slope[data-sign="up"] { color: var(--c-tip); }
-#act-slope[data-sign="down"] { color: var(--c-danger); }
+#act-slope[data-tier="low"] { color: var(--c-danger); }
+#act-slope[data-tier="mid"] { color: var(--c-warning); }
+#act-slope[data-tier="good"] { color: var(--c-tip); }
+#act-slope[data-tier="high"] { color: var(--c-important); }
 .sc-hover[hidden] { display: none; }
 @media (max-width: 760px) { .score-card { grid-template-columns: 1fr; } .act-tiles { grid-template-columns: 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { .wk-done.best { fill: color-mix(in srgb, var(--accent) 100%, var(--c-warning) 25%); } }
