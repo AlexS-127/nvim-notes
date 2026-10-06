@@ -356,6 +356,22 @@ local function action_items()
   return items
 end
 
+-- Split each "k  Label" item into a coloured key unit (as a bullet, so the cursor sits on the key)
+-- and a plain label unit.
+local function split_keys(content)
+  local coords = require("mini.starter").content_coords(content, "item")
+  for i = #coords, 1, -1 do
+    local l, u = coords[i].line, coords[i].unit
+    local unit = content[l][u]
+    local key, rest = unit.string:match("^(%S+%s%s)(.*)$")
+    if key then
+      unit.string = rest
+      table.insert(content[l], u, { string = key, type = "item_bullet", hl = "NotesStartKey", _item = unit.item, _place_cursor = true })
+    end
+  end
+  return content
+end
+
 function M.setup()
   local starter = require("mini.starter")
   load_tasks()
@@ -366,11 +382,16 @@ function M.setup()
     header = header,
     items = { class_items, task_items, action_items },
     footer = "",
-    content_hooks = { starter.gen_hook.aligning("center", "center") },
+    content_hooks = { split_keys, starter.gen_hook.aligning("center", "center") },
   })
 
-  -- no white "current item" block on the first line: it made the first key letter differ from the rest
-  local function clear_current() vim.api.nvim_set_hl(0, "MiniStarterCurrent", {}) end
+  -- no white "current item" block on the first line, and no query-prefix colour on the label's first
+  -- letter (mini.starter's MiniStarterItemPrefix); only the key (split_keys) is coloured
+  local function clear_current()
+    vim.api.nvim_set_hl(0, "MiniStarterCurrent", {})
+    vim.api.nvim_set_hl(0, "MiniStarterItemPrefix", {})
+    vim.api.nvim_set_hl(0, "NotesStartKey", { link = "WarningMsg", default = true })
+  end
   clear_current()
   vim.api.nvim_create_autocmd("ColorScheme", { callback = clear_current })
 
