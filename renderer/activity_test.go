@@ -11,7 +11,7 @@ import (
 func TestDoneStamp(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local)
 	got := stampDone("- [x] read ch 5 #act-200\r\n", now)
-	if got != "- [x] read ch 5 #act-200 ✅ 2026-10-01\r\n" {
+	if got != "- [x] read ch 5 #act-200 ✅ 2026-10-01 12:00\r\n" {
 		t.Errorf("stamp: %q", got)
 	}
 	if stampDone(got, now) != got {
@@ -19,6 +19,20 @@ func TestDoneStamp(t *testing.T) {
 	}
 	if un := unstampDone(got); un != "- [x] read ch 5 #act-200\r\n" {
 		t.Errorf("unstamp: %q", un)
+	}
+	// older date-only stamps still parse and unstamp
+	if un := unstampDone("- [x] a ✅ 2026-10-01\n"); un != "- [x] a\n" {
+		t.Errorf("unstamp date-only: %q", un)
+	}
+	for in, want := range map[string][3]string{
+		"a ✅ 2026-10-01 09:05":     {"2026-10-01", "09:05", "a"},
+		"a ✅ 2026-10-01":           {"2026-10-01", "", "a"},
+		"a ✅ 2026-10-01 99:99":     {"2026-10-01", "", "a"},
+		"a ✅ 2026-10-01 12:00 xyz": {"2026-10-01", "12:00", "a xyz"},
+	} {
+		if d, c, r := splitDoneStamp(in); [3]string{d, c, r} != want {
+			t.Errorf("split %q: %q %q %q", in, d, c, r)
+		}
 	}
 }
 
@@ -28,7 +42,7 @@ func TestToggleStamps(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := s.Read("a.md")
-	if string(b) != "- [ ] two\n\n## Done\n- [x] one ✅ "+time.Now().Format(isoDate)+"\n" {
+	if string(b) != "- [ ] two\n\n## Done\n- [x] one ✅ "+time.Now().Format(doneStampFmt)+"\n" {
 		t.Fatalf("got %q", b)
 	}
 	var one Task
@@ -159,27 +173,27 @@ func TestScoreFor(t *testing.T) {
 		t.Errorf("empty day: %+v", s)
 	}
 	// 3 done + 2 made + 10 min quiz - 2 overdue
-	wantDone, wantMade, wantQuiz, wantOver := 3*scoreDonePts[0], 2*scoreCreatedPts, quizPts(600), -2*scoreOverduePts
+	wantDone, wantMade, wantQuiz, wantOver := 3*scoreWorkflowPts[0], 2*scoreCreatedPts, quizPts(600), -2*scoreOverduePts
 	s := scoreFor([4]int{3}, [4]int{}, 2, 600, 0, 2, true)
 	if s.DonePts != wantDone || s.CreatedPts != wantMade || s.StudyPts != wantQuiz || s.OverduePts != wantOver ||
 		s.Total != max(0, wantDone+wantMade+wantQuiz+wantOver) || !s.Live {
 		t.Errorf("score: %+v", s)
 	}
-	// done points depend on difficulty: 1 plain + 2 easy + 1 medium + 1 hard
-	wantDone = scoreDonePts[0] + 2*scoreDonePts[1] + scoreDonePts[2] + scoreDonePts[3]
+	// done points depend on difficulty: 1 plain + 2 easy + 1 medium + 1 hard (all workflow)
+	wantDone = scoreWorkflowPts[0] + 2*scoreWorkflowPts[1] + scoreWorkflowPts[2] + scoreWorkflowPts[3]
 	if s := scoreFor([4]int{1, 2, 1, 1}, [4]int{}, 0, 0, 0, 0, false); s.Done != 5 || s.DonePts != wantDone {
 		t.Errorf("difficulty points: %+v", s)
 	}
 	// nothing is capped (a big day keeps scoring), but the total never goes below 0
 	s = scoreFor([4]int{1000}, [4]int{}, 1000, 1000*3600, 1000*scoreWordsPer*1000, 0, false)
-	if s.DonePts != 1000*scoreDonePts[0] || s.CreatedPts != 1000*scoreCreatedPts || s.StudyPts != quizPts(1000*3600) || s.WordsPts != 1000*1000 {
+	if s.DonePts != 1000*scoreWorkflowPts[0] || s.CreatedPts != 1000*scoreCreatedPts || s.StudyPts != quizPts(1000*3600) || s.WordsPts != 1000*1000 {
 		t.Errorf("uncapped: %+v", s)
 	}
 	if s := scoreFor([4]int{1}, [4]int{}, 0, 0, 0, 1000, false); s.OverduePts != -1000*scoreOverduePts || s.Total != 0 {
 		t.Errorf("penalty and floor: %+v", s)
 	}
-	// tasks outside the workflow folder earn scoreFocusMult times the points: 2 plain done, 1 of them focus
-	wantDone = scoreDonePts[0] + scoreDonePts[0]*scoreFocusMult
+	// tasks outside the workflow folder earn scoreDonePts, workflow ones scoreWorkflowPts: 2 plain done, 1 of them focus
+	wantDone = scoreWorkflowPts[0] + scoreDonePts[0]
 	if s := scoreFor([4]int{2}, [4]int{1}, 0, 0, 0, 0, false); s.Done != 2 || s.DonePts != wantDone {
 		t.Errorf("focus points: %+v", s)
 	}
@@ -199,11 +213,11 @@ func TestAddScores(t *testing.T) {
 	a := BuildActivity(tasks, now, 2)
 	a.AddStudy(s.StudySeconds(), now)
 	a.AddScores(tasks, now)
-	if got := a.Scores["2026-09-30"]; got.Done != 1 || got.Overdue != 1 || got.Total != clampInt(scoreDonePts[0]*scoreFocusMult-scoreOverduePts, 0, 1<<30) { // a done (General, so focus), b overdue, floored at 0
+	if got := a.Scores["2026-09-30"]; got.Done != 1 || got.Overdue != 1 || got.Total != clampInt(scoreDonePts[0]-scoreOverduePts, 0, 1<<30) { // a done (General, so focus), b overdue, floored at 0
 		t.Errorf("9/30: %+v", got)
 	}
 	// c done, 20 min quiz, b overdue
-	want := max(0, scoreDonePts[0]*scoreFocusMult+quizPts(1200)-scoreOverduePts)
+	want := max(0, scoreDonePts[0]+quizPts(1200)-scoreOverduePts)
 	if got := a.Scores["2026-10-01"]; !got.Live || got.Total != want || got.Overdue != 1 {
 		t.Errorf("today: %+v", got)
 	}
@@ -230,8 +244,8 @@ func TestScoreFocusVsWorkflow(t *testing.T) {
 	tasks := s.CollectTasks(TaskQuery{All: true, Now: now})
 	a := BuildActivity(tasks, now, 2)
 	a.AddScores(tasks, now)
-	// workflow: !2 + plain at 1x; act200: !2 + plain at scoreFocusMult
-	want := scoreDonePts[2] + scoreDonePts[0] + (scoreDonePts[2]+scoreDonePts[0])*scoreFocusMult
+	// workflow: !2 + plain at scoreWorkflowPts; act200: !2 + plain at scoreDonePts
+	want := scoreWorkflowPts[2] + scoreWorkflowPts[0] + scoreDonePts[2] + scoreDonePts[0]
 	if got := a.Scores["2026-10-01"]; got.Done != 4 || got.DonePts != want {
 		t.Errorf("got %+v, want done_pts %d", got, want)
 	}
@@ -255,5 +269,72 @@ func TestRecordScore(t *testing.T) {
 	h := scoreHints()
 	if strings.Contains(h.Done, "up to") || !strings.Contains(h.Overdue, fmt.Sprint(scoreOverduePts)) {
 		t.Errorf("hints: %+v", h)
+	}
+}
+
+func TestScoreCurve(t *testing.T) {
+	now := time.Date(2026, 10, 1, 15, 0, 0, 0, time.Local)
+	s := newTestStore(t, map[string]string{
+		"act200/hw.md":      "- [x] hw !3 ✅ 2026-10-01 12:30\n- [x] old stamp !3 ✅ 2026-10-01\n- [ ] later !1 ✅ 2026-10-01 18:00\n",
+		"workflow/ideas.md": "- [x] tweak !2 ✅ 2026-10-01 12:45 _(Oct 01 09:15)_\n",
+		"inbox.md":          "- [x] late @2026-09-30 ✅ 2026-10-01 12:00\n- [ ] due today @2026-10-01\n- [x] yesterday ✅ 2026-09-30 20:00 @2026-09-30\n",
+		quizLog:             `{"date":"2026-10-01","at":"2026-10-01T13:00:00","seconds":600,"xp":40,"levels":1}` + "\n",
+	})
+	tasks := s.CollectTasks(TaskQuery{All: true, Now: now})
+	a := s.FullActivity(now, 2)
+	line := a.ScoreLine
+	if line[0].At != "2026-10-01T00:00:00" || line[len(line)-1].Total != a.Scores["2026-10-01"].Total {
+		t.Fatalf("curve %v should end on today's total %d", line, a.Scores["2026-10-01"].Total)
+	}
+	at := func(clock string) int { // curve value at a time
+		v := 0
+		for _, p := range line {
+			if p.At <= "2026-10-01T"+clock {
+				v = p.Total
+			}
+		}
+		return v
+	}
+	// 00:00: old stamp done (untimed), "late" overdue
+	if got, want := at("00:00:00"), max(0, scoreDonePts[3]-scoreOverduePts); got != want {
+		t.Errorf("00:00 = %d, want %d", got, want)
+	}
+	// 12:30 hw !3 outside workflow, 12:45 tweak !2 in workflow (made 09:15)
+	if got := at("12:30:00") - at("12:29:59"); got != scoreDonePts[3] {
+		t.Errorf("hw jump %d", got)
+	}
+	if got := at("12:45:00") - at("12:44:59"); got != scoreWorkflowPts[2] {
+		t.Errorf("tweak jump %d", got)
+	}
+	// 12:00 late finished: done points plus the overdue penalty lifted, in one event
+	evs := s.ScoreDay("2026-10-01", now).Events
+	for _, e := range evs {
+		if e.Text == "late" && e.Pts != scoreDonePts[0]+scoreOverduePts {
+			t.Errorf("late event pts %d", e.Pts)
+		}
+		if e.Kind == "done" && e.Text == "hw" && (e.Diff != 3 || e.Workflow || e.At != "2026-10-01T12:30:00") {
+			t.Errorf("hw event %+v", e)
+		}
+		if e.Kind == "made" && e.Text == "tweak" && e.At != "2026-10-01T09:15:00" {
+			t.Errorf("made event %+v", e)
+		}
+	}
+	if got := at("13:00:00") - at("12:59:59"); got != quizPts(600)+40/scoreXPPer+scoreLevelPts {
+		t.Errorf("quiz jump %d", got)
+	}
+	// a finished day ends on its final, with tasks due that day counted as overdue at 23:59:59
+	later := now.AddDate(0, 0, 1)
+	tasks = s.CollectTasks(TaskQuery{All: true, Now: later})
+	b := BuildActivity(tasks, later, 2)
+	b.AddStudy(s.StudySeconds(), later)
+	b.AddQuizGains(s.StudyGains())
+	b.AddScores(tasks, later)
+	past := s.ScoreDay("2026-10-01", later).Points
+	if last := past[len(past)-1]; last.At != "2026-10-01T23:59:59" || last.Total != b.Scores["2026-10-01"].Total {
+		t.Errorf("past day ends %+v, want %d", last, b.Scores["2026-10-01"].Total)
+	}
+	y := s.ScoreDay("2026-09-30", later).Points
+	if last := y[len(y)-1]; last.Total != b.Scores["2026-09-30"].Total {
+		t.Errorf("9/30 ends %+v, want %d", last, b.Scores["2026-09-30"].Total)
 	}
 }

@@ -118,7 +118,7 @@ func TestToggleMovesToDone(t *testing.T) {
 			t.Fatalf("after toggling line %d:\n got %q\nwant %q", line, b, want)
 		}
 	}
-	st := " ✅ " + time.Now().Format(isoDate)
+	st := " ✅ " + time.Now().Format(doneStampFmt)
 	// ticking moves the task to a new Done section, line endings kept
 	check(2, "# T\r\n- [x] b\r\n  - [ ] c\r\nlast line no newline\r\n\r\n## Done\r\n- [x] a"+st)
 	// unticking it moves it back above Done, after the last open task block

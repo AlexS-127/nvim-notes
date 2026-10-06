@@ -110,6 +110,14 @@ func (s *Server) Handler() http.Handler {
 		a := s.store.FullActivity(now, 12)
 		writeJSON(w, a)
 	})
+	mux.HandleFunc("/api/score/day", func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now()
+		day := r.URL.Query().Get("day")
+		if _, err := time.Parse(isoDate, day); err != nil {
+			day = now.Format(isoDate)
+		}
+		writeJSON(w, s.store.ScoreDay(day, now))
+	})
 	mux.HandleFunc("/api/folders", func(w http.ResponseWriter, r *http.Request) {
 		list := s.store.Folders().List
 		if list == nil {

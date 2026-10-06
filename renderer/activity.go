@@ -12,27 +12,31 @@ import (
 	"time"
 )
 
-// Completed tasks carry a "✅ YYYY-MM-DD" stamp, added when the box is ticked
-// (in the viewer or in Neovim) and removed when it is unticked. The activity
-// view is built from those stamps plus each task's creation date.
+// Completed tasks carry a "✅ YYYY-MM-DD HH:MM" stamp, added when the box is ticked
+// (in the viewer or in Neovim) and removed when it is unticked; older stamps have the
+// date only. The activity view is built from those stamps plus each task's creation date.
 var (
-	doneStampRe = regexp.MustCompile(`\s*✅ (\d{4}-\d{2}-\d{2})`)
-	createdRe   = regexp.MustCompile(`_\(([A-Z][a-z]{2} \d{2}) \d{2}:\d{2}\)_`)
+	doneStampRe = regexp.MustCompile(`\s*✅ (\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2})\b)?`)
+	createdRe   = regexp.MustCompile(`_\(([A-Z][a-z]{2} \d{2}) (\d{2}:\d{2})\)_`)
 	movedTailRe = regexp.MustCompile(`\s*→ \[\[[^\]]*\]\]\s*$`)
 	movedToRe   = regexp.MustCompile(`→ \[\[([^\]]*)\]\]\s*$`)
 	dailyRelRe  = regexp.MustCompile(`^daily/(\d{4}-\d{2}-\d{2})\.md$`)
 )
 
-// splitDoneStamp separates the completion stamp from a task's text.
-func splitDoneStamp(text string) (date, rest string) {
+// splitDoneStamp separates the completion stamp from a task's text. clock is "HH:MM",
+// or "" for a date-only stamp.
+func splitDoneStamp(text string) (date, clock, rest string) {
 	m := doneStampRe.FindStringSubmatch(text)
 	if m == nil {
-		return "", text
+		return "", "", text
 	}
 	if _, err := time.Parse(isoDate, m[1]); err != nil {
-		return "", text
+		return "", "", text
 	}
-	return m[1], strings.TrimSpace(doneStampRe.ReplaceAllString(text, ""))
+	if _, err := time.Parse("15:04", m[2]); err != nil {
+		m[2] = ""
+	}
+	return m[1], m[2], strings.TrimSpace(doneStampRe.ReplaceAllString(text, ""))
 }
 
 // stampDone appends the completion stamp to a task line, keeping its line ending.
@@ -42,8 +46,11 @@ func stampDone(line string, now time.Time) string {
 	if doneStampRe.MatchString(body) {
 		return line
 	}
-	return strings.TrimRight(body, " \t") + " ✅ " + now.Format(isoDate) + end
+	return strings.TrimRight(body, " \t") + " ✅ " + now.Format(doneStampFmt) + end
 }
+
+// doneStampFmt is the completion stamp's date and time (minute resolution).
+const doneStampFmt = "2006-01-02 15:04"
 
 func unstampDone(line string) string {
 	body := strings.TrimRight(line, "\r\n")
@@ -271,7 +278,7 @@ func BuildActivity(tasks []Task, now time.Time, nWeeks int) Activity {
 	}
 	for _, t := range tasks {
 		if t.State == StateDone && t.DoneDate == a.Today {
-			_, text := splitDoneStamp(t.Display)
+			_, _, text := splitDoneStamp(t.Display)
 			text = strings.TrimSpace(createdRe.ReplaceAllString(text, ""))
 			a.Recent = append(a.Recent, RecentTask{Text: text, File: t.File})
 		}

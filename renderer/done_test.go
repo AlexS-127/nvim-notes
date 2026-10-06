@@ -33,7 +33,7 @@ func TestTickMovesSubtasksAndKeepsDoneOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := s.Read("n.md")
-	st := " ✅ " + time.Now().Format(isoDate)
+	st := " ✅ " + time.Now().Format(doneStampFmt)
 	want := "- [ ] b\n\n## Done\n- [x] old\n- [x] a" + st + "\n  - [ ] sub\n\n## Notes\ntext\n"
 	if string(b) != want {
 		t.Errorf("got %q\nwant %q", b, want)

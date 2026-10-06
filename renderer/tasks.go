@@ -45,8 +45,9 @@ type Task struct {
 	TopicName    string   `json:"topic_name,omitempty"`
 	Tags         []string `json:"tags"`
 	Group        string   `json:"group"`
-	DoneDate     string   `json:"done,omitempty"` // ✅ YYYY-MM-DD stamp, set when the task is ticked
-	HTML         string   `json:"html,omitempty"` // Display rendered as inline markdown (viewer only)
+	DoneDate     string   `json:"done,omitempty"`      // ✅ YYYY-MM-DD stamp, set when the task is ticked
+	DoneTime     string   `json:"done_time,omitempty"` // HH:MM from the stamp; "" for older date-only stamps
+	HTML         string   `json:"html,omitempty"`      // Display rendered as inline markdown (viewer only)
 }
 
 // Label is "Category · Topic", or "General" for tasks outside any folder.
@@ -144,7 +145,7 @@ func ParseTasks(rel string, src []byte, idx *FolderIndex) []Task {
 		}
 		t := Task{File: rel, Title: title, Line: i + 1, Indent: indent, State: state}
 		var shown string // the tag that placed it, hidden from Display
-		t.DoneDate, text = splitDoneStamp(text)
+		t.DoneDate, t.DoneTime, text = splitDoneStamp(text)
 		t.Due, t.Tags = scanTask(text)
 		f, ok := idx.ForPath(rel)
 		if !ok {
