@@ -439,7 +439,7 @@ def load_questions(path):
             name, val = m[1].lower(), m[2]
             if name == "q":
                 flush()
-                cur = {"topic": topic, "q": "", "choices": [], "a": "", "solution": "", "why": "", "src": ""}
+                cur = {"file": path, "topic": topic, "q": "", "choices": [], "a": "", "solution": "", "why": "", "src": ""}
             if cur is not None:
                 field = name
                 cur[field] = val
@@ -523,7 +523,36 @@ def ask_question(item, clock):
         ok = g in ("t", "true") if answer == "true" else g in ("f", "false")
     else:
         ok = check(guess, answer)
+    if not ok and guess != "?":
+        print(f"  ✗  {answer}" + note + src)
+        if clock.input("  Actually right? y = count it as correct (Enter = no) ").strip().lower() == "y":
+            if kind == "short":
+                add_answer(q, guess)
+            return True, note + src, ""
+        return False, "", ""
     return ok, note + src, f"  ✗  {answer}" + note + src
+
+
+def add_answer(q, guess):
+    """Accept `guess` as another answer to a short-answer question: appended to its first `A:` line
+    in the bank file (`; guess`, which `meanings` splits on) and to the loaded question."""
+    lines = q["file"].read_text(encoding="utf-8").split("\n")
+    first = q["q"].splitlines()[0].strip()
+    for i, line in enumerate(lines):
+        m = FIELD.match(line.rstrip())
+        if not (m and m[1] == "Q" and m[2].strip() == first):
+            continue
+        for j in range(i + 1, len(lines)):
+            n = FIELD.match(lines[j].rstrip())
+            if n and n[1] == "Q":
+                break
+            if n and n[1] == "A":
+                lines[j] = f"{lines[j].rstrip()}; {guess}"
+                q["a"] += f"; {guess}"
+                q["file"].write_text("\n".join(lines), encoding="utf-8")
+                print(f'  + added "{guess}" to this answer')
+                return
+        return
 
 
 def questions_bank(subject):
