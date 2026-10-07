@@ -98,21 +98,27 @@ func cleanGenerated(out, title string) string {
 	return "## " + title + "\n\n" + strings.TrimSpace(strings.Join(keep, "\n")) + "\n"
 }
 
-func (s *Store) genPrompt(t Topic, note string) string {
+// genGuidance reads the quiz format and the student's guidance on good questions: how to write
+// them is format/revision-questions.md, then format/revision-<subject>.md (both optional, edited by
+// the student); a short built-in version when neither exists.
+func (s *Store) genGuidance(subject string) (spec, guide string) {
 	read := func(name string) string {
 		b, _ := os.ReadFile(filepath.Join(s.Root, "format", name))
 		return strings.TrimSpace(string(b))
 	}
-	spec := read("question-format.md")
-	// how to write good questions: format/revision-questions.md, then format/revision-<subject>.md
-	// (both optional, edited by the student); a short built-in version when neither exists
-	guide := read("revision-questions.md")
+	spec = read("question-format.md")
+	guide = read("revision-questions.md")
 	if guide == "" {
 		guide = "Write 5 to 8 questions that check the key ideas of this note only, answerable from it: definitions, how and why, worked examples or calculations if the note has them. Mix the kinds (multiple choice, true/false, short answer, a worked problem with Solution: only when the note supports one)."
 	}
-	if extra := read("revision-" + t.Subject + ".md"); extra != "" {
+	if extra := read("revision-" + subject + ".md"); extra != "" {
 		guide += "\n\n" + extra
 	}
+	return spec, guide
+}
+
+func (s *Store) genPrompt(t Topic, note string) string {
+	spec, guide := s.genGuidance(t.Subject)
 	return fmt.Sprintf(`You write revision questions for a student's spaced-repetition quiz.
 
 Below are (1) the quiz's question format, (2) the student's guidance on what makes a good question and
@@ -265,8 +271,18 @@ func (s *Server) revisionWorker(kick <-chan struct{}) {
 	for {
 		for {
 			id := s.store.needsQuestions(time.Now())
-			if id == "" || claudeBinary() == "" {
+			if claudeBinary() == "" {
 				break
+			}
+			if id == "" { // every topic has its own questions: now the folders' cross-topic ones
+				sub, members := s.store.needsMixed(time.Now())
+				if sub == "" {
+					break
+				}
+				if _, err := s.store.GenerateMixed(sub, members, time.Now()); err != nil {
+					fmt.Fprintln(os.Stderr, "revision mixed questions:", sub+":", err)
+				}
+				continue
 			}
 			if _, err := s.store.GenerateQuestions(id, time.Now()); err != nil {
 				fmt.Fprintln(os.Stderr, "revision questions:", id+":", err)

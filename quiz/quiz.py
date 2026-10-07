@@ -735,6 +735,29 @@ def recall(note_path, clock):
 
 MIX_TOPICS = 3  # a blended revision covers up to this many due topics of one folder
 MIX_PER_TOPIC = 4  # questions drawn from each topic when blending
+MIX_CROSS = 3  # cross-topic questions (.revision/questions/_mixed/<subject>.md) added to a blend
+
+
+def sample_weighted(qs, stats, n):
+    """n questions, those you miss or have not seen yet more likely (`weight`), no repeats."""
+    keyed = sorted(qs, key=lambda q: random.random() ** (1 / weight(stats, q["q"])), reverse=True)
+    return keyed[:n]
+
+
+def cross_questions(subject, topics):
+    """Cross-topic questions whose `Src:` names two or more of this session's topics; `rev_ids` are
+    the ones in the session (each is scored toward all of them)."""
+    path = NOTES / ".revision" / "questions" / "_mixed" / f"{subject}.md"
+    if not path.exists():
+        return []
+    out = []
+    for q in load_questions(path):
+        ids = [i.strip() for i in re.sub(r"\[gen\]", "", q["src"]).split(",")]
+        here = [i for i in ids if i in topics]
+        if len(here) >= 2:
+            q["rev_ids"], q["rev_id"] = here, here[0]
+            out.append(q)
+    return out
 
 
 def due_companions(note_id, subject):
@@ -782,6 +805,8 @@ def revise(note_id, solo=False):
         return next((l.lstrip("#").strip() for l in p.read_text(encoding="utf-8", errors="replace").splitlines() if l.startswith("# ")), p.stem)
 
     title = title_of(note_id)
+    stats_path = NOTES / subject / ".quiz_stats.json"
+    stats = load_stats(stats_path)
     qs = load_questions(bank) if bank.exists() else []
     for q in qs:
         q["rev_id"] = note_id
@@ -797,7 +822,8 @@ def revise(note_id, solo=False):
                 banks[t["id"]] = more
         if banks:
             banks[note_id] = qs
-            qs = [q for b in banks.values() for q in random.sample(b, min(MIX_PER_TOPIC, len(b)))]
+            qs = [q for b in banks.values() for q in sample_weighted(b, stats, MIX_PER_TOPIC)]
+            qs += random.sample(cross := cross_questions(subject, topics), min(MIX_CROSS, len(cross)))
     if len(topics) > 1:
         print("\nRevision (mixed): " + " · ".join(topics.values()))
     else:
@@ -805,8 +831,6 @@ def revise(note_id, solo=False):
     clock = Clock()
     clock.log_every_minute(subject)
     atexit.register(lambda: clock.flush(subject))
-    stats_path = NOTES / subject / ".quiz_stats.json"
-    stats = load_stats(stats_path)
     pl, _ = start_player(stats)
     results = {}  # topic id -> (score, correct, total), only for topics that count
 
@@ -818,10 +842,13 @@ def revise(note_id, solo=False):
         results[note_id] = (score, round(score * 3), 3)
     else:
         qs = interleave(qs)
-        planned = {nid: sum(q["rev_id"] == nid for q in qs) for nid in topics}
+        for q in qs:
+            q.setdefault("rev_ids", [q["rev_id"]])
+        planned = {nid: sum(nid in q["rev_ids"] for q in qs) for nid in topics}
         got = {nid: [0, 0] for nid in topics}  # correct, answered
         print(f"{len(qs)} questions. '?' or Enter reveals, 'q' quits.\n")
         combo = 0
+        missed_qs, quit_early, done, right = [], False, 0, 0
         for i, q in enumerate(qs, 1):
             print(f"[{i}/{len(qs)}] ", end="")
             t0 = time.monotonic()
@@ -831,14 +858,19 @@ def revise(note_id, solo=False):
                 print()
                 r = None
             if r is None:
+                quit_early = True
                 break
             ok, ok_note, wrong_note = r
-            nid = q["rev_id"]
-            log_answer(subject, qkind(q), time.monotonic() - t0, ok, revision=nid, conf=ask_confidence(clock, subject))
-            got[nid][1] += 1
+            log_answer(subject, qkind(q), time.monotonic() - t0, ok, revision=q["rev_id"], conf=ask_confidence(clock, subject))
+            for nid in q["rev_ids"]:
+                got[nid][1] += 1
+                got[nid][0] += ok
             record(stats, q["q"], ok)
+            done += 1
+            right += ok
+            if not ok:
+                missed_qs.append(q)
             if ok:
-                got[nid][0] += 1
                 combo += 1
                 gain = 10 * (1 + min(combo - 1, 9) // 3)
                 old = level_of(pl["xp"])
@@ -852,6 +884,20 @@ def revise(note_id, solo=False):
             print()
             save_stats(stats_path, stats)
             clock.flush(subject)
+        if missed_qs and not quit_early:  # the ones you missed, once more (not scored, no XP)
+            print(f"Once more, the {len(missed_qs)} you missed (not scored):\n")
+            for q in missed_qs:
+                try:
+                    r = ask_question((q["q"], q), clock)
+                except (KeyboardInterrupt, EOFError):
+                    print()
+                    break
+                if r is None:
+                    break
+                record(stats, q["q"], r[0])
+                print(("  ✓" + r[1]) if r[0] else r[2])
+                print()
+            save_stats(stats_path, stats)
         for nid, (c, n) in got.items():
             if n * 2 >= planned[nid] and n:
                 results[nid] = (c / n, c, n)
@@ -859,8 +905,6 @@ def revise(note_id, solo=False):
                 print(f"Stopped early on {topics[nid]}: not recorded, it stays due.")
         if not results:
             return
-        done = sum(n for _, n in got.values())
-        right = sum(c for c, _ in got.values())
         print(f"\nScore: {right}/{done} ({round(100 * right / done)}%)")
         if len(topics) > 1:
             for nid, (sc, c, n) in results.items():

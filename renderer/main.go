@@ -76,7 +76,7 @@ func usage() {
   notesview grade    COURSE ITEM SCORE[/MAX]          record an exam or assignment result (a label for the data)
   notesview label    [prompts|checkin N|checkout P E M S [NOTE]|skip T [KEY]|set KIND HASH CAT]
                                                        focus check-ins, evening check-out, data labels (no points)
-  notesview revise   [due|list|add NOTE|remove NOTE|done ID --score S|gen NOTE|path ID]
+  notesview revise   [due|list|add NOTE|remove NOTE|done ID --score S|gen NOTE|gen-mixed SUBJECT|path ID]
                                                        spaced-repetition revision of course notes (questions by Claude)
   notesview routine  [show|tick ITEM|untick ITEM|forecast SCORE|end]
                                                        morning routine: tick items, forecast = the score you

@@ -131,6 +131,16 @@ func runReviseCommand(store *Store, args []string, asJSON bool, stdout, stderr i
 			return fail(err)
 		}
 		fmt.Fprintf(stdout, "Wrote %d questions to %s\n", n, store.QuestionsPath(id))
+	case "gen-mixed":
+		sub, ok := one()
+		if !ok {
+			return fail(fmt.Errorf("usage: notesview revise gen-mixed SUBJECT"))
+		}
+		n, err := store.GenerateMixed(sub, store.mixedMembers(sub, now), now)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Fprintf(stdout, "Wrote %d cross-topic questions to %s\n", n, store.MixedPath(sub))
 	case "path":
 		id, ok := one()
 		if !ok {
@@ -138,7 +148,7 @@ func runReviseCommand(store *Store, args []string, asJSON bool, stdout, stderr i
 		}
 		fmt.Fprintln(stdout, store.QuestionsPath(id))
 	default:
-		return fail(fmt.Errorf("usage: notesview revise [due|list|add NOTE|remove NOTE|done ID --score S|gen NOTE|path ID]"))
+		return fail(fmt.Errorf("usage: notesview revise [due|list|add NOTE|remove NOTE|done ID --score S|gen NOTE|gen-mixed SUBJECT|path ID]"))
 	}
 	return 0
 }
