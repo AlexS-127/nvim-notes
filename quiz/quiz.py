@@ -346,6 +346,30 @@ class Clock:
 # ---- vocab (definitions.md) -------------------------------------------------------------
 
 
+def add_meaning(path, pairs, word, guess):
+    """Accept `guess` as another meaning of `word`: in definitions.md (before the trailing
+    '(type)') and in the loaded `pairs`, so it counts from now on."""
+    def merged(trans):
+        m = re.search(r"\s*(\([^()]*\))\s*$", trans)
+        return f"{trans[:m.start()]}, {guess} {m[1]}" if m else f"{trans}, {guess}"
+
+    for i, (w, t) in enumerate(pairs):
+        if w == word:
+            pairs[i] = (w, merged(t))
+            break
+    else:
+        return
+    lines = path.read_text(encoding="utf-8").split("\n")
+    for i, line in enumerate(lines):
+        head, sep, tail = line.partition("::")
+        w = re.sub(r"^\s*(?:[-*+]\s+|\d+\.\s+)?", "", head).strip()
+        if sep and w == word:
+            lines[i] = f"{head}::{' ' if tail.startswith(' ') else ''}{merged(tail.strip())}"
+            break
+    path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"  + added \"{guess}\" to {word}")
+
+
 def vocab_bank(subject):
     """Items, asker and display label for a definitions.md subject."""
     pairs = load(NOTES / subject / "definitions.md")
@@ -364,6 +388,13 @@ def vocab_bank(subject):
         if guess.lower() == "q":
             return None
         ok = guess != "?" and check(guess, a)
+        if not ok and guess != "?":
+            print(f"  ✗  {a}")
+            if clock.input("  Actually right? y = count it as correct (Enter = no) ").strip().lower() == "y":
+                if forward:
+                    add_meaning(NOTES / subject / "definitions.md", pairs, word, guess)
+                return True, "", ""
+            return False, "", ""
         more = others(guess, a) if ok else []
         return ok, (f"  also: {', '.join(more)}" if more else ""), f"  ✗  {a}"
 
