@@ -39,7 +39,7 @@ func auditValue(key, v string) bool {
 	switch key {
 	case "at", "due", "day", "prompted", "end", "start", "built":
 		return stampRe.MatchString(v)
-	case "title_hash", "domain_hash", "net_hash", "note", "hash":
+	case "title_hash", "domain_hash", "net_hash", "ap_hash", "note", "hash":
 		return hexRe.MatchString(v) || v == "none"
 	case "bundle":
 		return bundleRe.MatchString(v)

@@ -77,9 +77,12 @@ def log_answer(subject, kind, latency, ok, revision="", conf=None):
         pass
 
 
-def ask_confidence(clock):
+NO_CONFIDENCE = {"latin101"}  # subjects where per-question confidence is never asked
+
+
+def ask_confidence(clock, subject=None):
     """Optional (the Data tab's "confidence" switch): how sure you were, 1 guess / 2 unsure / 3 sure."""
-    if not sensor_on("confidence", False):
+    if subject in NO_CONFIDENCE or not sensor_on("confidence", False):
         return None
     r = clock.input("  sure? 1 guess · 2 unsure · 3 sure (Enter skips) ").strip()
     return int(r) if r in ("1", "2", "3") else None
@@ -571,7 +574,7 @@ def main():
             break
         latency = time.monotonic() - t0
         ok, ok_note, wrong_note = result
-        log_answer(subject, qkind(item[1]) if noun == "question" else "vocab", latency, ok, conf=ask_confidence(clock))
+        log_answer(subject, qkind(item[1]) if noun == "question" else "vocab", latency, ok, conf=ask_confidence(clock, subject))
         total += 1
         was_hard = struggling(stats, key)
         record(stats, key, ok)
@@ -711,7 +714,7 @@ def revise(note_id):
             if r is None:
                 break
             ok, ok_note, wrong_note = r
-            log_answer(subject, qkind(q), time.monotonic() - t0, ok, revision=note_id, conf=ask_confidence(clock))
+            log_answer(subject, qkind(q), time.monotonic() - t0, ok, revision=note_id, conf=ask_confidence(clock, subject))
             total += 1
             record(stats, q["q"], ok)
             if ok:
@@ -743,6 +746,10 @@ if __name__ == "__main__":
     try:
         if len(sys.argv) > 2 and sys.argv[1] == "--revise":
             revise(sys.argv[2])
+            try:  # the terminal is handed back to nvim as soon as we exit: keep the result readable
+                input("\nPress Enter to close ")
+            except (KeyboardInterrupt, EOFError):
+                pass
             sys.exit(0)
         main()
     except (KeyboardInterrupt, EOFError):

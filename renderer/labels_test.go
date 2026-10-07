@@ -207,3 +207,24 @@ func TestSleepLog(t *testing.T) {
 		t.Fatal("sleep skip written as a rule")
 	}
 }
+
+func TestSharedNetwork(t *testing.T) {
+	s := newTestStore(t, map[string]string{"inbox.md": "# Inbox\n"})
+	now := time.Now()
+	qf := filepath.Join(t.TempDir(), "queue.json")
+	t.Setenv("NOTESVIEW_SENSE_QUEUE", qf)
+	net, apLib, apDorm := "00000000000000a1", "00000000000000b1", "00000000000000b2"
+	s.updateRules(func(r *Rules) { r.Places[net] = "library" })
+	q := []QueueItem{{Kind: "place", Hash: apLib, Text: "campus · access point …aa:01", Net: net, First: now.Format(scoreStamp), Count: 1},
+		{Kind: "place", Hash: apDorm, Text: "campus · access point …bb:02", Net: net, First: now.Format(scoreStamp), Count: 1}}
+	j, _ := json.Marshal(q)
+	os.WriteFile(qf, j, 0o600)
+	s.Label("place", apLib, "library", nil, now)
+	if s.loadRules().Shared[net] {
+		t.Fatal("same place as the network: not shared")
+	}
+	s.Label("place", apDorm, "home", nil, now)
+	if r := s.loadRules(); !r.Shared[net] || r.Places[apDorm] != "home" {
+		t.Fatalf("rules %+v", r)
+	}
+}

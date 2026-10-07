@@ -24,6 +24,7 @@
   // what a class's check-in looks like right now: [label, state]
   function checkState(e, d) {
     const early = d.early_min || 15, pts = d.points || 5;
+    if (e.exam) return ["Exam: good luck", "exam"];
     if (e.checked) return [`✓ Checked in at ${hm(new Date(e.checked))}`, "done"];
     if (e.can_check) return [`Check in  +${pts}`, "open"];
     if (e.missed) return ["Missed: no check-in", "missed"];
@@ -42,7 +43,7 @@
     const when = e.can_check && !e.checked ? (st <= now ? "happening now" : until(st - now)) : st <= now ? "happening now" : until(st - now);
     const day0 = iso(now) === e.date ? "" : st.toLocaleDateString(undefined, { weekday: "long" }) + " · ";
     return `<section class="next-class" data-state="${state}">
-      <div class="nc-main"><small>Next class</small><div class="nc-title">${esc(e.title)}</div>
+      <div class="nc-main"><small>${e.exam ? "Next exam" : "Next class"}</small><div class="nc-title">${esc(e.title)}</div>
         <div class="nc-meta">${esc(day0 + span(e))}${e.location ? " · " + esc(e.location) : ""} · ${esc(when)}</div></div>
       ${state === "open" ? `<button class="nc-btn" data-checkin="${esc(e.id)}">${esc(label)}</button>` : `<span class="nc-status nc-${state}">${esc(label)}</span>`}
       ${later.length ? `<ul class="nc-later">${later.slice(0, 2).map((l) => `<li><span>${esc(l.date === iso(now) ? "Today" : new Date(l.start).toLocaleDateString(undefined, { weekday: "short" }))} ${esc(hm(new Date(l.start)))}</span> ${esc(l.title)}</li>`).join("")}</ul>` : ""}
@@ -74,7 +75,7 @@
         <input type="checkbox" data-f="enabled"${c.enabled ? " checked" : ""} title="Use this calendar">
         <button class="cp-dot" data-f="color" title="Change colour"></button>
         <input class="cp-name" data-f="name" value="${esc(c.name)}" spellcheck="false" aria-label="Calendar name">
-        <label class="cp-class" title="Events in this calendar are classes: check in for points"><input type="checkbox" data-f="class"${c.class ? " checked" : ""}> classes</label>
+        <select class="cp-use" data-f="use" title="Classes: check in for points. Exams: counted as exams (days to exam), shown with your classes, no check-in." aria-label="Use">${[["class", "Classes"], ["exam", "Exams"], ["other", "Other"]].map(([k, l]) => `<option value="${k}"${(c.exam ? "exam" : c.class ? "class" : "other") === k ? " selected" : ""}>${l}</option>`).join("")}</select>
         <small>${c.events} event${c.events === 1 ? "" : "s"}</small>
         <button class="cp-del" data-f="delete" title="Remove this calendar" aria-label="Remove calendar">×</button></div>`).join("");
     return `<div class="cal-panel">${rows || `<p class="act-note">No calendars yet.</p>`}
@@ -161,7 +162,9 @@
       const row = t.closest(".cp-row"), f = t.dataset.f;
       if (!row || !f) return;
       const patch = { id: row.dataset.cal };
-      if (f === "enabled" || f === "class") patch[f] = t.checked; else if (f === "name") patch.name = t.value; else return;
+      if (f === "enabled") patch.enabled = t.checked;
+      else if (f === "use") { patch.class = t.value === "class"; patch.exam = t.value === "exam"; }
+      else if (f === "name") patch.name = t.value; else return;
       await env.post("/api/calendar/update", patch);
       env.refresh();
     });

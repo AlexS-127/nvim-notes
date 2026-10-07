@@ -20,7 +20,7 @@ import Vision
 //   screen  60 s  screenshot → on-device text recognition → activity class; image and text dropped
 //   camera  15 s  a 1.5 s burst: face present, facing the screen, eye-closure fraction, yawn
 //   mic     20 s  a 2 s burst: sound level (dBFS) and speech probability; never audio
-//   place   60 s  Wi-Fi network hash (and its place label once you give one)
+//   place   60 s  Wi-Fi network and access point hashes (and the place label once you give one)
 //   media   60 s  music playing or not
 // Each sensor logs {sensor, state: on|off|denied} when that changes. Switches and the salt are in
 // .signals/config.json, your labels in .signals/rules.json. Titles, domains and network names the
@@ -82,6 +82,7 @@ func tokens(_ text: String) -> [String] {
 struct Rules {
     var titles: [String: String] = [:], domains: [String: String] = [:], places: [String: String] = [:]
     var tokens: [String: [String: Int]] = [:], skipped: Set<String> = []
+    var shared: Set<String> = [] // network hashes that span several places (campus Wi-Fi): only access points count
 }
 
 func loadRules() -> Rules {
@@ -92,6 +93,7 @@ func loadRules() -> Rules {
     r.places = o["places"] as? [String: String] ?? [:]
     r.tokens = o["tokens"] as? [String: [String: Int]] ?? [:]
     r.skipped = Set((o["skipped"] as? [String: Bool] ?? [:]).keys)
+    r.shared = Set((o["shared_nets"] as? [String: Bool] ?? [:]).keys)
     return r
 }
 
@@ -159,11 +161,12 @@ final class LabelQueue {
     }
     /// Adds or counts an item; true when it is new in the queue.
     @discardableResult
-    func add(kind: String, hash: String, text: String, app: String, guess: String, tokenHashes: [String], rules: Rules) -> Bool {
+    func add(kind: String, hash: String, text: String, app: String, guess: String, tokenHashes: [String], rules: Rules, net: String = "") -> Bool {
         if rules.skipped.contains(hash) || rules.titles[hash] != nil || rules.domains[hash] != nil || rules.places[hash] != nil { return false }
         if var it = items[hash] { it["count"] = (it["count"] as? Int ?? 1) + 1; items[hash] = it; save(rules); return false }
         if kind == "screen" && items.values.filter({ ($0["kind"] as? String) == "screen" }).count >= 5 { return false } // a few at a time
         items[hash] = ["kind": kind, "hash": hash, "text": text, "app": app, "guess": guess, "tokens": tokenHashes, "first": stamp(), "count": 1]
+        if !net.isEmpty { items[hash]?["net"] = net }
         save(rules)
         return true
     }
@@ -560,19 +563,38 @@ final class Sense: NSObject, NSApplicationDelegate, CLLocationManagerDelegate, A
         emit("mic", ["db": (db * 10).rounded() / 10, "speech": ((speech.max() ?? 0) * 100).rounded() / 100, "device": micDevice])
     }
 
-    // place: the Wi-Fi network as a hash; its name only goes to the local queue for you to label
+    // place: the Wi-Fi network and the access point (BSSID) as hashes; names only go to the local queue.
+    // A campus network has one name everywhere, so the access point decides: your label for it first,
+    // else the network's label (unless the network is shared: labelled as different places). An
+    // unlabelled access point is asked about once you have stayed on it for 10 minutes.
+    var apSince: (ap: String, at: Date) = ("", .distantPast)
     func place() {
         guard on("place") else { return setState("place", "off") }
         let st = location.authorizationStatus
         if st == .notDetermined { location.requestWhenInUseAuthorization(); return }
         if st == .denied || st == .restricted { return setState("place", "denied") }
         setState("place", "on")
-        let ssid = CWWiFiClient.shared().interface()?.ssid() ?? ""
+        let wifi = CWWiFiClient.shared().interface()
+        let ssid = wifi?.ssid() ?? "", bssid = wifi?.bssid() ?? ""
         let h = ssid.isEmpty ? "none" : saltedHash(config.salt, "wifi|" + ssid)
+        let ap = bssid.isEmpty ? "" : saltedHash(config.salt, "ap|" + bssid.lowercased())
         lastNet = h
-        let label = rules.places[h]
-        if label == nil && !ssid.isEmpty { queue.add(kind: "place", hash: h, text: ssid, app: "", guess: "", tokenHashes: [], rules: rules) }
-        emit("place", ["net_hash": h, "place": label ?? (ssid.isEmpty ? "none" : "unknown")])
+        let netLabel = rules.shared.contains(h) ? nil : rules.places[h]
+        let apLabel = ap.isEmpty ? nil : rules.places[ap]
+        if ap != apSince.ap { apSince = (ap, Date()) }
+        if !ssid.isEmpty {
+            if netLabel == nil && rules.places[h] == nil {
+                queue.add(kind: "place", hash: h, text: ssid, app: "", guess: "", tokenHashes: [], rules: rules)
+            } else if apLabel == nil && !ap.isEmpty && Date().timeIntervalSince(apSince.at) >= 600 {
+                // short id of the access point so two of them can be told apart in the queue
+                queue.add(kind: "place", hash: ap, text: "\(ssid) · access point …\(bssid.suffix(5))", app: "", guess: rules.places[h] ?? "",
+                          tokenHashes: [], rules: rules, net: h)
+            }
+        }
+        var rec: [String: Any] = ["net_hash": h, "place": apLabel ?? netLabel ?? (ssid.isEmpty ? "none" : "unknown"),
+                                  "from": apLabel != nil ? "ap" : netLabel != nil ? "network" : "none"]
+        if !ap.isEmpty { rec["ap_hash"] = ap }
+        emit("place", rec)
     }
 
     func locationManagerDidChangeAuthorization(_ m: CLLocationManager) { place() }

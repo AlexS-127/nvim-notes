@@ -348,6 +348,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         return nil
     }
 
+    // JS confirm() (e.g. removing a calendar) returns false without this
+    func webView(_ w: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let a = NSAlert()
+        a.messageText = message
+        a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
+        completionHandler(a.runModal() == .alertFirstButtonReturn)
+    }
+
     @objc func reload() { web.reload() }
     @objc func zoomIn() { web.pageZoom += 0.1 }
     @objc func zoomOut() { web.pageZoom = max(0.4, web.pageZoom - 0.1) }

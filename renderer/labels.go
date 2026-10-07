@@ -305,6 +305,9 @@ type Rules struct {
 	Places  map[string]string         `json:"places"`  // network hash → place
 	Tokens  map[string]map[string]int `json:"tokens"`  // category → token hash → count
 	Skipped map[string]bool           `json:"skipped"` // hashes you chose not to label
+	// Shared: Wi-Fi networks you labelled as different places through their access points (one
+	// campus network everywhere); the helper then trusts only access point labels on them
+	Shared map[string]bool `json:"shared_nets,omitempty"`
 }
 
 var rulesMu sync.Mutex
@@ -328,6 +331,9 @@ func (s *Store) loadRules() Rules {
 	}
 	if r.Skipped == nil {
 		r.Skipped = map[string]bool{}
+	}
+	if r.Shared == nil {
+		r.Shared = map[string]bool{}
 	}
 	return r
 }
@@ -356,6 +362,7 @@ type QueueItem struct {
 	Tokens []string `json:"tokens,omitempty"`
 	First  string   `json:"first"`
 	Count  int      `json:"count"`
+	Net    string   `json:"net,omitempty"` // an access point's network hash
 	// Preview: a screen item has a thumbnail you can look at while labelling (see screenPreview)
 	Preview bool `json:"preview,omitempty"`
 }
@@ -450,7 +457,19 @@ func (s *Store) Label(kind, hash, category string, tokenHashes []string, now tim
 	if !ok || hash == "" {
 		return fmt.Errorf("%w: unknown category %q", ErrLabel, category)
 	}
+	net := ""
+	if kind == "place" {
+		for _, it := range s.LabelQueue(now) {
+			if it.Hash == hash {
+				net = it.Net
+			}
+		}
+	}
 	err := s.updateRules(func(r *Rules) {
+		// an access point labelled unlike its network: the network spans several places
+		if net != "" && r.Places[net] != "" && r.Places[net] != category {
+			r.Shared[net] = true
+		}
 		switch kind {
 		case "title":
 			r.Titles[hash] = category

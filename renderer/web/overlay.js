@@ -120,7 +120,7 @@
       if (c && mins <= 180) {
         $("ov-class").textContent = mins <= 0 ? "now" : mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
         $("ov-class").toggleAttribute("data-soon", mins <= 15);
-        $("ov-class-t").textContent = c.title + (c.location ? " · " + c.location : "");
+        $("ov-class-t").textContent = (c.exam ? "Exam · " : "") + c.title + (c.location ? " · " + c.location : "");
       }
     } catch (e) {}
     fit();

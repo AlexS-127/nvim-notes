@@ -19,7 +19,9 @@ import (
 // scanner ignores it, but committed with the notes). A calendar marked as a class schedule has
 // events you can check in to, from checkinEarly before the start until the end, for
 // scoreCheckinPts each (score.go). Check-ins are an append-only log, so the points of a past day
-// never change when a calendar is edited, re-imported or deleted.
+// never change when a calendar is edited, re-imported or deleted. A calendar marked as your exam
+// calendar (Settings → Calendars, Use: Exams) has exams: no check-in, shown with the upcoming
+// classes, and the only calendar source of days_to_exam in the feature store.
 
 const (
 	calDir        = ".calendar"
@@ -37,6 +39,7 @@ type CalMeta struct {
 	Name    string `json:"name"`
 	Color   string `json:"color"`   // swatch name, see SWATCHES in app.js
 	Class   bool   `json:"class"`   // events are classes you can check in to
+	Exam    bool   `json:"exam"`    // events are exams (never also Class)
 	Enabled bool   `json:"enabled"` // shown in the viewer and counted for upcoming classes
 	Added   string `json:"added"`   // date first imported: attendance is counted from here
 	Events  int    `json:"events"`  // VEVENTs in the file (not occurrences)
@@ -536,6 +539,7 @@ type CalEvent struct {
 	EndDate   string `json:"end_date"` // local day it covers last (same as Date for most)
 	AllDay    bool   `json:"all_day"`
 	Class     bool   `json:"class"`
+	Exam      bool   `json:"exam,omitempty"`
 	Checked   string `json:"checked,omitempty"` // when you checked in
 	CanCheck  bool   `json:"can_check"`         // the check-in window is open now
 	Missed    bool   `json:"missed,omitempty"`  // a class that ended without a check-in
@@ -647,6 +651,7 @@ type CalendarPatch struct {
 	Name    *string `json:"name"`
 	Color   *string `json:"color"`
 	Class   *bool   `json:"class"`
+	Exam    *bool   `json:"exam"`
 	Enabled *bool   `json:"enabled"`
 }
 
@@ -666,6 +671,16 @@ func (s *Store) UpdateCalendar(p CalendarPatch) (CalMeta, error) {
 		}
 		if p.Class != nil {
 			list[i].Class = *p.Class
+		}
+		if p.Exam != nil {
+			list[i].Exam = *p.Exam
+		}
+		if list[i].Class && list[i].Exam { // one use per calendar: the newest choice wins
+			if p.Exam != nil && *p.Exam {
+				list[i].Class = false
+			} else {
+				list[i].Exam = false
+			}
 		}
 		if p.Enabled != nil {
 			list[i].Enabled = *p.Enabled
@@ -809,7 +824,7 @@ func (cf calFile) occurrences(from, to, now time.Time, checked map[string]string
 			ID: eventID(cf.meta.ID, e.UID, st), Cal: cf.meta.ID, UID: e.UID, Title: e.Summary, Location: e.Location, Desc: e.Desc,
 			Start: ls.Format(time.RFC3339), End: le.Format(time.RFC3339),
 			Date: ls.Format(isoDate), EndDate: last.Format(isoDate), AllDay: e.AllDay,
-			Class: cf.meta.Class && !e.AllDay, Color: cf.meta.Color, CalName: cf.meta.Name,
+			Class: cf.meta.Class && !e.AllDay, Exam: cf.meta.Exam, Color: cf.meta.Color, CalName: cf.meta.Name,
 			start: ls, end: le, startUnix: st.Unix(),
 		}
 		if ev.Title == "" {
@@ -845,12 +860,12 @@ func (cf calFile) occurrences(from, to, now time.Time, checked map[string]string
 	return out
 }
 
-// Upcoming returns the classes that have not ended yet (the running one first), at most n of
-// them within the next two weeks.
+// Upcoming returns the classes and exams that have not ended yet (the running one first), at most
+// n of them within the next two weeks.
 func (s *Store) Upcoming(now time.Time, n int) []CalEvent {
 	var out []CalEvent
 	for _, e := range s.Events(now.AddDate(0, 0, -1), now.AddDate(0, 0, 14), now) {
-		if e.Class && e.end.After(now) {
+		if (e.Class || e.Exam) && e.end.After(now) {
 			out = append(out, e)
 		}
 	}

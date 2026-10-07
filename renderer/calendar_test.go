@@ -280,3 +280,27 @@ func TestCheckedInClassCountsBeforeItEnds(t *testing.T) {
 		t.Errorf("%+v", sum)
 	}
 }
+
+func TestExamCalendar(t *testing.T) {
+	s := newTestStore(t, map[string]string{"inbox.md": "# Inbox\n"})
+	now := at(2026, 10, 19, 9, 0)
+	m, err := s.ImportCalendar("Important", []byte(ics(vevent("UID:mt", "SUMMARY:ACT 200 Midterm 1", "DTSTART:20261020T140000Z", "DTEND:20261020T151500Z"))), true, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exam := true
+	if c, _ := s.UpdateCalendar(CalendarPatch{ID: m.ID, Exam: &exam}); !c.Exam || c.Class {
+		t.Fatalf("exam calendar %+v", c)
+	}
+	up := s.Upcoming(now, 5)
+	if len(up) != 1 || !up[0].Exam || up[0].Class || up[0].CanCheck {
+		t.Fatalf("upcoming %+v", up)
+	}
+	if _, err := s.CheckIn(up[0].ID, at(2026, 10, 20, 14, 5)); err == nil {
+		t.Fatal("checked in to an exam")
+	}
+	class := true
+	if c, _ := s.UpdateCalendar(CalendarPatch{ID: m.ID, Class: &class}); c.Exam || !c.Class {
+		t.Fatalf("back to classes %+v", c)
+	}
+}

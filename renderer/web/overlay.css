@@ -1,10 +1,10 @@
 /* Overlay (overlay.html, shown by NotesView.app in a floating see-through window): today's numbers in one row,
    and in debug mode (Settings → Overlay) a sensor panel under it. The app sizes the window to .ov-wrap. */
 html, body.overlay { background: transparent !important; margin: 0; padding: 0 !important; height: 100%; overflow: hidden; display: block; }
-body.overlay { font-family: var(--font-ui); color: var(--fg); -webkit-user-select: none; user-select: none; cursor: default; }
+body.overlay { font-family: var(--font-code, ui-monospace, Menlo, monospace); color: var(--fg); -webkit-user-select: none; user-select: none; cursor: default; }
 .ov-wrap { width: max-content; display: flex; flex-direction: column; gap: 6px; }
 .ov { box-sizing: border-box; height: 64px; display: flex; align-items: center; justify-content: space-around; gap: 18px; padding: 0 16px;
-  background: color-mix(in srgb, var(--bg) 42%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 14px; }
+  background: color-mix(in srgb, var(--bg) 42%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 3px; }
 .ov-stat { display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .ov-stat[hidden] { display: none; }
 .ov-stat b { font-size: 24px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap;
@@ -20,9 +20,9 @@ body.overlay { font-family: var(--font-ui); color: var(--fg); -webkit-user-selec
 
 /* debug panel */
 .ov-debug { box-sizing: border-box; width: 560px; padding: 8px 12px; font: 11px/1.45 var(--font-code, ui-monospace, monospace);
-  background: color-mix(in srgb, var(--bg) 78%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 12px; }
+  background: color-mix(in srgb, var(--bg) 78%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 3px; }
 .ov-debug[hidden] { display: none; }
-.ov-debug h4 { margin: 6px 0 2px; font: 600 10px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.ov-debug h4 { margin: 6px 0 2px; font: 600 10px var(--font-code, ui-monospace, Menlo, monospace); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .ov-debug h4:first-child { margin-top: 0; }
 .ovd-row { display: grid; grid-template-columns: 74px 42px 1fr; gap: 8px; white-space: nowrap; }
 .ovd-row > span:last-child { overflow: hidden; text-overflow: ellipsis; }

@@ -10,7 +10,7 @@
   // ── home card ──
   function queueItemHtml(it, cats, places) {
     const opts = (it.kind === "place" ? places : cats).map((c) => `<option value="${c}"${it.guess === c ? " selected" : ""}>${c}</option>`).join("");
-    const what = it.kind === "place" ? "Where is this network?" : it.kind === "screen" ? `Screen at ${esc((it.first || "").slice(11, 16))}${it.app ? " in " + esc(it.app) : ""}` : esc(it.text);
+    const what = it.kind === "place" ? `Where is this? ${esc(it.text)}` : it.kind === "screen" ? `Screen at ${esc((it.first || "").slice(11, 16))}${it.app ? " in " + esc(it.app) : ""}` : esc(it.text);
     return `<div class="dl-item" data-kind="${esc(it.kind)}" data-hash="${esc(it.hash)}" data-tokens="${esc((it.tokens || []).join(","))}">
       <div class="dl-what"><small>${esc(it.kind)}${it.app && it.kind !== "screen" ? " · " + esc(it.app) : ""} · seen ${it.count}×</small><span>${what}</span></div>
       ${it.preview ? `<img class="dl-preview" src="/api/data/preview?hash=${encodeURIComponent(it.hash)}" alt="What was on screen" title="Click to enlarge; deleted once you label or skip it">` : ""}

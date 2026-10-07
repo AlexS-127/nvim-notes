@@ -172,6 +172,7 @@ func (s *Store) BuildFeatures(day string, now, until time.Time) (DayFeatures, er
 
 	// raw records of the day (and the previous day's last states), deduped
 	recs := s.ReadSignals(day)
+	rules := s.loadRules()
 	seen := map[string]bool{}
 	var clean []map[string]any
 	for _, r := range recs {
@@ -304,9 +305,9 @@ func (s *Store) BuildFeatures(day string, now, until time.Time) (DayFeatures, er
 						}
 					}
 				case "window":
-					rows[m].C["window_cat"] = str(r, "cat")
+					rows[m].C["window_cat"] = labelled(rules.Titles, str(r, "title_hash"), str(r, "cat"))
 				case "browser":
-					rows[m].C["browser_cat"] = str(r, "cat")
+					rows[m].C["browser_cat"] = labelled(rules.Domains, str(r, "domain_hash"), str(r, "cat"))
 				case "screen":
 					rows[m].C["screen_class"] = str(r, "class")
 					if v, ok := num(r, "conf"); ok {
@@ -325,7 +326,7 @@ func (s *Store) BuildFeatures(day string, now, until time.Time) (DayFeatures, er
 						}
 					}
 				case "place":
-					rows[m].C["place"] = str(r, "place")
+					rows[m].C["place"] = rules.placeOf(r)
 				case "media":
 					if v, ok := num(r, "playing"); ok {
 						set(m, "music", v)
@@ -467,6 +468,9 @@ func (s *Store) BuildFeatures(day string, now, until time.Time) (DayFeatures, er
 		t := start.Add(time.Duration(m) * time.Minute)
 		next := 600.0
 		for _, e := range evts {
+			if e.Exam && !e.AllDay && !t.Before(e.start) && t.Before(e.end) {
+				rows[m].V["exam_now"] = 1
+			}
 			if !e.Class || e.AllDay {
 				continue
 			}
@@ -523,8 +527,13 @@ func (s *Store) dayContext(f *DayFeatures, tasks []Task, evts []CalEvent, start,
 			exams[course] = d
 		}
 	}
+	// with an exam calendar, its events are the exams; without one, events whose title names one
+	hasExamCal := false
+	for _, c := range s.Calendars() {
+		hasExamCal = hasExamCal || (c.Exam && c.Enabled)
+	}
 	for _, e := range s.Events(start, start.AddDate(0, 0, 60), now) {
-		if examRe.MatchString(e.Title) {
+		if (hasExamCal && e.Exam) || (!hasExamCal && examRe.MatchString(e.Title)) {
 			note(strings.ToLower(strings.Fields(e.Title)[0]+courseDigits(e.Title)), int(e.start.Sub(start).Hours()/24))
 		}
 	}
@@ -661,6 +670,32 @@ func mean(v []float64) float64 {
 		t += x
 	}
 	return t / float64(len(v))
+}
+
+// ── your labels applied to past records ──
+// The raw records keep what the helper decided at the time; the features use your labels as they
+// are now, so labelling a window title, site, network or access point fills every earlier minute
+// it was seen (all days, on the next rebuild; today's live views at once).
+
+// labelled is your label for a hash, else the recorded category.
+func labelled(rules map[string]string, hash, recorded string) string {
+	if c := rules[hash]; c != "" && hash != "" && hash != "none" {
+		return c
+	}
+	return recorded
+}
+
+// placeOf is a place record's place: your label for its access point, else for its network (not a
+// shared one), else what was recorded.
+func (r Rules) placeOf(rec map[string]any) string {
+	if p := r.Places[str(rec, "ap_hash")]; p != "" {
+		return p
+	}
+	net, recorded := str(rec, "net_hash"), str(rec, "place")
+	if p := r.Places[net]; p != "" && !r.Shared[net] && (recorded == "unknown" || recorded == "") {
+		return p
+	}
+	return recorded
 }
 
 // SleepWindow is the night before `day`, in hours: Apple Watch sleep (Health export: total sleep)
@@ -874,12 +909,17 @@ func (s *Store) RebuildFeatures(now time.Time, force ...string) []string {
 		days = force
 	} else {
 		today := now.Format(isoDate)
+		// labels given since a day was built change its categories and places (labelled, placeOf)
+		labelsAt := ""
+		if fi, err := os.Stat(s.signalPath(rulesFile)); err == nil {
+			labelsAt = fi.ModTime().Format(scoreStamp)
+		}
 		for d := 1; d <= 60; d++ {
 			day := addDays(today, -d)
 			if _, err := os.Stat(s.signalPath(day + ".jsonl")); err != nil && d > 1 {
 				continue
 			}
-			if f, err := s.LoadFeatures(day); err == nil && f.Schema == featureSchema && f.Built > day+"T23:59:59" {
+			if f, err := s.LoadFeatures(day); err == nil && f.Schema == featureSchema && f.Built > day+"T23:59:59" && f.Built >= labelsAt {
 				continue
 			}
 			days = append(days, day)
@@ -905,7 +945,8 @@ func (s *Store) RebuildFeatures(now time.Time, force ...string) []string {
 	return done
 }
 
-// featureLoop rebuilds missing or stale days at start and every night at 03:30.
+// featureLoop rebuilds missing or stale days (built before the day ended, or before your latest
+// labels) at start and every night at 03:30.
 func (s *Server) featureLoop() {
 	time.Sleep(time.Minute)
 	for {

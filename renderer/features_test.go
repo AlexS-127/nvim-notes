@@ -215,3 +215,36 @@ func TestMinuteActiveReading(t *testing.T) {
 		}
 	}
 }
+
+func TestLabelsFillPastMinutes(t *testing.T) {
+	s := newTestStore(t, map[string]string{"inbox.md": "# Inbox\n"})
+	day := "2026-10-07"
+	writeSignals(t, s, day,
+		map[string]any{"at": day + "T10:00:10", "src": "sense", "sensor": "window", "cat": "other", "title_hash": "00000000000000c1"},
+		map[string]any{"at": day + "T10:00:20", "src": "sense", "sensor": "place", "place": "unknown", "net_hash": "00000000000000a1", "ap_hash": "00000000000000b1"},
+		map[string]any{"at": day + "T10:01:20", "src": "sense", "sensor": "place", "place": "unknown", "net_hash": "00000000000000a2"},
+		map[string]any{"at": day + "T10:02:20", "src": "sense", "sensor": "place", "place": "library", "net_hash": "00000000000000a3", "ap_hash": "00000000000000b3"},
+	)
+	s.updateRules(func(r *Rules) {
+		r.Titles["00000000000000c1"] = "code"
+		r.Places["00000000000000b1"] = "home"    // access point label
+		r.Places["00000000000000a2"] = "cafe"    // network label fills an unknown
+		r.Places["00000000000000a3"] = "library" // shared network: its access point is unlabelled
+		r.Shared["00000000000000a3"] = true
+	})
+	start, _, _ := dayBounds(day)
+	f, err := s.BuildFeatures(day, start.Add(time.Hour*11), start.Add(time.Hour*11))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := 10 * 60
+	if c := f.Rows[m].C; c["window_cat"] != "code" || c["place"] != "home" {
+		t.Fatalf("minute 10:00 %v", c)
+	}
+	if p := f.Rows[m+1].C["place"]; p != "cafe" {
+		t.Fatalf("network label: %q", p)
+	}
+	if p := f.Rows[m+2].C["place"]; p != "library" {
+		t.Fatalf("recorded place kept: %q", p)
+	}
+}

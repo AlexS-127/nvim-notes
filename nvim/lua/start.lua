@@ -188,7 +188,9 @@ local function class_label(c, w)
   end
   local where = (c.location and c.location ~= "") and (" · " .. c.location) or ""
   local state
-  if c.checked then
+  if c.exam then
+    state = "  exam"
+  elseif c.checked then
     state = "  ✓ checked in"
   elseif c.can_check then
     state = "  check in now (a)"
@@ -203,6 +205,7 @@ end
 local function check_in()
   local c = classes and classes[1]
   if not c then return vim.notify("No upcoming class", vim.log.levels.INFO) end
+  if c.exam then return vim.notify(c.title .. " is an exam: no check-in", vim.log.levels.INFO) end
   if c.checked then return vim.notify("Already checked in to " .. c.title, vim.log.levels.INFO) end
   vim.system({ "notesview", "calendar", "--dir", NOTES, "checkin" }, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
     vim.schedule(function()
@@ -411,7 +414,7 @@ local function label_queue()
     if not it or i > 5 then return load_labels() end
     local cats = it.kind == "place" and (labels.places or {}) or (labels.categories or {})
     local choices = vim.list_extend(vim.deepcopy(cats), { "skip" })
-    local what = it.kind == "place" and "Where is this Wi-Fi network?" or ((it.text ~= "" and it.text or ("screen at " .. tostring(it.first):sub(12, 16))) .. (it.app and (" (" .. it.app .. ")") or "") .. (it.preview and " · picture in the viewer (Activity)" or ""))
+    local what = it.kind == "place" and ("Where is this? " .. (it.text or "")) or ((it.text ~= "" and it.text or ("screen at " .. tostring(it.first):sub(12, 16))) .. (it.app and (" (" .. it.app .. ")") or "") .. (it.preview and " · picture in the viewer (Activity)" or ""))
     vim.ui.select(choices, { prompt = it.kind .. ": " .. what }, function(c)
       if not c then return load_labels() end
       local args = c == "skip" and { "skip", it.kind, it.hash } or vim.list_extend({ "set", it.kind, it.hash, c }, it.tokens or {})
@@ -604,17 +607,19 @@ local function restart_renderer()
   end)
 end
 
--- Quiz in a full-screen terminal tab inside nvim. Used when nvim is a job of an interactive shell
+-- Quiz in a terminal buffer in the current window (no new tab). Used when nvim is a job of an interactive shell
 -- (typed `nvim`, or the `notes` function): SIGSTOPping the TUI there makes the shell think the job
 -- was suspended (like Ctrl-Z), so it grabs the terminal back and fights the quiz for keystrokes.
 local function run_quiz_in_terminal(script, args)
-  vim.cmd("tabnew")
+  local prev = vim.api.nvim_get_current_buf()
+  vim.cmd("enew")  -- the quiz takes over this window; no new tab
   local buf = vim.api.nvim_get_current_buf()
   vim.fn.jobstart(vim.list_extend({ "sh", "-c", 'python3 "$@"; printf "\\n[Enter to go back]"; read _', "sh", script }, args or {}), {
     term = true,
     env = { NOTES_DIR = NOTES },
     on_exit = function()
       vim.schedule(function()
+        if vim.api.nvim_buf_is_valid(prev) and vim.api.nvim_get_current_buf() == buf then pcall(vim.api.nvim_set_current_buf, prev) end
         if vim.api.nvim_buf_is_valid(buf) then pcall(vim.api.nvim_buf_delete, buf, { force = true }) end
         load_tasks()
         load_classes()
