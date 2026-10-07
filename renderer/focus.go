@@ -10,7 +10,8 @@ import (
 
 // Inferred focus, 0-1 per minute, from the feature rows (no timer, nothing to start or stop).
 //
-// Version 1 is transparent: active (input in the last minute, not idle, screen awake) × how much
+// Version 1 is transparent: active (input in the last minute, not idle, or the camera sees you
+// reading the screen; screen awake) × how much
 // the minute's activity category counts as work (categoryWork) × a penalty for rapid app
 // switching × a penalty when the camera sees nobody or someone looking away, smoothed over 5
 // minutes. Focus minutes are minutes ≥ 0.6 inside runs of 10+ minutes.
@@ -74,6 +75,11 @@ func minuteActive(r Row) bool {
 		return false
 	}
 	if r.V["keys"]+r.V["clicks"]+r.V["scroll"]+r.V["nvim_keys"]+r.V["quiz_answers"] > 0 {
+		return true
+	}
+	// no input but the camera sees you at the screen, facing it, eyes open: reading (a long answer, a
+	// PDF, a lecture slide), not away
+	if r.Mask["camera"] == "on" && r.V["present"] >= 0.5 && r.V["facing"] >= 0.5 && r.V["perclos"] < 0.5 {
 		return true
 	}
 	if v, ok := r.V["idle"]; ok {

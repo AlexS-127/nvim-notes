@@ -36,10 +36,12 @@
       <p class="act-note">How see-through the NotesView app's window is (with the blur behind it). A browser window can't be transparent, so this only shows in the app.</p>`;
   }
 
-  function overlayHtml() {
+  function overlayHtml(d) {
     const inApp = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nv);
     return `<div class="set-row set-actions"><button id="set-overlay"${inApp ? "" : " disabled"}>Show / hide overlay</button></div>
-      <p class="act-note">A small see-through strip that floats above every app (and full-screen apps, on every Space) with today's score, pace, tasks done, quiz time and new words. Toggle it with <code>o</code> here, <code>⌥⌘O</code> from anywhere, or the app's Overlay menu (⇧⌘O). Drag it to move it; right-click it for click-through (clicks pass to the app under it) and reset. It stays up when the main window is closed.${inApp ? "" : " Only in the NotesView app."}</p>`;
+      <div class="set-grid"><label>Debug</label><div><label class="cp-class"><input type="checkbox" data-cfg="overlay_debug"${d.config.overlay_debug ? " checked" : ""}> Show what the sensors see</label>
+        <small>A panel under the strip, refreshed every 5 s: the category the feature store gives this minute and which source said what (Neovim, site, window, screen, app), focus and what it is based on, sensors not reporting, unusual values (z ≥ 2), each sensor's newest reading and its age (red when 3× overdue), the helper, the labelling queue and failing quality checks.</small></div></div>
+      <p class="act-note">A small see-through strip that floats above every app (and full-screen apps, on every Space) with today's score, pace, tasks done, open tasks due today (only when there are some), quiz time, new words, your focus over the last minute with what you were doing (study, code…), and the next class from 3 hours before it. Toggle it with <code>o</code> here, <code>⌥⌘O</code> from anywhere, or the app's Overlay menu (⇧⌘O). Drag it to move it; right-click it for click-through (clicks pass to the app under it) and reset. It stays up when the main window is closed.${inApp ? "" : " Only in the NotesView app."}</p>`;
   }
 
   function routineHtml(items) {
@@ -108,7 +110,7 @@
       <nav class="set-nav">${SECTIONS.map(([id, l]) => `<a href="#/settings" data-jump="${id}">${l}</a>`).join("")}</nav>
       ${sec("appearance", "Appearance", appearanceHtml(d))}
       ${sec("transparency", "Transparency", transparencyHtml(d))}
-      ${sec("overlay", "Overlay", overlayHtml())}
+      ${sec("overlay", "Overlay", overlayHtml(d))}
       ${sec("calendars", "Calendars", cal + `<p class="act-note">Attendance is on the <a href="#/classes">Classes</a> page.</p>`)}
       ${sec("revision", "Revision", rev)}
       ${sec("routine", "Morning routine", routineHtml(items))}

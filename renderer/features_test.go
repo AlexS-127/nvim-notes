@@ -196,3 +196,22 @@ func TestWatcherReportsTreeChanges(t *testing.T) {
 		t.Errorf("file in renamed folder: %+v", e)
 	}
 }
+
+func TestMinuteActiveReading(t *testing.T) {
+	cam := map[string]string{"camera": "on"}
+	reading := Row{V: map[string]float64{"idle": 300, "present": 0.9, "facing": 1, "perclos": 0}, Mask: cam}
+	if !minuteActive(reading) {
+		t.Fatal("reading at the screen counted as away")
+	}
+	for name, r := range map[string]Row{
+		"nobody":       {V: map[string]float64{"idle": 300, "present": 0.1, "facing": 0}, Mask: cam},
+		"looking away": {V: map[string]float64{"idle": 300, "present": 0.9, "facing": 0.2}, Mask: cam},
+		"eyes closed":  {V: map[string]float64{"idle": 300, "present": 0.9, "facing": 1, "perclos": 0.8}, Mask: cam},
+		"no camera":    {V: map[string]float64{"idle": 300, "present": 0.9, "facing": 1}, Mask: map[string]string{"camera": "off"}},
+		"locked":       {V: map[string]float64{"idle": 300, "present": 0.9, "facing": 1, "locked": 1}, Mask: cam},
+	} {
+		if minuteActive(r) {
+			t.Errorf("%s counted as active", name)
+		}
+	}
+}

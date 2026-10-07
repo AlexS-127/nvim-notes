@@ -166,7 +166,7 @@ func themeInfo() map[string]any {
 		op = ghosttyOpacity()
 	}
 	return map[string]any{"palette": palette, "mode": mode, "font": fontStack(c.Font), "appearance": forced,
-		"light": map[string]string{"palette": lp, "mode": lm}, "dark": map[string]string{"palette": dp, "mode": dm}, "opacity": op}
+		"light": map[string]string{"palette": lp, "mode": lm}, "dark": map[string]string{"palette": dp, "mode": dm}, "opacity": op, "overlay_debug": c.OverlayDebug}
 }
 
 func noCache(h http.Handler) http.Handler {

@@ -1,13 +1,32 @@
-/* Overlay (overlay.html, shown by NotesView.app in a floating see-through window): today's numbers in one row. */
+/* Overlay (overlay.html, shown by NotesView.app in a floating see-through window): today's numbers in one row,
+   and in debug mode (Settings → Overlay) a sensor panel under it. The app sizes the window to .ov-wrap. */
 html, body.overlay { background: transparent !important; margin: 0; padding: 0 !important; height: 100%; overflow: hidden; display: block; }
 body.overlay { font-family: var(--font-ui); color: var(--fg); -webkit-user-select: none; user-select: none; cursor: default; }
-.ov { box-sizing: border-box; height: 100vh; display: flex; align-items: center; justify-content: space-around; gap: 6px; padding: 0 12px;
+.ov-wrap { width: max-content; display: flex; flex-direction: column; gap: 6px; }
+.ov { box-sizing: border-box; height: 64px; display: flex; align-items: center; justify-content: space-around; gap: 18px; padding: 0 16px;
   background: color-mix(in srgb, var(--bg) 42%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 14px; }
 .ov-stat { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.ov-stat[hidden] { display: none; }
 .ov-stat b { font-size: 24px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap;
   text-shadow: 0 1px 3px color-mix(in srgb, var(--bg) 85%, transparent); }
-.ov-stat small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); text-shadow: 0 1px 2px color-mix(in srgb, var(--bg) 85%, transparent); }
+.ov-stat small { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 2px color-mix(in srgb, var(--bg) 85%, transparent); }
 #ov-score { color: var(--accent); }
+.ov-due b { color: var(--c-important); }
+#ov-focus[data-band="low"] { color: var(--c-important); } #ov-focus[data-band="high"] { color: var(--accent); }
+#ov-class[data-soon] { color: var(--c-important); }
 .ov.offline b { opacity: .45; }
 .ov-ask b { color: var(--c-important); font-size: 18px; }
-.ov-ask[hidden] { display: none; }
+
+/* debug panel */
+.ov-debug { box-sizing: border-box; width: 560px; padding: 8px 12px; font: 11px/1.45 var(--font-code, ui-monospace, monospace);
+  background: color-mix(in srgb, var(--bg) 78%, transparent); border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); border-radius: 12px; }
+.ov-debug[hidden] { display: none; }
+.ov-debug h4 { margin: 6px 0 2px; font: 600 10px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.ov-debug h4:first-child { margin-top: 0; }
+.ovd-row { display: grid; grid-template-columns: 74px 42px 1fr; gap: 8px; white-space: nowrap; }
+.ovd-row > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.ovd-k { color: var(--muted); }
+.ovd-ok { color: var(--accent); } .ovd-stale { color: var(--c-important); font-weight: 700; } .ovd-off { color: var(--muted); }
+.ovd-pick { color: var(--accent); font-weight: 700; }
+.ovd-warn { color: var(--c-important); }

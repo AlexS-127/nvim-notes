@@ -70,7 +70,7 @@ func (s *Server) settingsInfo() map[string]any {
 	return map[string]any{
 		"config": map[string]any{
 			"theme_light": c.ThemeLight, "theme_dark": c.ThemeDark, "appearance": c.Appearance, "font": c.Font,
-			"opacity": c.Opacity, "sync_ghostty": c.GhosttySync(),
+			"opacity": c.Opacity, "sync_ghostty": c.GhosttySync(), "overlay_debug": c.OverlayDebug,
 		},
 		"warning": warn, "themes": ts, "fonts": fs, "swatches": sw,
 		"ghostty": map[string]any{"path": ghosttyConfigPath(), "opacity": ghosttyOpacity(), "theme": ghosttyThemeLine(c)},
@@ -114,12 +114,13 @@ func reloadGhostty() {
 
 // AppearancePatch changes config.json; nil fields are left alone.
 type AppearancePatch struct {
-	ThemeLight  *string  `json:"theme_light"`
-	ThemeDark   *string  `json:"theme_dark"`
-	Appearance  *string  `json:"appearance"`
-	Font        *string  `json:"font"`
-	Opacity     *float64 `json:"opacity"` // 0 = follow Ghostty
-	SyncGhostty *bool    `json:"sync_ghostty"`
+	ThemeLight   *string  `json:"theme_light"`
+	ThemeDark    *string  `json:"theme_dark"`
+	Appearance   *string  `json:"appearance"`
+	Font         *string  `json:"font"`
+	Opacity      *float64 `json:"opacity"` // 0 = follow Ghostty
+	SyncGhostty  *bool    `json:"sync_ghostty"`
+	OverlayDebug *bool    `json:"overlay_debug"`
 }
 
 // ApplyAppearance validates and saves a patch; it reports whether the themes changed.
@@ -166,6 +167,9 @@ func ApplyAppearance(p AppearancePatch) (Config, bool, error) {
 	if p.SyncGhostty != nil {
 		v := *p.SyncGhostty
 		c.SyncGhostty = &v
+	}
+	if p.OverlayDebug != nil {
+		c.OverlayDebug = *p.OverlayDebug
 	}
 	if err := SaveConfig(c); err != nil {
 		return c, false, err

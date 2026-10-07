@@ -177,8 +177,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         case "overlay": toggleOverlay()
         case "checkin-on": setCheckinKeys(true)
         case "checkin-off": setCheckinKeys(false)
+        case let b? where b.hasPrefix("size:"): // "size:W:H" from overlay.js: fit the panel to its content
+            let v = b.dropFirst(5).split(separator: ":").compactMap { Double($0) }
+            if v.count == 2 { resizeOverlay(width: v[0], height: v[1]) }
         default: break
         }
+    }
+
+    /// Fits the overlay to its content, keeping its top edge and the side nearest the screen's edge in place.
+    func resizeOverlay(width: Double, height: Double) {
+        guard let p = overlay else { return }
+        let w = min(1400, max(160, width.rounded())), h = min(1000, max(40, height.rounded()))
+        var f = p.frame
+        if abs(f.width - w) < 1 && abs(f.height - h) < 1 { return }
+        let screen = (p.screen ?? NSScreen.main)?.visibleFrame ?? f
+        let top = f.maxY
+        if f.midX > screen.midX { f.origin.x = f.maxX - w } // right half: grow to the left
+        f.size = NSSize(width: w, height: h)
+        f.origin.y = top - h
+        p.setFrame(f, display: true)
+        saveOverlayFrame()
     }
 
     // ⌥⌘1–5 answer an open focus check-in from any app (registered only while one is open).
@@ -222,7 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             let root = NSView(frame: NSRect(origin: .zero, size: size))
             root.autoresizingMask = [.width, .height]
             let oc = WKWebViewConfiguration()
-            oc.userContentController.add(self, name: "nv")   // check-in prompts: "checkin-on" / "checkin-off"
+            oc.userContentController.add(self, name: "nv")   // check-in prompts: "checkin-on" / "checkin-off"; "size:W:H"
             let w = WKWebView(frame: root.bounds, configuration: oc)
             w.setValue(false, forKey: "drawsBackground")
             if #available(macOS 12.0, *) { w.underPageBackgroundColor = .clear }

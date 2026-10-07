@@ -695,6 +695,9 @@ func (s *Server) dataViewRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, map[string]any{"day": day, "checks": q})
 	})
+	mux.HandleFunc("/api/data/now", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, s.store.DataNow(time.Now(), r.URL.Query().Get("debug") == "1"))
+	})
 	mux.HandleFunc("/api/data/live", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"now": time.Now().Format(scoreStamp), "readings": s.store.LiveReadings(time.Now())})
 	})
@@ -712,4 +715,58 @@ func backupInfo() map[string]any {
 		return map[string]any{"repo": dir, "exists": false}
 	}
 	return map[string]any{"repo": dir, "exists": true, "last": strings.TrimSpace(string(out))}
+}
+
+// DataNow is the current minute as the feature store sees it, for the overlay: the activity
+// category, inferred focus, open tasks due today and minutes to the next class. With debug it
+// also has the whole minute row (numbers, categories, masks, z-scores), each sensor's newest raw
+// reading with its age and expected interval, the helper, the labelling queue and failing
+// quality checks, so you can check that the sensors see what is really happening.
+func (s *Store) DataNow(now time.Time, debug bool) map[string]any {
+	day := now.Format(isoDate)
+	out := map[string]any{"now": now.Format(scoreStamp)}
+	start, n, err := dayBounds(day)
+	if err != nil {
+		return out
+	}
+	f, err := s.BuildFeatures(day, now, now)
+	if err != nil {
+		return out
+	}
+	// the last finished minute (the current one is still filling)
+	m := int(now.Sub(start).Minutes()) - 1
+	if m < 0 || m >= n || m >= len(f.Rows) {
+		return out
+	}
+	r := f.Rows[m]
+	out["minute"] = start.Add(time.Duration(m) * time.Minute).Format("15:04")
+	out["cat"] = r.C["cat"]
+	out["active"] = minuteActive(r)
+	for k, name := range map[string]string{"focus": "focus", "due_today_open": "due_today", "min_to_class": "min_to_class"} {
+		if v, ok := r.V[k]; ok {
+			out[name] = math.Round(v*100) / 100
+		}
+	}
+	if !debug {
+		return out
+	}
+	out["row"] = r
+	live := s.LiveReadings(now)
+	ages := map[string]int{}
+	for sn, rec := range live {
+		if at, err := time.ParseInLocation(scoreStamp, str(rec, "at"), time.Local); err == nil {
+			ages[sn] = int(now.Sub(at).Seconds())
+		}
+	}
+	out["live"], out["ages"], out["intervals"] = live, ages, sensorInterval
+	out["helper"] = HelperStatus()
+	out["queue"] = len(s.LabelQueue(now))
+	var fails []QualityCheck
+	for _, c := range s.DataQuality(day, now) {
+		if c.Status == "fail" || c.Status == "warn" {
+			fails = append(fails, c)
+		}
+	}
+	out["quality"] = fails
+	return out
 }

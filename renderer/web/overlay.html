@@ -24,13 +24,19 @@
 <link rel="stylesheet" href="/custom.css">
 </head>
 <body class="overlay">
+<div class="ov-wrap" id="ov-wrap">
 <div class="ov" id="ov">
   <div class="ov-stat"><b id="ov-score">–</b><small>score</small></div>
   <div class="ov-stat"><b id="ov-pace" class="ov-pace">–</b><small>pace</small></div>
   <div class="ov-stat"><b id="ov-done">–</b><small>done</small></div>
+  <div class="ov-stat ov-due" id="ov-due-s" hidden><b id="ov-due">–</b><small>due today</small></div>
   <div class="ov-stat"><b id="ov-quiz">–</b><small>quiz</small></div>
   <div class="ov-stat"><b id="ov-words">–</b><small>words</small></div>
+  <div class="ov-stat" id="ov-focus-s" hidden title="inferred focus over the last minute, and what you were doing"><b id="ov-focus">–</b><small id="ov-cat">focus</small></div>
+  <div class="ov-stat" id="ov-class-s" hidden><b id="ov-class">–</b><small id="ov-class-t">class</small></div>
   <div class="ov-stat ov-ask" id="ov-ask" hidden><b>Focus?</b><small>⌥⌘1–5</small></div>
+</div>
+<div class="ov-debug" id="ov-debug" hidden></div>
 </div>
 <script src="/pace.js"></script>
 <script src="/overlay.js"></script>

@@ -75,6 +75,8 @@ type Config struct {
 	Font        string  `json:"font,omitempty"` // a preset name, any installed family name or a CSS stack, see fonts.go
 	Opacity     float64 `json:"opacity,omitempty"`
 	SyncGhostty *bool   `json:"sync_ghostty,omitempty"`
+	// OverlayDebug turns the overlay into a sensor check: raw readings, ages and the feature row
+	OverlayDebug bool `json:"overlay_debug,omitempty"`
 }
 
 // GhosttySync is whether theme changes are written to Ghostty's config (default on).
@@ -113,6 +115,7 @@ func LoadConfig() (Config, string) {
 		c.Opacity = min(1, max(0.2, raw.Opacity))
 	}
 	c.SyncGhostty = raw.SyncGhostty
+	c.OverlayDebug = raw.OverlayDebug
 	switch a := strings.ToLower(raw.Appearance); a {
 	case "light", "dark":
 		c.Appearance = a
