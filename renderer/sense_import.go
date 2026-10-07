@@ -262,7 +262,8 @@ func bundleCategory(id string) string {
 		{"entertainment", "youtube,netflix,spotify,music,tv,twitch,hulu,disney,game,steam,podcasts"},
 		{"comms", "mail,messages,mobilesms,whatsapp,discord,slack,teams,zoom,telegram,signal,facetime"},
 		{"browser", "safari,chrome,firefox,arc,brave,edge,browser"},
-		{"study", "notesview,ghostty,terminal,xcode,vscode,code,word,excel,powerpoint,pages,numbers,keynote,notion,obsidian,anki,quizlet,canvas,claude,preview,books"},
+		{"code", "ghostty,terminal,iterm,xcode,vscode,code,cursor,zed,github,dbeaver,postman"},
+		{"study", "notesview,word,excel,powerpoint,pages,numbers,keynote,notion,obsidian,anki,quizlet,canvas,claude,preview,books"},
 		{"news", "news,nytimes,bbc"},
 		{"shopping", "amazon,ebay,shop"},
 	} {

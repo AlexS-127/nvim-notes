@@ -13,6 +13,7 @@
     const what = it.kind === "place" ? "Where is this network?" : it.kind === "screen" ? `Screen at ${esc((it.first || "").slice(11, 16))}${it.app ? " in " + esc(it.app) : ""}` : esc(it.text);
     return `<div class="dl-item" data-kind="${esc(it.kind)}" data-hash="${esc(it.hash)}" data-tokens="${esc((it.tokens || []).join(","))}">
       <div class="dl-what"><small>${esc(it.kind)}${it.app && it.kind !== "screen" ? " · " + esc(it.app) : ""} · seen ${it.count}×</small><span>${what}</span></div>
+      ${it.preview ? `<img class="dl-preview" src="/api/data/preview?hash=${encodeURIComponent(it.hash)}" alt="What was on screen" title="Click to enlarge; deleted once you label or skip it">` : ""}
       <select aria-label="Category">${it.guess ? "" : `<option value="">choose…</option>`}${opts}</select>
       <button type="button" class="dl-save">Label</button><button type="button" class="set-icon dl-skip" title="Skip">×</button></div>`;
   }
@@ -35,6 +36,9 @@
     if (p.checkout) body += `<form class="dl-block dl-checkout" data-block="checkout"><b>Evening check-out</b>
       ${rateRow("productivity", "Productive today", "1 not at all · 5 very")}${rateRow("energy", "Energy", "1 drained · 5 full of energy")}${rateRow("mood", "Mood", "1 low · 5 great")}${rateRow("sleep", "Sleep last night", "1 terrible · 5 great")}
       <input name="note" placeholder="What helped or hurt today? (optional)" autocomplete="off"><div class="dl-actions"><button>Save</button><button type="button" class="dl-skip-prompt">Not today</button></div></form>`;
+    if (p.sleep) body += `<form class="dl-block dl-sleep" data-block="sleep"><b>Last night</b>
+      <label>bed <input type="time" name="bed" required></label><label>up <input type="time" name="wake" required></label>
+      <div class="dl-actions"><button>Save</button><button type="button" class="dl-skip-prompt">Skip</button></div></form>`;
     if (q.length) body += `<div class="dl-block"><b>Help label your data</b> <small>(${q.length})</small>${q.slice(0, 3).map((it) => queueItemHtml(it, d.categories, d.places)).join("")}</div>`;
     if (!body) return "";
     return `<section class="data-card"><div class="rc-top"><small>Your data · optional, no points</small><a href="#/data">Data tab</a></div>${body}</section>`;
@@ -71,6 +75,7 @@
           await env.post("/api/data/skip", { target: block.dataset.block, key: block.dataset.prompted || "" });
           return env.refresh();
         }
+        if ((b = q(".dl-preview"))) return b.classList.toggle("big");
         if ((b = q(".dl-save, .dl-skip"))) {
           const it = b.closest(".dl-item"), sel = it.querySelector("select");
           if (b.classList.contains("dl-skip")) await env.post("/api/data/skip", { target: it.dataset.kind, key: it.dataset.hash });
@@ -84,6 +89,11 @@
     });
     note.addEventListener("submit", async (ev) => {
       const f = ev.target;
+      if (f.classList.contains("dl-sleep")) {
+        ev.preventDefault();
+        try { await env.post("/api/data/sleep", { bed: f.elements.bed.value, wake: f.elements.wake.value }); env.toast("Sleep logged"); env.refresh(); } catch (e) { env.toast(msg(e)); }
+        return;
+      }
       if (!f.classList.contains("dl-checkout")) return;
       ev.preventDefault();
       const v = (n) => +(f.querySelector(`.dl-rate[data-name="${n}"]`).dataset.value || 0);
@@ -95,7 +105,7 @@
   }
 
   // ── Data tab (#/data, key y) ──
-  const CAT_COLORS = { study: "var(--sw-blue)", problem: "var(--sw-indigo)", writing: "var(--sw-teal)", reading: "var(--sw-cyan)", admin: "var(--sw-slate)", comms: "var(--sw-amber)",
+  const CAT_COLORS = { study: "var(--sw-blue)", code: "var(--sw-green)", problem: "var(--sw-indigo)", writing: "var(--sw-teal)", reading: "var(--sw-cyan)", admin: "var(--sw-slate)", comms: "var(--sw-amber)",
     entertainment: "var(--sw-red)", social: "var(--sw-pink)", news: "var(--sw-orange)", shopping: "var(--sw-brown)", other: "var(--sw-gray)", browser: "var(--sw-gray)", unknown: "var(--sw-gray)" };
   const PLACE_COLORS = { home: "var(--sw-green)", library: "var(--sw-blue)", class: "var(--sw-violet)", cafe: "var(--sw-amber)", other: "var(--sw-gray)", unknown: "var(--sw-gray)", none: "transparent" };
   const STATE_LABEL = { on: "collecting", waiting: "waiting for data", denied: "permission needed", absent: "not available", off: "switched off" };
@@ -164,6 +174,7 @@
       <label>City (weather)</label><div><input class="cp-name" name="city" value="${esc(c.city)}" placeholder="e.g. Atlanta" autocomplete="off"><small>${c.lat ? `${c.lat}, ${c.lon}` : "not set"}</small></div>
       <label>Health export folder</label><div><input class="cp-name" name="health_dir" value="${esc(c.health_dir)}" placeholder="iCloud folder Health Auto Export writes to" autocomplete="off"><small>for the Apple Watch</small></div>
       <label>Semester start</label><div><input class="cp-name set-pages" name="semester_start" value="${esc(c.semester_start)}" placeholder="YYYY-MM-DD" autocomplete="off"><small>for week of semester</small></div>
+      <label>Data start</label><div><input class="cp-name set-pages" name="data_start" value="${esc(c.data_start || "")}" placeholder="YYYY-MM-DD" autocomplete="off"><small>first clean day; earlier days are tests</small></div>
       <label></label><div><button class="dl-save">Save</button></div></form>`;
   }
 
@@ -176,9 +187,9 @@
   function daysHtml(d) {
     if (!d.days.length) return `<p class="act-note">No days yet.</p>`;
     const c = (v) => (v === undefined || v === null ? "–" : v);
-    return `<table class="att-table dt-days"><thead><tr><th>Day</th><th>Score</th><th>Forecast</th><th>Outcome</th><th>Check-out</th><th>Focus check-in</th><th>Focus min</th><th>Sleep h</th><th>Phone min</th><th>Temp</th></tr></thead><tbody>${d.days.map((r) => `<tr>
-      <td><a href="#/data?day=${r.day}" data-day="${r.day}">${esc(r.day)}</a></td><td>${c(r.score)}</td><td>${c(r.forecast)}</td><td>${c(r.outcome)}</td>
-      <td>${r.checkout ? `${r.checkout.productivity || "–"}/${r.checkout.energy || "–"}/${r.checkout.mood || "–"}/${r.checkout.sleep || "–"}` : "–"}</td><td>${c(r.checkin_mean)}</td><td>${c(r.focus_min)}</td><td>${c(r.sleep_h)}</td><td>${c(r.phone_min)}</td><td>${c(r.temp)}</td></tr>`).join("")}</tbody></table>
+    return `<table class="att-table dt-days"><thead><tr><th>Day</th><th>Score</th><th>Forecast</th><th>Outcome</th><th>Check-out</th><th>Focus check-in</th><th>Focus min</th><th>Sleep h</th><th>Phone min</th><th>Temp</th></tr></thead><tbody>${d.days.map((r) => `<tr${r.test ? ` class="dt-test" title="Before the data start: a test day, left out of training and calibration"` : ""}>
+      <td><a href="#/data?day=${r.day}" data-day="${r.day}">${esc(r.day)}</a>${r.test ? " <small>test</small>" : ""}</td><td>${c(r.score)}</td><td>${c(r.forecast)}</td><td>${c(r.outcome)}</td>
+      <td>${r.checkout ? `${r.checkout.productivity || "–"}/${r.checkout.energy || "–"}/${r.checkout.mood || "–"}/${r.checkout.sleep || "–"}` : "–"}</td><td>${c(r.checkin_mean)}</td><td>${c(r.focus_min)}</td><td title="${r.sleep_src === "log" ? "in bed " + esc(r.sleep_times || "") + " (your log)" : r.sleep_src === "watch" ? "Apple Watch" : ""}">${c(r.sleep_h)}${r.sleep_src === "log" ? " <small>log</small>" : ""}</td><td>${c(r.phone_min)}</td><td>${c(r.temp)}</td></tr>`).join("")}</tbody></table>
       <p class="act-note">Check-out is productivity / energy / mood / sleep (1-5).</p>`;
   }
 
@@ -194,7 +205,7 @@
   }
 
   function privacyHtml(a, o) {
-    return `<p class="act-note">Stored: counts, categories, hashes and model outputs only: no keystroke contents, window titles, URLs, screenshots, camera frames or audio. Titles, sites and network names the helper can't classify wait in a local queue outside the notes folder (mode 0600, at most 7 days) until you label or skip them. Raw records: <code>${esc(o.dirs.signals)}</code>, features: <code>${esc(o.dirs.features)}</code>, labels: <code>${esc(o.dirs.labels)}</code>.</p>
+    return `<p class="act-note">Stored: counts, categories, hashes and model outputs only: no keystroke contents, window titles, URLs, screenshots, camera frames or audio. Titles, sites and network names the helper can't classify wait in a local queue outside the notes folder (mode 0600, at most 7 days) until you label or skip them. With Screen previews on, an unsure screen also keeps a picture there so you can see it while labelling; it is deleted when you label or skip it, or after 24 hours, and is never backed up. Raw records: <code>${esc(o.dirs.signals)}</code>, features: <code>${esc(o.dirs.features)}</code>, labels: <code>${esc(o.dirs.labels)}</code>.</p>
       <div class="set-grid"><label>Audit</label><div><span class="dt-state dt-${a.issues.length ? "denied" : "on"}">${esc(a.summary)}</span></div>
       <label>Backup</label><div>${a.backup.exists ? `private repo <code>${esc(a.backup.repo)}</code>, last commit ${esc(a.backup.last)}` : `not set up yet (<code>${esc(a.backup.repo)}</code>)`}</div>
       <label>Forget</label><div><input class="cp-name set-pages" id="dt-forget-day" placeholder="YYYY-MM-DD"><button class="dl-save" id="dt-forget">Delete that day's data</button></div></div>
@@ -295,7 +306,7 @@
       if (!on() || ev.target.id !== "dt-settings") return;
       ev.preventDefault();
       const f = ev.target.elements;
-      try { await env.post("/api/data/settings", { city: f.city.value, health_dir: f.health_dir.value, semester_start: f.semester_start.value }); env.toast("Saved"); env.refresh(); }
+      try { await env.post("/api/data/settings", { city: f.city.value, health_dir: f.health_dir.value, semester_start: f.semester_start.value, data_start: f.data_start.value }); env.toast("Saved"); env.refresh(); }
       catch (e) { env.toast(msg(e)); }
     });
   }

@@ -18,6 +18,17 @@ func (s *Server) dataRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/data/queue", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"queue": s.store.LabelQueue(time.Now()), "categories": labelCategories, "places": placeLabels})
 	})
+	// a screen's preview while it waits in the queue; never cached, gone once labelled or skipped
+	mux.HandleFunc("/api/data/preview", func(w http.ResponseWriter, r *http.Request) {
+		p := screenPreview(r.URL.Query().Get("hash"), time.Now())
+		if p == "" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "no-store")
+		http.ServeFile(w, r, p)
+	})
 	decode := func(w http.ResponseWriter, r *http.Request, v any) bool {
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(v) != nil {
 			http.Error(w, "bad request", 400)
@@ -56,6 +67,12 @@ func (s *Server) dataRoutes(mux *http.ServeMux) {
 		}
 		if decode(w, r, &req) {
 			s.dataReply(w, s.store.Label(req.Kind, req.Hash, req.Category, req.Tokens, time.Now()))
+		}
+	}))
+	mux.HandleFunc("/api/data/sleep", s.post(func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Bed, Wake, Day string }
+		if decode(w, r, &req) {
+			s.dataReply(w, s.store.LogSleep(req.Bed, req.Wake, req.Day, time.Now()))
 		}
 	}))
 	mux.HandleFunc("/api/data/grade", s.post(func(w http.ResponseWriter, r *http.Request) {

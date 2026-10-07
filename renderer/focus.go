@@ -167,8 +167,9 @@ func (s *Store) FitFocusModel(now time.Time) (FocusModel, error) {
 	var Y []float64
 	var V1 []float64
 	byDay := map[string][]LabelEntry{}
+	start := s.DataStart()
 	for _, e := range s.Labels() {
-		if e.Kind == "checkin" && e.Prompted != "" {
+		if e.Kind == "checkin" && e.Prompted != "" && !testDay(e.Date, start) {
 			byDay[e.Date] = append(byDay[e.Date], e)
 		}
 	}

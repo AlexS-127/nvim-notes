@@ -39,6 +39,7 @@ var sensorInfo = map[string][3]string{ // name → {title, what is stored, permi
 	"health":     {"Health (Apple Watch)", "heart rate, HRV, sleep, resting HR, steps, workouts", "Health Auto Export folder"},
 	"checkins":   {"Focus check-ins", "random 1-5 prompts while you're active", ""},
 	"confidence": {"Quiz confidence", "ask how sure you were after each answer", ""},
+	"previews":   {"Screen previews", "a picture of each unsure screen while it waits for your label (outside the notes, deleted on label/skip or after 24 h)", "Screen Recording"},
 }
 
 // permissionPanes open the right System Settings page.
@@ -107,7 +108,7 @@ func (s *Store) DataOverview(now time.Time) map[string]any {
 		lastState[k] = v
 	}
 	var rows []SensorRow
-	for _, n := range append(append([]string{}, sensorNames...), "checkins", "confidence") {
+	for _, n := range append(append([]string{}, sensorNames...), "checkins", "confidence", "previews") {
 		info := sensorInfo[n]
 		st := lastState[n]
 		days := cov[n]
@@ -129,7 +130,7 @@ func (s *Store) DataOverview(now time.Time) map[string]any {
 		rows = append(rows, SensorRow{Name: n, Title: info[0], Stores: info[1], Permission: info[2], State: st, On: cfg.Sensors[n], Days: days, Pane: permissionPanes[info[2]]})
 	}
 	h := HelperStatus()
-	return map[string]any{"today": today, "sensors": rows, "config": map[string]any{"city": cfg.City, "lat": cfg.Lat, "lon": cfg.Lon, "health_dir": cfg.HealthDir, "semester_start": cfg.Semester},
+	return map[string]any{"today": today, "sensors": rows, "config": map[string]any{"city": cfg.City, "lat": cfg.Lat, "lon": cfg.Lon, "health_dir": cfg.HealthDir, "semester_start": cfg.Semester, "data_start": cfg.DataStart},
 		"helper": h, "dirs": map[string]string{"signals": s.signalPath(""), "features": filepath.Join(s.Root, featuresDir), "labels": s.labelPath("")}}
 }
 
@@ -197,9 +198,13 @@ func (s *Store) DataDays(now time.Time) map[string]any {
 	var grid [5][5]int // forecast × outcome
 	var days []map[string]any
 	today := now.Format(isoDate)
+	start := s.DataStart()
 	for d := 0; d < 60; d++ {
 		day := addDays(today, -d)
 		row := map[string]any{"day": day}
+		if testDay(day, start) {
+			row["test"] = true
+		}
 		has := false
 		if sc, ok := acts.Scores[day]; ok {
 			row["score"] = sc.Total
@@ -208,7 +213,7 @@ func (s *Store) DataDays(now time.Time) map[string]any {
 		if fc, ok := forecasts[day]; ok {
 			row["forecast"] = fc
 			has = true
-			if o := OutcomeRating(acts.Scores, day); o > 0 && day != today {
+			if o := OutcomeRating(acts.Scores, day, start); o > 0 && day != today {
 				row["outcome"] = o
 				grid[fc-1][o-1]++
 			}
@@ -224,8 +229,11 @@ func (s *Store) DataDays(now time.Time) map[string]any {
 			}
 			row["checkin_mean"] = math.Round(float64(t)/float64(len(cs))*10) / 10
 		}
-		if h, ok := s.SleepWindow(day); ok {
-			row["sleep_h"] = h
+		if h, src, ok := s.sleepSource(day); ok {
+			row["sleep_h"], row["sleep_src"] = h, src
+			if b, w, ok := s.SleepLog(day); ok && src == "log" {
+				row["sleep_times"] = b.Format("15:04") + "–" + w.Format("15:04")
+			}
 			has = true
 		}
 		if f, err := s.LoadFeatures(day); err == nil {
@@ -591,6 +599,7 @@ func (s *Server) dataViewRoutes(mux *http.ServeMux) {
 			City      *string `json:"city"`
 			HealthDir *string `json:"health_dir"`
 			Semester  *string `json:"semester_start"`
+			DataStart *string `json:"data_start"`
 		}
 		if json.NewDecoder(r.Body).Decode(&req) != nil {
 			http.Error(w, "bad request", 400)
@@ -620,6 +629,15 @@ func (s *Server) dataViewRoutes(mux *http.ServeMux) {
 				}
 			}
 			c.Semester = *req.Semester
+		}
+		if req.DataStart != nil {
+			if *req.DataStart != "" {
+				if _, err := time.Parse(isoDate, *req.DataStart); err != nil {
+					s.dataReply(w, fmt.Errorf("%w: data start is YYYY-MM-DD", ErrLabel))
+					return
+				}
+			}
+			c.DataStart = *req.DataStart
 		}
 		s.dataReply(w, s.store.SaveSensors(c))
 	}))

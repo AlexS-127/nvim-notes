@@ -25,7 +25,10 @@ import Vision
 // Each sensor logs {sensor, state: on|off|denied} when that changes. Switches and the salt are in
 // .signals/config.json, your labels in .signals/rules.json. Titles, domains and network names the
 // classifier doesn't know wait in a local queue for you to label (queue.json in Application
-// Support, mode 0600, outside the notes folder, at most 7 days), never in .signals.
+// Support, mode 0600, outside the notes folder, at most 7 days), never in .signals. With the
+// "previews" switch (off by default) an unsure screen also keeps a JPEG in previews/<hash>.jpg
+// beside the queue (0700/0600) so you can see what you label: deleted when you label or skip it,
+// when it leaves the queue, or after 24 h (renderer/labels.go: screenPreview).
 
 let notesDir = URL(fileURLWithPath: ProcessInfo.processInfo.environment["NOTES_DIR"] ?? (NSHomeDirectory() + "/notes"))
 let signalsDir = notesDir.appendingPathComponent(".signals")
@@ -94,11 +97,12 @@ func loadRules() -> Rules {
 
 // ── classifier: your labels (naive Bayes over hashed tokens) + generic keyword lists ──
 
-let categories = ["study", "reading", "problem", "writing", "comms", "entertainment", "social", "news", "shopping", "admin", "other"]
+let categories = ["study", "reading", "code", "comms", "entertainment", "social", "news", "shopping", "admin", "other"]
 var keywords: [String: Set<String>] = [
-    "study": ["lecture", "chapter", "syllabus", "exam", "midterm", "final", "homework", "assignment", "canvas", "quiz", "notes", "textbook", "slides", "course", "module", "seminar", "tutorial", "study", "flashcards", "revision", "notesview"],
-    "problem": ["problem", "problems", "exercise", "solution", "solutions", "calculate", "equation", "practice", "worksheet", "journal", "entry"],
-    "writing": ["draft", "essay", "outline", "report", "docx", "untitled", "document"],
+    "study": ["lecture", "chapter", "syllabus", "exam", "midterm", "final", "homework", "assignment", "canvas", "quiz", "notes", "textbook", "slides", "course", "module", "seminar", "tutorial", "study", "flashcards", "revision", "notesview",
+              "problem", "problems", "exercise", "solution", "solutions", "calculate", "equation", "practice", "worksheet", "journal", "entry", "essay", "draft", "outline"],
+    "code": ["github", "gitlab", "git", "commit", "repo", "python", "swift", "golang", "javascript", "typescript", "npm", "pip",
+             "debug", "compile", "terminal", "xcode", "vscode", "cursor", "stackoverflow", "zsh", "bash", "nvim", "vim", "localhost", "api", "json", "traceback"],
     "reading": ["article", "paper", "journal", "kindle", "book", "reader", "pdf", "chapter"],
     "comms": ["mail", "inbox", "messages", "slack", "discord", "teams", "zoom", "whatsapp", "gmail", "outlook", "message", "chat", "meet"],
     "entertainment": ["youtube", "netflix", "twitch", "spotify", "hulu", "disney", "prime", "video", "watch", "game", "steam", "episode", "trailer"],
@@ -153,12 +157,41 @@ final class LabelQueue {
             for it in a { if let h = it["hash"] as? String { items[h] = it } }
         }
     }
-    func add(kind: String, hash: String, text: String, app: String, guess: String, tokenHashes: [String], rules: Rules) {
-        if rules.skipped.contains(hash) || rules.titles[hash] != nil || rules.domains[hash] != nil || rules.places[hash] != nil { return }
-        if var it = items[hash] { it["count"] = (it["count"] as? Int ?? 1) + 1; items[hash] = it; save(rules); return }
-        if kind == "screen" && items.values.filter({ ($0["kind"] as? String) == "screen" }).count >= 5 { return } // a few at a time
+    /// Adds or counts an item; true when it is new in the queue.
+    @discardableResult
+    func add(kind: String, hash: String, text: String, app: String, guess: String, tokenHashes: [String], rules: Rules) -> Bool {
+        if rules.skipped.contains(hash) || rules.titles[hash] != nil || rules.domains[hash] != nil || rules.places[hash] != nil { return false }
+        if var it = items[hash] { it["count"] = (it["count"] as? Int ?? 1) + 1; items[hash] = it; save(rules); return false }
+        if kind == "screen" && items.values.filter({ ($0["kind"] as? String) == "screen" }).count >= 5 { return false } // a few at a time
         items[hash] = ["kind": kind, "hash": hash, "text": text, "app": app, "guess": guess, "tokens": tokenHashes, "first": stamp(), "count": 1]
         save(rules)
+        return true
+    }
+
+    // ── screen previews (switch "previews") ──
+    let previewDir = supportDir.appendingPathComponent("previews")
+
+    /// Keeps a JPEG of a queued screen (quality 0.5, at most 1440 px wide) for you to look at while labelling.
+    func savePreview(_ img: CGImage, hash: String) {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: previewDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: previewDir.path)
+        guard let jpg = NSBitmapImageRep(cgImage: img).representation(using: .jpeg, properties: [.compressionFactor: 0.5]) else { return }
+        let url = previewDir.appendingPathComponent(hash + ".jpg")
+        fm.createFile(atPath: url.path, contents: jpg, attributes: [.posixPermissions: 0o600])
+    }
+
+    /// Deletes previews whose screen is no longer queued (labelled, skipped, dropped) or older than 24 h.
+    func prunePreviews() {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: previewDir.path) else { return }
+        let cutoff = Date().addingTimeInterval(-24 * 3600)
+        for n in names {
+            let url = previewDir.appendingPathComponent(n)
+            let h = n.hasSuffix(".jpg") ? String(n.dropLast(4)) : ""
+            let mod = (try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
+            if items[h] == nil || mod < cutoff { try? fm.removeItem(at: url) }
+        }
     }
     func save(_ rules: Rules) {
         let cutoff = stamp(Date().addingTimeInterval(-7 * 86400))
@@ -174,6 +207,7 @@ final class LabelQueue {
             try? d.write(to: url, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
+        prunePreviews()
     }
 }
 
@@ -206,7 +240,7 @@ final class Sense: NSObject, NSApplicationDelegate, CLLocationManagerDelegate, A
         ws.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in self?.displayAsleep = true }
         ws.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.displayAsleep = false }
         location.delegate = self
-        every(60) { [weak self] in self?.config = loadConfig(); self?.rules = loadRules() }
+        every(60) { [weak self] in self?.config = loadConfig(); self?.rules = loadRules(); self?.queue.prunePreviews() }
         every(15) { [weak self] in self?.input(); self?.apps(); self?.window(); self?.browser() }
         every(60) { [weak self] in self?.screen(); self?.place(); self?.media() }
         every(15) { [weak self] in self?.camera() }
@@ -303,7 +337,7 @@ final class Sense: NSObject, NSApplicationDelegate, CLLocationManagerDelegate, A
         "youtube.com": "entertainment", "netflix.com": "entertainment", "twitch.tv": "entertainment", "disneyplus.com": "entertainment", "hulu.com": "entertainment", "open.spotify.com": "entertainment",
         "instagram.com": "social", "twitter.com": "social", "x.com": "social", "tiktok.com": "social", "reddit.com": "social", "facebook.com": "social", "linkedin.com": "social",
         "mail.google.com": "comms", "outlook.office.com": "comms", "outlook.live.com": "comms", "web.whatsapp.com": "comms", "discord.com": "comms", "slack.com": "comms", "zoom.us": "comms",
-        "docs.google.com": "writing", "canvas.instructure.com": "study", "instructure.com": "study", "claude.ai": "study", "chatgpt.com": "study", "quizlet.com": "study", "khanacademy.org": "study",
+        "github.com": "code", "gitlab.com": "code", "stackoverflow.com": "code", "developer.apple.com": "code", "pkg.go.dev": "code", "docs.python.org": "code", "pypi.org": "code", "npmjs.com": "code", "canvas.instructure.com": "study", "instructure.com": "study", "claude.ai": "study", "chatgpt.com": "study", "quizlet.com": "study", "khanacademy.org": "study",
         "scholar.google.com": "reading", "jstor.org": "reading", "wikipedia.org": "reading", "amazon.com": "shopping", "ebay.com": "shopping",
         "nytimes.com": "news", "bbc.com": "news", "bbc.co.uk": "news", "cnn.com": "news", "theguardian.com": "news", "wsj.com": "news", "bloomberg.com": "news",
     ]
@@ -367,8 +401,9 @@ final class Sense: NSObject, NSApplicationDelegate, CLLocationManagerDelegate, A
                 emit("screen", ["class": cls, "conf": (conf * 100).rounded() / 100, "words": toks.count, "app": app, "from": source])
                 if conf < 0.4 && toks.count > 20 && source == "text" { // unsure: ask you (hashed words only, so it can learn)
                     let key = saltedHash(salt, "screen|" + stamp())
-                    self.queue.add(kind: "screen", hash: key, text: "", app: app, guess: cls == "other" ? "" : cls,
+                    let added = self.queue.add(kind: "screen", hash: key, text: "", app: app, guess: cls == "other" ? "" : cls,
                                    tokenHashes: Array(Set(toks.map { saltedHash(salt, $0) })).prefix(200).map { $0 }, rules: rules)
+                    if added && self.on("previews") { self.queue.savePreview(img, hash: key) } // after the queue, so it is never orphaned
                 }
             }
         }

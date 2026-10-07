@@ -332,7 +332,8 @@ end
 -- ── Your data: optional labels, no points (renderer/labels.go) ─────────
 -- `notesview label --json prompts`: an open focus check-in (random times), the evening check-out (from
 -- 18:00) and the labelling queue (titles, sites, places the sense helper could not classify).
--- i answers the check-in, w does the check-out, h labels a few items. All skippable.
+-- i answers the check-in, w does the check-out, h labels a few items, u logs last night's sleep
+-- (until the Apple Watch export exists). All skippable.
 local labels = nil   -- nil: still loading
 
 local function load_labels()
@@ -391,6 +392,18 @@ local function checkout()
   step(1)
 end
 
+local function log_sleep()
+  vim.ui.input({ prompt = "Went to bed at (HH:MM, Enter skips): " }, function(bed)
+    bed = vim.trim(bed or "")
+    if bed == "" then return nv_label({ "skip", "sleep" }) end
+    vim.ui.input({ prompt = "Got up at (HH:MM): " }, function(wake)
+      wake = vim.trim(wake or "")
+      if wake == "" then return end
+      nv_label({ "sleep", bed, wake }, function() vim.notify("Sleep logged") end)
+    end)
+  end)
+end
+
 local function label_queue()
   local q = labels and labels.queue or {}
   local function one(i)
@@ -398,7 +411,7 @@ local function label_queue()
     if not it or i > 5 then return load_labels() end
     local cats = it.kind == "place" and (labels.places or {}) or (labels.categories or {})
     local choices = vim.list_extend(vim.deepcopy(cats), { "skip" })
-    local what = it.kind == "place" and "Where is this Wi-Fi network?" or ((it.text ~= "" and it.text or ("screen at " .. tostring(it.first):sub(12, 16))) .. (it.app and (" (" .. it.app .. ")") or ""))
+    local what = it.kind == "place" and "Where is this Wi-Fi network?" or ((it.text ~= "" and it.text or ("screen at " .. tostring(it.first):sub(12, 16))) .. (it.app and (" (" .. it.app .. ")") or "") .. (it.preview and " · picture in the viewer (Activity)" or ""))
     vim.ui.select(choices, { prompt = it.kind .. ": " .. what }, function(c)
       if not c then return load_labels() end
       local args = c == "skip" and { "skip", it.kind, it.hash } or vim.list_extend({ "set", it.kind, it.hash, c }, it.tokens or {})
@@ -443,6 +456,7 @@ local function label_items()
   end
   if not p then return items end
   if p.checkin and p.checkin ~= "" then items[#items + 1] = { name = "i  " .. fit("Focused right now? (1-5)", w - 3), section = "Your data", action = checkin } end
+  if p.sleep then items[#items + 1] = { name = "u  " .. fit("Log last night's sleep", w - 3), section = "Your data", action = log_sleep } end
   if p.checkout then items[#items + 1] = { name = "w  " .. fit("Evening check-out", w - 3), section = "Your data", action = checkout } end
   if (p.queue or 0) > 0 then items[#items + 1] = { name = "h  " .. fit(("Label data (%d)"):format(p.queue), w - 3), section = "Your data", action = label_queue } end
   return items
@@ -773,6 +787,7 @@ function M.setup()
       bmap("i", function() if labels and labels.prompts and labels.prompts.checkin ~= "" then checkin() end end)
       bmap("w", function() if labels and labels.prompts and labels.prompts.checkout then checkout() end end)
       bmap("h", label_queue)
+      bmap("u", function() if labels and labels.prompts and labels.prompts.sleep then log_sleep() end end)
       bmap("z", function() helper_do() end)
       bmap("Z", function() helper_do("restart") end)
       for i = 1, 3 do

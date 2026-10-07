@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // The privacy audit: .signals and .features may only hold numbers, booleans, categories, hashes
@@ -25,6 +26,7 @@ var (
 	bundleRe   = regexp.MustCompile(`^[A-Za-z0-9._\-]{0,96}$`)           // com.example.app
 	notePathRe = regexp.MustCompile(`^[A-Za-z0-9 ._\-]+(/[A-Za-z0-9 ._\-]+)*\.md$`) // revision: act200/accruals.md
 	urlRe      = regexp.MustCompile(`(?i)(https?://|www\.|\.com/|file://)`)
+	imageExtRe = regexp.MustCompile(`(?i)\.(jpe?g|png|heic|gif|tiff?|webp|bmp)$`)
 )
 
 func auditValue(key, v string) bool {
@@ -134,6 +136,22 @@ func (s *Store) Audit() ([]AuditIssue, int) {
 			scan(p, sc)
 		}
 		f.Close()
+	}
+	// images: none in the data folders; screen previews only in the helper's folder, under previewTTL
+	for _, dir := range []string{s.signalPath(""), filepath.Join(s.Root, featuresDir), s.labelPath("")} {
+		filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && imageExtRe.MatchString(p) {
+				issues = append(issues, AuditIssue{File: filepath.Base(p), Key: "image", Value: "image file in the data folder"})
+			}
+			return nil
+		})
+	}
+	if ents, err := os.ReadDir(previewDir()); err == nil {
+		for _, e := range ents {
+			if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) >= previewTTL+10*time.Minute {
+				issues = append(issues, AuditIssue{File: e.Name(), Key: "preview", Value: "screen preview older than 24 h"})
+			}
+		}
 	}
 	sort.SliceStable(issues, func(i, j int) bool { return issues[i].File < issues[j].File })
 	return issues, lines

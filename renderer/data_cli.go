@@ -77,6 +77,22 @@ func runLabelCommand(store *Store, args []string, asJSON bool, stdout, stderr io
 			return fail(err)
 		}
 		fmt.Fprintln(stdout, "Checked out for today")
+	case "sleep": // sleep BED WAKE [WAKE_DAY]
+		if len(args) < 2 {
+			return fail(fmt.Errorf("usage: notesview label sleep BED WAKE [YYYY-MM-DD], e.g. 23:30 7:15"))
+		}
+		day := ""
+		if len(args) > 2 {
+			day = args[2]
+		}
+		if err := store.LogSleep(args[0], args[1], day, now); err != nil {
+			return fail(err)
+		}
+		if day == "" {
+			day = now.Format(isoDate)
+		}
+		h, _ := store.SleepWindow(day)
+		fmt.Fprintf(stdout, "Slept %s → %s: %.1f h in bed\n", args[0], args[1], h)
 	case "skip": // skip TARGET [KEY]
 		if len(args) == 0 {
 			return fail(fmt.Errorf("usage: notesview label skip checkin|checkout|HASH-KIND [KEY]"))

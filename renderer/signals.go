@@ -102,7 +102,16 @@ type SensorConfig struct {
 	Lon       float64         `json:"lon,omitempty"`
 	HealthDir string          `json:"health_dir,omitempty"`
 	Semester  string          `json:"semester_start,omitempty"` // YYYY-MM-DD, for week of semester
+	DataStart string          `json:"data_start,omitempty"`     // YYYY-MM-DD: first clean day; earlier days were tests
 }
+
+// DataStart is the first day of clean data ("" = all days count). Days before it were for testing
+// the sensors: they are kept but left out of baselines, calibration and model fits, and marked as
+// test days in the feature store and on the Data tab.
+func (s *Store) DataStart() string { return s.Sensors().DataStart }
+
+// testDay reports a day before the data start.
+func testDay(day, start string) bool { return start != "" && day < start }
 
 // sensorDefaults: what runs unless switched off. The ones that need a permission are on, so the
 // permission is asked for once the helper runs; denying it just marks the sensor "denied".
@@ -110,7 +119,7 @@ var sensorDefaults = map[string]bool{
 	"input": true, "apps": true, "window": true, "browser": true, "screen": true, "camera": true,
 	"mic": true, "place": true, "media": true, "bluetooth": false,
 	"pmset": true, "screentime": true, "messages": true, "weather": true, "health": true,
-	"nvim": true, "quiz": true, "sys": true, "checkins": true,
+	"nvim": true, "quiz": true, "sys": true, "checkins": true, "previews": false,
 }
 
 var sensorCfgMu sync.Mutex

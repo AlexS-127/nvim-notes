@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 //             as a rule in .signals/rules.json so the helper uses it from then on)
 //   skip      a prompt or queue item you dismissed
 //   grade     an exam or assignment result
+//   sleep     when you went to bed and got up (a stand-in until the Apple Watch export exists)
 // The morning forecast (1-5) lives in the routine log (routine.go). For training, checkout and
 // grade are labels of their own day and inputs only for later days.
 
@@ -37,7 +39,10 @@ const (
 )
 
 // Categories a window title, site or screen minute can be labelled with.
-var labelCategories = []string{"study", "reading", "problem", "writing", "comms", "entertainment", "social", "news", "shopping", "admin", "other"}
+// study = coursework (problems and essays too), reading = books and articles outside courses,
+// code = programming and your own projects. "problem" and "writing" were folded into study (2026-10-06);
+// old records with them still count through categoryWork.
+var labelCategories = []string{"study", "reading", "code", "comms", "entertainment", "social", "news", "shopping", "admin", "other"}
 
 // Place labels.
 var placeLabels = []string{"home", "library", "class", "cafe", "other"}
@@ -65,6 +70,9 @@ type LabelEntry struct {
 	Item   string  `json:"item,omitempty"`
 	Score  float64 `json:"score,omitempty"`
 	Max    float64 `json:"max,omitempty"`
+	// sleep (Date = the day you woke up)
+	Bed  string `json:"bed,omitempty"`  // YYYY-MM-DDTHH:MM:00
+	Wake string `json:"wake,omitempty"` // YYYY-MM-DDTHH:MM:00
 }
 
 var (
@@ -146,6 +154,7 @@ type Prompts struct {
 	Checkout bool   `json:"checkout"`
 	Queue    int    `json:"queue"`
 	Forecast bool   `json:"forecast"` // the morning forecast still open (routine)
+	Sleep    bool   `json:"sleep"`    // last night's sleep not known yet (no watch data, not logged)
 }
 
 // OpenPrompts works out the prompts for now. idle is the machine's idle seconds (-1 unknown).
@@ -153,12 +162,14 @@ func (s *Store) OpenPrompts(now time.Time, idle float64) Prompts {
 	day := now.Format(isoDate)
 	var p Prompts
 	answered := map[string]bool{}
-	checkedOut := false
+	checkedOut, sleepDone := false, false
 	for _, e := range s.Labels() {
 		if e.Date != day {
 			continue
 		}
 		switch {
+		case e.Kind == "skip" && e.Target == "sleep":
+			sleepDone = true
 		case e.Kind == "checkin" || (e.Kind == "skip" && e.Target == "checkin"):
 			answered[e.Prompted] = true
 		case e.Kind == "checkout" || (e.Kind == "skip" && e.Target == "checkout"):
@@ -174,6 +185,9 @@ func (s *Store) OpenPrompts(now time.Time, idle float64) Prompts {
 		}
 	}
 	p.Checkout = !checkedOut && now.Hour() >= checkoutFrom
+	if _, ok := s.SleepWindow(day); !ok && !sleepDone && now.Hour() >= 4 {
+		p.Sleep = true
+	}
 	p.Queue = len(s.LabelQueue(now))
 	st := s.Routine(now)
 	if st.Show {
@@ -205,10 +219,70 @@ func (s *Store) Skip(target, key string, now time.Time) error {
 	} else {
 		e.Hash = key
 	}
-	if target != "checkin" && target != "checkout" {
+	if target != "checkin" && target != "checkout" && target != "sleep" {
 		s.updateRules(func(r *Rules) { r.Skipped[key] = true })
+		dropPreview(key)
 	}
 	return s.appendLabel(e)
+}
+
+// ── sleep log (temporary: until Apple Watch sleep arrives through the Health export) ──
+
+// parseClock reads "23:30", "7:05" or "0705" as hours and minutes.
+func parseClock(v string) (int, int, bool) {
+	v = strings.TrimSpace(strings.ReplaceAll(v, ".", ":"))
+	if !strings.Contains(v, ":") && len(v) >= 3 && len(v) <= 4 {
+		v = v[:len(v)-2] + ":" + v[len(v)-2:]
+	}
+	var h, m int
+	if _, err := fmt.Sscanf(v, "%d:%d", &h, &m); err != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, 0, false
+	}
+	return h, m, true
+}
+
+// LogSleep records last night: bed and wake as clock times. Wake is on wakeDay ("" = today; it must
+// not be in the future), bed on the same day if earlier than wake, else the evening before. A
+// later entry for the same day replaces an earlier one.
+func (s *Store) LogSleep(bed, wake, wakeDay string, now time.Time) error {
+	bh, bm, ok1 := parseClock(bed)
+	wh, wm, ok2 := parseClock(wake)
+	if !ok1 || !ok2 {
+		return fmt.Errorf("%w: times are HH:MM, e.g. 23:30 7:15", ErrLabel)
+	}
+	if wakeDay == "" {
+		wakeDay = now.Format(isoDate)
+	}
+	d, err := time.ParseInLocation(isoDate, wakeDay, time.Local)
+	if err != nil {
+		return fmt.Errorf("%w: day is YYYY-MM-DD", ErrLabel)
+	}
+	w := time.Date(d.Year(), d.Month(), d.Day(), wh, wm, 0, 0, time.Local)
+	b := time.Date(d.Year(), d.Month(), d.Day(), bh, bm, 0, 0, time.Local)
+	if !b.Before(w) {
+		b = b.AddDate(0, 0, -1)
+	}
+	if w.After(now) {
+		return fmt.Errorf("%w: wake time %s is still to come", ErrLabel, w.Format("15:04"))
+	}
+	if h := w.Sub(b).Hours(); h < 1 || h > 16 {
+		return fmt.Errorf("%w: %.1f h in bed; check the times", ErrLabel, h)
+	}
+	return s.appendLabel(LabelEntry{At: now.Format(scoreStamp), Date: wakeDay, Kind: "sleep", Bed: b.Format(scoreStamp), Wake: w.Format(scoreStamp)})
+}
+
+// SleepLog is the night before `day` as you logged it (the latest entry), if any.
+func (s *Store) SleepLog(day string) (bed, wake time.Time, ok bool) {
+	for _, e := range s.Labels() {
+		if e.Kind == "sleep" && e.Date == day {
+			b, err1 := time.ParseInLocation(scoreStamp, e.Bed, time.Local)
+			w, err2 := time.ParseInLocation(scoreStamp, e.Wake, time.Local)
+			if err1 == nil && err2 == nil {
+				bed, wake, ok = b, w, true
+			}
+		}
+	}
+	return
 }
 
 // Grade records an exam or assignment result.
@@ -282,6 +356,8 @@ type QueueItem struct {
 	Tokens []string `json:"tokens,omitempty"`
 	First  string   `json:"first"`
 	Count  int      `json:"count"`
+	// Preview: a screen item has a thumbnail you can look at while labelling (see screenPreview)
+	Preview bool `json:"preview,omitempty"`
 }
 
 // queuePath is the helper's queue (NOTESVIEW_SENSE_QUEUE overrides, for tests).
@@ -291,6 +367,50 @@ func queuePath() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "Library", "Application Support", "notesview-sense", "queue.json")
+}
+
+// Screen previews (the "previews" switch, off by default): for an unsure screen the helper also
+// keeps a JPEG of it in previews/<hash>.jpg next to the queue (folder 0700, file 0600), so you can
+// see what you are labelling. It is the only image the data layer keeps, and only until you label
+// or skip that screen, the item leaves the queue, or previewTTL passes, whichever is first. Never
+// in the notes folder, .signals, .features or the backup.
+const previewTTL = 24 * time.Hour
+
+var previewHashRe = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+func previewDir() string { return filepath.Join(filepath.Dir(queuePath()), "previews") }
+
+// screenPreview is the path of a screen item's preview while it is still fresh, "" otherwise.
+func screenPreview(hash string, now time.Time) string {
+	if !previewHashRe.MatchString(hash) {
+		return ""
+	}
+	p := filepath.Join(previewDir(), hash+".jpg")
+	if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && now.Sub(fi.ModTime()) < previewTTL {
+		return p
+	}
+	return ""
+}
+
+// dropPreview deletes a screen's preview (labelled or skipped).
+func dropPreview(hash string) {
+	if previewHashRe.MatchString(hash) {
+		_ = os.Remove(filepath.Join(previewDir(), hash+".jpg"))
+	}
+}
+
+// prunePreviews deletes every preview that is stale or whose item is no longer waiting. One
+// written in the last 2 minutes stays (the helper may have queued it after the queue was read).
+func prunePreviews(waiting map[string]bool, now time.Time) {
+	ents, _ := os.ReadDir(previewDir())
+	for _, e := range ents {
+		h := strings.TrimSuffix(e.Name(), ".jpg")
+		fresh := screenPreview(h, now) != ""
+		if fi, err := e.Info(); fresh && (waiting[h] || (err == nil && now.Sub(fi.ModTime()) < 2*time.Minute)) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(previewDir(), e.Name()))
+	}
 }
 
 // LabelQueue is the helper's queue minus what is labelled or skipped, most seen first, last 7 days.
@@ -307,9 +427,15 @@ func (s *Store) LabelQueue(now time.Time) []QueueItem {
 		// a title that is only the app's name (a blank window title) can't be labelled meaningfully
 		bare := it.Kind == "title" && (strings.TrimSpace(it.Text) == "" || strings.EqualFold(strings.Trim(strings.TrimSpace(it.Text), "()"), it.App))
 		if !known && !bare && it.First >= cutoff {
+			it.Preview = it.Kind == "screen" && screenPreview(it.Hash, now) != ""
 			out = append(out, it)
 		}
 	}
+	waiting := map[string]bool{}
+	for _, it := range out {
+		waiting[it.Hash] = it.Preview
+	}
+	prunePreviews(waiting, now)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Count > out[j].Count })
 	return out
 }
@@ -348,6 +474,7 @@ func (s *Store) Label(kind, hash, category string, tokenHashes []string, now tim
 	if err != nil {
 		return err
 	}
+	dropPreview(hash)
 	return s.appendLabel(LabelEntry{At: now.Format(scoreStamp), Date: now.Format(isoDate), Kind: "label", Target: kind, Hash: hash, Category: category})
 }
 
@@ -355,10 +482,13 @@ func (s *Store) Label(kind, hash, category string, tokenHashes []string, now tim
 
 // OutcomeRating is a finished day's score as 1-5: its quintile among the 30 finished days before
 // it (needs 5), or 0 when there are too few.
-func OutcomeRating(scores map[string]Score, day string) int {
+func OutcomeRating(scores map[string]Score, day, start string) int {
+	if testDay(day, start) {
+		return 0
+	}
 	var prev []int
 	for k, sc := range scores {
-		if k < day && k >= addDays(day, -30) {
+		if k < day && k >= addDays(day, -30) && !testDay(k, start) {
 			prev = append(prev, sc.Total)
 		}
 	}

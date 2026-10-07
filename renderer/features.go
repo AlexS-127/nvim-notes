@@ -41,7 +41,7 @@ var sensorNames = []string{"sys", "nvim", "quiz", "input", "apps", "window", "br
 var zChannels = []string{"keys", "clicks", "scroll", "idle", "switches", "nvim_keys", "nvim_bs", "db", "perclos", "hr", "hrv", "quiz_latency", "score", "focus"}
 
 // categoryWork is how much a category counts as focused work (focus.go and the Data tab).
-var categoryWork = map[string]float64{"study": 1, "problem": 1, "writing": 1, "reading": 0.9, "admin": 0.5, "comms": 0.3, "other": 0.4, "unknown": 0.5,
+var categoryWork = map[string]float64{"study": 1, "code": 1, "problem": 1, "writing": 1, "reading": 0.9, "admin": 0.5, "comms": 0.3, "other": 0.4, "unknown": 0.5,
 	"news": 0.1, "shopping": 0, "social": 0, "entertainment": 0, "none": 0.4, "browser": 0.5}
 
 // Row is one minute: numbers in V, categories in C, sensor masks in Mask, z-scores in Z.
@@ -581,8 +581,13 @@ func (s *Store) dayContext(f *DayFeatures, tasks []Task, evts []CalEvent, start,
 			lb["grades"] = append(gs, map[string]any{"course": e.Course, "item": e.Item, "score": e.Score, "max": e.Max})
 		}
 	}
-	if sw, ok := s.SleepWindow(day); ok {
-		in["sleep_h"] = sw
+	if sw, src, ok := s.sleepSource(day); ok {
+		in["sleep_h"], in["sleep_src"] = sw, src
+	}
+	if b, w, ok := s.SleepLog(day); ok { // clock hours of the wake day: 23:30 the evening before = -0.5
+		mid := time.Date(w.Year(), w.Month(), w.Day(), 0, 0, 0, 0, time.Local)
+		in["bed_hour"] = math.Round(b.Sub(mid).Hours()*100) / 100
+		in["wake_hour"] = math.Round(w.Sub(mid).Hours()*100) / 100
 	}
 	var debt float64
 	nights := 0
@@ -635,7 +640,10 @@ func (s *Store) dayContext(f *DayFeatures, tasks []Task, evts []CalEvent, start,
 	// labels: the day's outcome
 	if sc, ok := acts.Scores[day]; ok {
 		lb["final_score"] = sc.Total
-		lb["outcome_rating"] = OutcomeRating(acts.Scores, day)
+		lb["outcome_rating"] = OutcomeRating(acts.Scores, day, cfg.DataStart)
+	}
+	if testDay(day, cfg.DataStart) {
+		lb["test_day"] = true // before the data start: don't train on it
 	}
 }
 
@@ -655,18 +663,27 @@ func mean(v []float64) float64 {
 	return t / float64(len(v))
 }
 
-// SleepWindow is the night before `day`, in hours, from Apple Watch sleep (Health export:
-// total sleep). Nothing else counts: the Mac's power log only says when the laptop was idle,
-// which read as nonsense sleep times, so there is no sleep value until the watch data exists.
+// SleepWindow is the night before `day`, in hours: Apple Watch sleep (Health export: total sleep)
+// when it exists, else the time in bed you logged (`notesview label sleep`, home, start page u).
+// The Mac's power log never counts: it only says when the laptop was idle.
 func (s *Store) SleepWindow(day string) (float64, bool) {
+	h, _, ok := s.sleepSource(day)
+	return h, ok
+}
+
+// sleepSource is SleepWindow plus where it came from: "watch" or "log".
+func (s *Store) sleepSource(day string) (float64, string, bool) {
 	for _, r := range s.ReadSignals(day) {
 		if str(r, "kind") == "health" && str(r, "metric") == "sleep" {
 			if v, ok := num(r, "totalsleep"); ok && v > 0 {
-				return math.Round(v*10) / 10, true
+				return math.Round(v*10) / 10, "watch", true
 			}
 		}
 	}
-	return 0, false
+	if b, w, ok := s.SleepLog(day); ok {
+		return math.Round(w.Sub(b).Hours()*10) / 10, "log", true
+	}
+	return 0, "", false
 }
 
 // FullActivityCached is the Activity data (scores per day), cached for a minute (building many days).
@@ -699,7 +716,11 @@ func (s *Store) FullActivityCached(now time.Time) Activity {
 // (minutes where the value exists), so a value reads as "for you, today".
 func (s *Store) baseline(day string) map[string][2]float64 {
 	vals := map[string][]float64{}
+	start := s.DataStart()
 	for d := 1; d <= 28; d++ {
+		if testDay(addDays(day, -d), start) {
+			break // test days don't set what is normal for you
+		}
 		prev, err := s.LoadFeatures(addDays(day, -d))
 		if err != nil {
 			continue
