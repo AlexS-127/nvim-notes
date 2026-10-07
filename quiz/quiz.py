@@ -77,7 +77,7 @@ def log_answer(subject, kind, latency, ok, revision="", conf=None):
         pass
 
 
-NO_CONFIDENCE = {"latin101"}  # subjects where per-question confidence is never asked
+NO_CONFIDENCE = {"lat101", "latin101"}  # subjects where per-question confidence is never asked
 
 
 def ask_confidence(clock, subject=None):
