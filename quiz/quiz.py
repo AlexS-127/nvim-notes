@@ -733,36 +733,95 @@ def recall(note_path, clock):
             return None
 
 
-def revise(note_id):
+MIX_TOPICS = 3  # a blended revision covers up to this many due topics of one folder
+MIX_PER_TOPIC = 4  # questions drawn from each topic when blending
+
+
+def due_companions(note_id, subject):
+    """Other topics due today from the same folder that have a question bank, oldest due first."""
+    r = subprocess.run([notesview_bin(), "revise", "--dir", str(NOTES), "--json", "list"],
+                       capture_output=True, text=True, env={**os.environ, "NOTES_DIR": str(NOTES)})
+    try:
+        topics = json.loads(r.stdout)
+    except ValueError:
+        return []
+    today = date.today().isoformat()
+    due = [t for t in topics if t["id"] != note_id and t.get("subject") == subject and t["due"] <= today
+           and (NOTES / ".revision" / "questions" / t["id"]).exists()]
+    due.sort(key=lambda t: (t["due"], t.get("learned", ""), t["id"]))
+    return due[: MIX_TOPICS - 1]
+
+
+def interleave(qs):
+    """Shuffle, then swap so two questions from the same topic are not neighbours where possible."""
+    random.shuffle(qs)
+    for i in range(1, len(qs)):
+        if qs[i]["rev_id"] == qs[i - 1]["rev_id"]:
+            for j in range(i + 1, len(qs)):
+                if qs[j]["rev_id"] != qs[i - 1]["rev_id"]:
+                    qs[i], qs[j] = qs[j], qs[i]
+                    break
+    return qs
+
+
+def revise(note_id, solo=False):
     """One revision of one scheduled note: its Claude-written questions (.revision/questions/<note>),
-    each asked once, or recall when there are none. Reports the score to `notesview revise done`,
-    which schedules the next revision and scores the points. Quitting before half is answered
-    records nothing (the topic stays due)."""
+    or recall when there are none. When other topics of the same folder are due too, their questions
+    are blended in (MIX_PER_TOPIC each, shuffled together, `--solo` turns this off); each topic is
+    scored from its own questions and reported to `notesview revise done`, which schedules the next
+    revision and scores the points. A topic with fewer than half of its questions answered records
+    nothing (it stays due)."""
     note_path = NOTES / note_id
     if not note_path.exists():
         sys.exit(f"No such note: {note_path}")
     subject = note_id.split("/")[0]
     bank = NOTES / ".revision" / "questions" / note_id
+
+    def title_of(nid):
+        p = NOTES / nid
+        return next((l.lstrip("#").strip() for l in p.read_text(encoding="utf-8", errors="replace").splitlines() if l.startswith("# ")), p.stem)
+
+    title = title_of(note_id)
     qs = load_questions(bank) if bank.exists() else []
-    title = next((l.lstrip("#").strip() for l in note_path.read_text(encoding="utf-8", errors="replace").splitlines() if l.startswith("# ")), note_path.stem)
-    print(f"\nRevision: {title}  ({note_id})")
+    for q in qs:
+        q["rev_id"] = note_id
+    topics = {note_id: title}
+    if qs and not solo:
+        banks = {}
+        for t in due_companions(note_id, subject):
+            more = load_questions(NOTES / ".revision" / "questions" / t["id"])
+            if more:
+                topics[t["id"]] = t.get("title") or title_of(t["id"])
+                for q in more:
+                    q["rev_id"] = t["id"]
+                banks[t["id"]] = more
+        if banks:
+            banks[note_id] = qs
+            qs = [q for b in banks.values() for q in random.sample(b, min(MIX_PER_TOPIC, len(b)))]
+    if len(topics) > 1:
+        print("\nRevision (mixed): " + " · ".join(topics.values()))
+    else:
+        print(f"\nRevision: {title}  ({note_id})")
     clock = Clock()
     clock.log_every_minute(subject)
     atexit.register(lambda: clock.flush(subject))
     stats_path = NOTES / subject / ".quiz_stats.json"
     stats = load_stats(stats_path)
     pl, _ = start_player(stats)
+    results = {}  # topic id -> (score, correct, total), only for topics that count
 
     if not qs:
         score = recall(note_path, clock)
         if score is None:
             print("Not recorded: the note stays due.")
             return
-        correct, total = round(score * 3), 3
+        results[note_id] = (score, round(score * 3), 3)
     else:
-        random.shuffle(qs)
+        qs = interleave(qs)
+        planned = {nid: sum(q["rev_id"] == nid for q in qs) for nid in topics}
+        got = {nid: [0, 0] for nid in topics}  # correct, answered
         print(f"{len(qs)} questions. '?' or Enter reveals, 'q' quits.\n")
-        correct = total = combo = 0
+        combo = 0
         for i, q in enumerate(qs, 1):
             print(f"[{i}/{len(qs)}] ", end="")
             t0 = time.monotonic()
@@ -774,11 +833,12 @@ def revise(note_id):
             if r is None:
                 break
             ok, ok_note, wrong_note = r
-            log_answer(subject, qkind(q), time.monotonic() - t0, ok, revision=note_id, conf=ask_confidence(clock, subject))
-            total += 1
+            nid = q["rev_id"]
+            log_answer(subject, qkind(q), time.monotonic() - t0, ok, revision=nid, conf=ask_confidence(clock, subject))
+            got[nid][1] += 1
             record(stats, q["q"], ok)
             if ok:
-                correct += 1
+                got[nid][0] += 1
                 combo += 1
                 gain = 10 * (1 + min(combo - 1, 9) // 3)
                 old = level_of(pl["xp"])
@@ -792,20 +852,29 @@ def revise(note_id):
             print()
             save_stats(stats_path, stats)
             clock.flush(subject)
-        if total * 2 < len(qs):
-            print(f"\nStopped after {total} of {len(qs)}: not recorded, the note stays due.")
+        for nid, (c, n) in got.items():
+            if n * 2 >= planned[nid] and n:
+                results[nid] = (c / n, c, n)
+            else:
+                print(f"Stopped early on {topics[nid]}: not recorded, it stays due.")
+        if not results:
             return
-        score = correct / total if total else 0
-        print(f"\nScore: {correct}/{total} ({round(100 * score)}%)")
-    r = subprocess.run([notesview_bin(), "revise", "done", note_id, "--score", f"{score:.3f}", "--correct", str(correct), "--total", str(total)],
-                       capture_output=True, text=True, env={**os.environ, "NOTES_DIR": str(NOTES)})
-    print((r.stdout or r.stderr).strip())
+        done = sum(n for _, n in got.values())
+        right = sum(c for c, _ in got.values())
+        print(f"\nScore: {right}/{done} ({round(100 * right / done)}%)")
+        if len(topics) > 1:
+            for nid, (sc, c, n) in results.items():
+                print(f"  {topics[nid]}: {c}/{n}")
+    for nid, (sc, c, n) in results.items():
+        r = subprocess.run([notesview_bin(), "revise", "done", nid, "--score", f"{sc:.3f}", "--correct", str(c), "--total", str(n)],
+                           capture_output=True, text=True, env={**os.environ, "NOTES_DIR": str(NOTES)})
+        print((r.stdout or r.stderr).strip())
 
 
 if __name__ == "__main__":
     try:
         if len(sys.argv) > 2 and sys.argv[1] == "--revise":
-            revise(sys.argv[2])
+            revise(sys.argv[2], solo="--solo" in sys.argv[3:])
             try:  # the terminal is handed back to nvim as soon as we exit: keep the result readable
                 input("\nPress Enter to close ")
             except (KeyboardInterrupt, EOFError):

@@ -99,14 +99,25 @@ func cleanGenerated(out, title string) string {
 }
 
 func (s *Store) genPrompt(t Topic, note string) string {
-	spec, _ := os.ReadFile(filepath.Join(s.Root, "format", "question-format.md"))
+	read := func(name string) string {
+		b, _ := os.ReadFile(filepath.Join(s.Root, "format", name))
+		return strings.TrimSpace(string(b))
+	}
+	spec := read("question-format.md")
+	// how to write good questions: format/revision-questions.md, then format/revision-<subject>.md
+	// (both optional, edited by the student); a short built-in version when neither exists
+	guide := read("revision-questions.md")
+	if guide == "" {
+		guide = "Write 5 to 8 questions that check the key ideas of this note only, answerable from it: definitions, how and why, worked examples or calculations if the note has them. Mix the kinds (multiple choice, true/false, short answer, a worked problem with Solution: only when the note supports one)."
+	}
+	if extra := read("revision-" + t.Subject + ".md"); extra != "" {
+		guide += "\n\n" + extra
+	}
 	return fmt.Sprintf(`You write revision questions for a student's spaced-repetition quiz.
 
-Below are (1) the quiz's question format and (2) one of the student's own notes. Write 5 to 8 questions
-that check the key ideas of THIS NOTE ONLY, answerable from it: definitions, how and why, worked
-examples or calculations if the note has them. Mix the kinds (multiple choice, true/false, short answer,
-a worked problem with Solution: only when the note supports one). Put "[gen]" at the end of each Q: line
-and "Src: %s" on each block. Add a short Why: to each.
+Below are (1) the quiz's question format, (2) the student's guidance on what makes a good question and
+(3) one of the student's own notes. Write the questions for THIS NOTE ONLY, following the guidance.
+Put "[gen]" at the end of each Q: line and "Src: %s" on each block. Add a short Why: to each.
 
 Ignore the format file's instructions about writing files, headings, reporting or code blocks: output
 ONLY the question blocks as plain text, no heading, no code fence, no commentary.
@@ -114,9 +125,12 @@ ONLY the question blocks as plain text, no heading, no code fence, no commentary
 === QUESTION FORMAT ===
 %s
 
+=== HOW TO WRITE GOOD QUESTIONS ===
+%s
+
 === NOTE: %s (%s) ===
 %s
-`, t.ID, spec, t.Title, t.ID, note)
+`, t.ID, spec, guide, t.Title, t.ID, note)
 }
 
 // GenerateQuestions writes a topic's questions with Claude, records the outcome in topics.json,
