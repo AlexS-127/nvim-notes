@@ -173,7 +173,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
-        if (m.body as? String) == "overlay" { toggleOverlay() }
+        switch m.body as? String {
+        case "overlay": toggleOverlay()
+        case "checkin-on": setCheckinKeys(true)
+        case "checkin-off": setCheckinKeys(false)
+        default: break
+        }
+    }
+
+    // ⌥⌘1–5 answer an open focus check-in from any app (registered only while one is open).
+    var checkinKeys: [EventHotKeyRef?] = []
+    func setCheckinKeys(_ on: Bool) {
+        for k in checkinKeys { if let k = k { UnregisterEventHotKey(k) } }
+        checkinKeys = []
+        guard on else { return }
+        let codes = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5]
+        for (i, code) in codes.enumerated() {
+            var ref: EventHotKeyRef?
+            let id = EventHotKeyID(signature: OSType(0x4e564f56), id: UInt32(11 + i))
+            RegisterEventHotKey(UInt32(code), UInt32(cmdKey | optionKey), id, GetApplicationEventTarget(), 0, &ref)
+            checkinKeys.append(ref)
+        }
+    }
+
+    func hotKey(_ id: UInt32) {
+        if id == 1 { toggleOverlay(); return }
+        if (11...15).contains(id) { overlayWeb?.evaluateJavaScript("window.nvCheckin && window.nvCheckin(\(id - 10))") }
     }
 
     // ── overlay: today's score, pace, tasks done, quiz time and new words in a floating see-through strip ──
@@ -196,7 +221,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
             let root = NSView(frame: NSRect(origin: .zero, size: size))
             root.autoresizingMask = [.width, .height]
-            let w = WKWebView(frame: root.bounds)
+            let oc = WKWebViewConfiguration()
+            oc.userContentController.add(self, name: "nv")   // check-in prompts: "checkin-on" / "checkin-off"
+            let w = WKWebView(frame: root.bounds, configuration: oc)
             w.setValue(false, forKey: "drawsBackground")
             if #available(macOS 12.0, *) { w.underPageBackgroundColor = .clear }
             w.autoresizingMask = [.width, .height]
@@ -266,9 +293,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     /// ⌥⌘O anywhere toggles the overlay (Carbon hot key: no accessibility permission needed).
     func registerHotKey() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, ctx in
+        InstallEventHandler(GetApplicationEventTarget(), { _, ev, ctx in
             let me = Unmanaged<AppDelegate>.fromOpaque(ctx!).takeUnretainedValue()
-            DispatchQueue.main.async { me.toggleOverlay() }
+            var hk = EventHotKeyID()
+            GetEventParameter(ev, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
+                              MemoryLayout<EventHotKeyID>.size, nil, &hk)
+            let id = hk.id
+            DispatchQueue.main.async { me.hotKey(id) }
             return noErr
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), nil)
         let id = EventHotKeyID(signature: OSType(0x4e564f56), id: 1)   // "NVOV"

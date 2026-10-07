@@ -20,10 +20,13 @@ taken from the "(noun)", "(verb)"... at the end of each definitions.md line, or,
 question bank, one `## ` topic. Worked problems are idle-capped at PROBLEM_IDLE_CAP instead.
 
 Usage: python3 ~/notes/quiz.py [subject]   (a link to nvim-notes/quiz/quiz.py)
+       python3 ~/notes/quiz.py --revise NOTE   (one scheduled revision, see revise())
 """
 
 import atexit
 import json
+import shutil
+import subprocess
 import math
 import os
 import random
@@ -41,6 +44,45 @@ from pathlib import Path
 NOTES = Path(os.environ.get("NOTES_DIR") or Path.home() / "notes").expanduser()
 LOG = NOTES / ".quiz_log.jsonl"
 IDLE_CAP = 90  # seconds; a longer pause on one question counts as this much
+
+
+# ---- per-answer signals (renderer/signals.go reads them; counts only, never the answer text) ----
+
+
+def sensor_on(name, default=True):
+    try:
+        c = json.loads((NOTES / ".signals" / "config.json").read_text())
+        return bool(c.get("sensors", {}).get(name, default))
+    except (OSError, ValueError):
+        return default
+
+
+def log_answer(subject, kind, latency, ok, revision="", conf=None):
+    """One line per answer in .signals/YYYY-MM-DD.jsonl: how long it took, right or wrong, the
+    question kind and (if asked) how sure you were. Answer latency and accuracy track focus and fatigue."""
+    if not sensor_on("quiz"):
+        return
+    rec = {"at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "src": "quiz", "subject": subject, "kind": kind,
+           "latency_ms": int(latency * 1000), "correct": bool(ok)}
+    if revision:
+        rec["revision"] = revision
+    if conf:
+        rec["conf"] = conf
+    try:
+        d = NOTES / ".signals"
+        d.mkdir(exist_ok=True)
+        with open(d / f"{date.today().isoformat()}.jsonl", "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except OSError:
+        pass
+
+
+def ask_confidence(clock):
+    """Optional (the Data tab's "confidence" switch): how sure you were, 1 guess / 2 unsure / 3 sure."""
+    if not sensor_on("confidence", False):
+        return None
+    r = clock.input("  sure? 1 guess · 2 unsure · 3 sure (Enter skips) ").strip()
+    return int(r) if r in ("1", "2", "3") else None
 
 
 def log_session(subject, seconds, answered, correct, xp=0, levels=0):
@@ -523,10 +565,13 @@ def main():
         key = item[0]
         last = key
         asked_at[key] = total + 1
+        t0 = time.monotonic()
         result = ask(item, clock)
         if result is None:
             break
+        latency = time.monotonic() - t0
         ok, ok_note, wrong_note = result
+        log_answer(subject, qkind(item[1]) if noun == "question" else "vocab", latency, ok, conf=ask_confidence(clock))
         total += 1
         was_hard = struggling(stats, key)
         record(stats, key, ok)
@@ -590,8 +635,115 @@ def main():
         print(f"Comfortable: {len(solid)}/{len(items)}")
 
 
+# ---- scheduled revision (notesview revise) -------------------------------------------------
+
+
+def notesview_bin():
+    return shutil.which("notesview") or str(Path.home() / ".local/bin/notesview")
+
+
+def recall(note_path, clock):
+    """No questions yet: write what you remember, see the note, grade yourself. Returns a score 0-1 or None."""
+    text = note_path.read_text(encoding="utf-8", errors="replace")
+    heads = [l.lstrip("#").strip() for l in text.splitlines() if re.match(r"#{1,4} ", l)]
+    print("No questions for this note yet, so: recall.\n")
+    if heads:
+        print("It covers:\n" + "\n".join(f"  · {h}" for h in heads[:12]))
+    print("\nWrite down everything you remember (an empty line ends, q quits):")
+    lines = []
+    while True:
+        l = clock.input("  ", PROBLEM_IDLE_CAP)
+        if l.strip().lower() == "q" and not lines:
+            return None
+        if not l.strip():
+            break
+        lines.append(l)
+    print("\n" + "─" * 60)
+    print(textwrap.indent(text.strip(), "  "))
+    print("─" * 60)
+    grades = {"1": 0.3, "a": 0.3, "2": 0.6, "h": 0.6, "3": 0.85, "g": 0.85, "4": 1.0, "e": 1.0}
+    while True:
+        r = clock.input("How well did you remember it? 1) again  2) hard  3) good  4) easy → ").strip().lower()
+        if r in grades:
+            return grades[r]
+        if r == "q":
+            return None
+
+
+def revise(note_id):
+    """One revision of one scheduled note: its Claude-written questions (.revision/questions/<note>),
+    each asked once, or recall when there are none. Reports the score to `notesview revise done`,
+    which schedules the next revision and scores the points. Quitting before half is answered
+    records nothing (the topic stays due)."""
+    note_path = NOTES / note_id
+    if not note_path.exists():
+        sys.exit(f"No such note: {note_path}")
+    subject = note_id.split("/")[0]
+    bank = NOTES / ".revision" / "questions" / note_id
+    qs = load_questions(bank) if bank.exists() else []
+    title = next((l.lstrip("#").strip() for l in note_path.read_text(encoding="utf-8", errors="replace").splitlines() if l.startswith("# ")), note_path.stem)
+    print(f"\nRevision: {title}  ({note_id})")
+    clock = Clock()
+    clock.log_every_minute(subject)
+    atexit.register(lambda: clock.flush(subject))
+    stats_path = NOTES / subject / ".quiz_stats.json"
+    stats = load_stats(stats_path)
+    pl, _ = start_player(stats)
+
+    if not qs:
+        score = recall(note_path, clock)
+        if score is None:
+            print("Not recorded: the note stays due.")
+            return
+        correct, total = round(score * 3), 3
+    else:
+        random.shuffle(qs)
+        print(f"{len(qs)} questions. '?' or Enter reveals, 'q' quits.\n")
+        correct = total = combo = 0
+        for i, q in enumerate(qs, 1):
+            print(f"[{i}/{len(qs)}] ", end="")
+            t0 = time.monotonic()
+            try:
+                r = ask_question((q["q"], q), clock)
+            except (KeyboardInterrupt, EOFError):  # like q: what was answered still counts
+                print()
+                r = None
+            if r is None:
+                break
+            ok, ok_note, wrong_note = r
+            log_answer(subject, qkind(q), time.monotonic() - t0, ok, revision=note_id, conf=ask_confidence(clock))
+            total += 1
+            record(stats, q["q"], ok)
+            if ok:
+                correct += 1
+                combo += 1
+                gain = 10 * (1 + min(combo - 1, 9) // 3)
+                old = level_of(pl["xp"])
+                pl["xp"] += gain
+                clock.xp += gain
+                clock.levels += level_of(pl["xp"]) - old
+                print(f"  ✓ +{gain} XP" + ok_note)
+            else:
+                combo = 0
+                print(wrong_note)
+            print()
+            save_stats(stats_path, stats)
+            clock.flush(subject)
+        if total * 2 < len(qs):
+            print(f"\nStopped after {total} of {len(qs)}: not recorded, the note stays due.")
+            return
+        score = correct / total if total else 0
+        print(f"\nScore: {correct}/{total} ({round(100 * score)}%)")
+    r = subprocess.run([notesview_bin(), "revise", "done", note_id, "--score", f"{score:.3f}", "--correct", str(correct), "--total", str(total)],
+                       capture_output=True, text=True, env={**os.environ, "NOTES_DIR": str(NOTES)})
+    print((r.stdout or r.stderr).strip())
+
+
 if __name__ == "__main__":
     try:
+        if len(sys.argv) > 2 and sys.argv[1] == "--revise":
+            revise(sys.argv[2])
+            sys.exit(0)
         main()
     except (KeyboardInterrupt, EOFError):
         print()

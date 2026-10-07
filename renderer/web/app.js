@@ -61,6 +61,8 @@
     if (p === "/classes") return { view: "classes", line: 0 };
     if (p === "/reading") return { view: "reading", line: 0 };
     if (p === "/settings") return { view: "settings", line: 0 };
+    if (p === "/revision") return { view: "revision", line: 0 };
+    if (p === "/data") return { view: "data", line: 0 };
     if (p.startsWith("/note/")) return { view: "note", path: dec(p.slice(6)), line };
     if (p.startsWith("/folder/")) return { view: "folder", path: dec(p.slice(8)), line: 0 };
     return null;
@@ -95,6 +97,10 @@
       await window.nvReading.render(calEnv);
     } else if (r.view === "settings") {
       await window.nvSettings.render(calEnv);
+    } else if (r.view === "revision") {
+      await window.nvRevision.render(calEnv);
+    } else if (r.view === "data") {
+      await window.nvData.render(calEnv);
     } else if (r.view === "folder") {
       await renderFolder(r.path);
     } else {
@@ -359,6 +365,7 @@
       ["Level ups", sc.level_ups || 0, hints.level, sc.level_pts || 0],
       ["Class check-ins", sc.checkins || 0, hints.checkin, sc.checkin_pts || 0],
       ["Pages read", sc.pages || 0, hints.read, sc.pages_pts || 0],
+      ["Revision", sc.revisions || 0, hints.revision, sc.revision_pts || 0],
       ["Morning routine", (sc.routine || 0) + (sc.routine_complete ? " ✓" : ""), hints.routine, sc.routine_pts || 0],
       ["New words", (sc.words || 0).toLocaleString(), hints.words, sc.words_pts || 0],
       ["Overdue tasks", sc.overdue, hints.overdue, sc.overdue_pts],
@@ -492,7 +499,7 @@
   }
 
   async function renderActivity(keepScroll) {
-    const [a, up] = await Promise.all([api("/api/activity"), api("/api/calendar/upcoming").catch(() => null)]);
+    const [a, up, dat] = await Promise.all([api("/api/activity"), api("/api/calendar/upcoming").catch(() => null), window.nvData.load(calEnv)]);
     note.className = "note activity";
     backlinks.hidden = true;
     document.title = "Activity — notesview";
@@ -500,6 +507,8 @@
 
     note.innerHTML = `<h1>Activity</h1>
       ${window.nvRoutine.cardHtml(a.routine)}
+      ${window.nvRevision.cardHtml(a.revision, a.today)}
+      ${window.nvData.cardHtml(dat)}
       ${window.nvCalendar.nextClassHtml(up)}
       ${window.nvReading.cardHtml(a.reading)}
       <div class="act-tiles">
@@ -512,7 +521,7 @@
           <span class="sub">${(a.words_week || 0).toLocaleString()} this week · ${(a.words_total || 0).toLocaleString()} in all</span></div>
         ${attendanceTile(a.attendance)}
         ${pagesTile(a.reading)}
-        ${window.nvRoutine.tileHtml(a.routine, (a.scores[a.today] || {}).total || 0)}
+        ${window.nvRoutine.tileHtml(a.routine)}
         <div class="tile"><small>Current pace</small><div class="big"><span id="act-slope">--.--</span></div></div>
       </div>
       ${scoreSection(a)}
@@ -747,6 +756,8 @@
   $("#btn-classes").onclick = () => { location.hash = "#/classes"; };
   $("#btn-reading").onclick = () => { location.hash = "#/reading"; };
   $("#btn-settings").onclick = () => { location.hash = "#/settings"; };
+  $("#btn-revision").onclick = () => { location.hash = "#/revision"; };
+  $("#btn-data").onclick = () => { location.hash = "#/data"; };
   $("#btn-today").onclick = goToday;
   // creates today's daily note (with carry-over) if it doesn't exist yet
   async function goToday() { const t = await post("/api/daily", {}); go(t.path); }
@@ -775,6 +786,8 @@
       case "c": location.hash = "#/classes"; break;
       case "r": location.hash = "#/reading"; break;
       case ",": location.hash = "#/settings"; break;
+      case "v": location.hash = "#/revision"; break;
+      case "y": location.hash = "#/data"; break;
       case "o": if (!toggleOverlay()) return; break;
       case "g": goToday(); break;
       case "b": toggleSidebar(); break;
@@ -798,6 +811,8 @@
   window.nvReading.bind(calEnv);
   window.nvRoutine.bind(calEnv);
   window.nvSettings.bind(calEnv);
+  window.nvRevision.bind(calEnv);
+  window.nvData.bind(calEnv);
 
   // ── live updates ──
   function connect() {

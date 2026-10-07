@@ -49,8 +49,8 @@ func runRoutineCommand(store *Store, args []string, asJSON bool, stdout, stderr 
 		if len(pos) == 1 {
 			n, err = strconv.Atoi(pos[0])
 		}
-		if len(pos) != 1 || err != nil || n < 0 {
-			return fail(fmt.Errorf("usage: notesview routine forecast SCORE  (the score you are 80%% sure to reach today)"))
+		if len(pos) != 1 || err != nil || !in1to5(n) {
+			return fail(fmt.Errorf("usage: notesview routine forecast 1-5  (how productive you expect today to be)"))
 		}
 		st, err = store.RoutineForecast(n, store.scoreNow(now), now)
 	case "end":
@@ -71,7 +71,7 @@ func runRoutineCommand(store *Store, args []string, asJSON bool, stdout, stderr 
 		}
 		label := it.Label
 		if it.Kind == routineForecast && st.Forecast != nil {
-			label += fmt.Sprintf(": %d", st.Forecast.Strike)
+			label += fmt.Sprintf(": %d", max(st.Forecast.Rating, st.Forecast.Strike))
 		}
 		fmt.Fprintf(stdout, "%d %s %s\n", i+1, box, label)
 	}

@@ -184,6 +184,8 @@ if [ "$nv_ok" = 0 ]; then
   if have go && [ -d "$REPO_DIR/renderer" ]; then
     say "Building notesview from source"
     (cd "$REPO_DIR/renderer" && go build -o "$BIN_DIR/notesview" .) && nv_ok=1
+    # a stable signature keeps Full Disk Access (Screen Time, Messages importers) across rebuilds
+    codesign --force --sign "NotesView Signing" --identifier local.notesview "$BIN_DIR/notesview" >/dev/null 2>&1 || true
   elif [ -s "$tmp/notesview" ]; then
     install -m 755 "$tmp/notesview" "$BIN_DIR/notesview"
     warn "installed the older release; tasks, folders and capture need notesview $MIN_NOTESVIEW — install Go and re-run ./install.sh"

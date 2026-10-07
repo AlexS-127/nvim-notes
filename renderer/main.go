@@ -44,7 +44,7 @@ func defaultPort() int {
 // version is the notesview release. Release builds override it with
 // -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
 // relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
-var version = "0.8.0"
+var version = "0.10.0"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
@@ -71,6 +71,13 @@ func usage() {
                                                        reading list and log: add "TITLE" "AUTHOR" [PAGES],
                                                        log [BOOK] PAGES | log [BOOK] --to PAGE, done BOOK
                                                        (BOOK = id or start of the title; log scores pages)
+  notesview data     [status|quality [DAY]|helper [start|stop|restart]|features [DAY]|export DAY|forget DAY|forget-sensor NAME|imports|importance|fit-focus|audit]
+                                                       the data layer: sensor coverage, feature store, privacy audit
+  notesview grade    COURSE ITEM SCORE[/MAX]          record an exam or assignment result (a label for the data)
+  notesview label    [prompts|checkin N|checkout P E M S [NOTE]|skip T [KEY]|set KIND HASH CAT]
+                                                       focus check-ins, evening check-out, data labels (no points)
+  notesview revise   [due|list|add NOTE|remove NOTE|done ID --score S|gen NOTE|path ID]
+                                                       spaced-repetition revision of course notes (questions by Claude)
   notesview routine  [show|tick ITEM|untick ITEM|forecast SCORE|end]
                                                        morning routine: tick items, forecast = the score you
                                                        are 80% sure to reach today; items in .routine/routine.json
@@ -93,7 +100,7 @@ func main() {
 		return
 	case "-h", "--help", "help":
 		usage()
-	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words", "calendar", "read", "routine":
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words", "calendar", "read", "routine", "revise", "grade", "label", "data":
 		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
@@ -322,6 +329,14 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 			return printJSON(stdout, map[string]string{"line": line, "path": filepath.Join(store.Root, "inbox.md")})
 		}
 		fmt.Fprintln(stdout, "Added to inbox:", line)
+	case "data":
+		return runDataCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
+	case "grade":
+		return runGradeCommand(store, fs.Args(), stdout, stderr, now)
+	case "label":
+		return runLabelCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
+	case "revise":
+		return runReviseCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
 	case "routine":
 		return runRoutineCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
 	case "read":

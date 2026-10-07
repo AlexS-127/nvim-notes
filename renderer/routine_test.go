@@ -36,15 +36,18 @@ func TestRoutine(t *testing.T) {
 	if st = s.Routine(now); st.Complete || !st.Show {
 		t.Fatal("complete before the forecast")
 	}
-	st, err := s.RoutineForecast(40, 5, now.Add(10*time.Minute))
-	if err != nil || !st.Complete || st.Show || st.Forecast.Strike != 40 || st.Forecast.Conf != routineConf || st.Forecast.Total != 5 {
+	if _, err := s.RoutineForecast(6, 5, now); err == nil {
+		t.Fatal("forecast 6 accepted")
+	}
+	st, err := s.RoutineForecast(4, 5, now.Add(10*time.Minute))
+	if err != nil || !st.Complete || st.Show || st.Forecast.Rating != 4 || st.Forecast.Total != 5 {
 		t.Fatalf("forecast %+v %v", st, err)
 	}
-	s.RoutineForecast(45, 9, now.Add(11*time.Minute)) // the last one counts, no second tick
+	s.RoutineForecast(3, 9, now.Add(11*time.Minute)) // the last one counts, no second tick
 	a := s.FullActivity(now.Add(time.Hour), 1)
 	sc := a.Scores["2026-10-07"]
 	want := len(defaultRoutine)*scoreRoutinePts + scoreRoutineBonus
-	if sc.RoutinePts != want || sc.Total != want || a.Routine.Forecast.Strike != 45 {
+	if sc.RoutinePts != want || sc.Total != want || a.Routine.Forecast.Rating != 3 {
 		t.Fatalf("score %+v", sc)
 	}
 	if line := a.ScoreLine; line[len(line)-1].Total != want {
@@ -69,7 +72,7 @@ func TestRoutineCommand(t *testing.T) {
 		t.Fatalf("tick: %q %q", out.String(), errb.String())
 	}
 	out.Reset()
-	if runRoutineCommand(s, []string{"forecast", "30"}, false, &out, &errb, now) != 0 || !strings.Contains(out.String(), "80% sure: 30") {
+	if runRoutineCommand(s, []string{"forecast", "4"}, false, &out, &errb, now) != 0 || !strings.Contains(out.String(), "(1-5): 4") {
 		t.Fatalf("forecast: %q %q", out.String(), errb.String())
 	}
 	out.Reset()

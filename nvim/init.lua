@@ -16,7 +16,7 @@ vim.g.maplocalleader = " "
 local NOTES = vim.fn.expand((vim.env.NOTES_DIR and vim.env.NOTES_DIR ~= "") and vim.env.NOTES_DIR or "~/notes")
 local uv = vim.uv or vim.loop
 -- Oldest notesview this config works with. Bump together with `version` in renderer/main.go.
-local NOTESVIEW_MIN_VERSION = "0.8.0"
+local NOTESVIEW_MIN_VERSION = "0.9.0"
 
 -- ── Options ──────────────────────────────────────────────────────
 local o = vim.opt
@@ -319,9 +319,11 @@ local function toggle_checkbox_line(line)
   if line:match("^%s*[-*+] %[ %]") then
     local l = line:gsub("%[ %]", "[x]", 1)
     if not l:find("✅ %d%d%d%d%-%d%d%-%d%d") then l = l:gsub("%s+$", "") .. " ✅ " .. os.date("%Y-%m-%d %H:%M") end
+    pcall(function() require("signals").task("done", line) end)
     return l
   end
   if line:match("^%s*[-*+] %[[xX]%]") then
+    pcall(function() require("signals").task("undone", line) end)
     local l = line:gsub("%[[xX]%]", "[ ]", 1)
     l = l:gsub("%s*✅ %d%d%d%d%-%d%d%-%d%d %d%d:%d%d", "")
     return (l:gsub("%s*✅ %d%d%d%d%-%d%d%-%d%d", ""))
@@ -719,6 +721,7 @@ end
 -- `notes` shell function) sets $NVIM_NOTES_CLAUDE to a file path; nvim writes the prompt there and
 -- quits, then the launcher runs claude in the real terminal and leaves a normal shell when it exits.
 local function open_claude(prompt)
+  pcall(function() require("signals").emit("claude") end)
   local handoff = vim.env.NVIM_NOTES_CLAUDE
   if not handoff or handoff == "" then
     -- Not started through a launcher (plain `nvim`, restored window, ...): run claude in this terminal
@@ -838,6 +841,37 @@ end, { nargs = 1 })
 
 vim.api.nvim_create_user_command("Macros", function() vim.cmd.edit(MACROS) end, {})
 vim.api.nvim_create_user_command("Today", function() daily(0) end, {})
+
+-- ── Window title: "folder · note" for notes (e.g. "act200 · accruals"), the file name otherwise ──
+-- Ghostty shows it, and the notesview-sense window sensor categorises terminal time from it.
+function _G.NotesTitle()
+  local name = vim.api.nvim_buf_get_name(0)
+  if name == "" or vim.bo.filetype == "ministarter" then return "nvim · notes" end
+  if name:sub(1, #NOTES + 1) == NOTES .. "/" then
+    local rel = name:sub(#NOTES + 2)
+    local folder, file = rel:match("^([^/]+)/.-([^/]+)%.md$")
+    if folder then return folder .. " · " .. file end
+    return (rel:gsub("%.md$", ""))
+  end
+  return vim.fn.fnamemodify(name, ":t") .. " — nvim"
+end
+vim.o.title = true
+vim.o.titlestring = "%{v:lua.NotesTitle()}"
+
+-- ── Workflow signals for the data layer (lua/signals.lua; counts only) ──
+pcall(function() require("signals").setup() end)
+
+-- Spaced-repetition revision (notesview revise): schedule the current note, or take it off.
+local function revise_cmd(sub)
+  return function()
+    local file = vim.api.nvim_buf_get_name(0)
+    if not vim.startswith(file, NOTES .. "/") then return vim.notify("Not a note in " .. NOTES, vim.log.levels.WARN) end
+    local out, err = nv_sync({ "revise", sub, file:sub(#NOTES + 2) })
+    vim.notify(vim.trim(out or err or ""), out and vim.log.levels.INFO or vim.log.levels.WARN)
+  end
+end
+vim.api.nvim_create_user_command("Revise", revise_cmd("add"), {})
+vim.api.nvim_create_user_command("ReviseRemove", revise_cmd("remove"), {})
 
 -- ── Global shortcuts ─────────────────────────────────────────────
 local map = vim.keymap.set

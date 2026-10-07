@@ -352,6 +352,7 @@ func (s *Store) Capture(o CaptureOpts, now time.Time) (string, error) {
 		return "", err
 	}
 	lines, lf := splitLines(string(data))
+	defer s.taskSignal("capture", "inbox.md", line, now) // signals.go
 	if out, ok := insertOpen(lines, []string{line}); ok {
 		return line, writeAtomic(full, []byte(joinLines(out, lf)))
 	}

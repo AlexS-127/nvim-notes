@@ -225,7 +225,7 @@ end
 -- From `notesview routine --json` (works on the files, no server). Shown at the top every day until
 -- every item is done or the routine is ended. `m` does the first item not done yet, Enter on a line
 -- toggles that item, `M` ends the routine. The forecast item ("buy a call option") asks for the score
--- you are 80% sure to reach today. Items: ~/notes/.routine/routine.json; points in score.go.
+-- (1-5): how productive you expect today to be. Items: ~/notes/.routine/routine.json; points in score.go.
 local routine = nil   -- nil: still loading
 
 local function load_routine()
@@ -257,12 +257,12 @@ local function routine_do(it)
   if not it then return end
   if it.kind == "forecast" then
     local f = routine and routine.forecast
-    local prompt = ("Buy a call option: the score you're %d%% sure to reach today%s: "):format(
-      math.floor((routine and routine.conf or 0.8) * 100 + 0.5), f and (" (now " .. f.strike .. ")") or "")
+    local prompt = ("How productive will today be? 1 unproductive · 3 usual · 5 great%s: "):format(
+      f and f.rating and (" (now " .. f.rating .. ")") or "")
     vim.ui.input({ prompt = prompt }, function(v)
       v = vim.trim(v or "")
       if v == "" then return end
-      if not v:match("^%d+$") then return vim.notify("The forecast is a score: a whole number", vim.log.levels.WARN) end
+      if not v:match("^[1-5]$") then return vim.notify("The forecast is 1-5", vim.log.levels.WARN) end
       nv_routine({ "forecast", v })
     end)
     return
@@ -287,12 +287,164 @@ local function routine_items()
   local w, items, keyed = next_width(), {}, false
   for _, it in ipairs(routine.items) do
     local label = it.label
-    if it.kind == "forecast" and routine.forecast then label = label .. ": " .. routine.forecast.strike end
+    if it.kind == "forecast" and routine.forecast then label = label .. ": " .. (routine.forecast.rating or routine.forecast.strike) end
     local key = "   "
     if not it.done and not keyed then key, keyed = "m  ", true end
     items[#items + 1] = { name = key .. fit((it.done and "[x] " or "[ ] ") .. label, w - 3), section = "Morning routine", action = function() routine_do(it) end }
   end
   items[#items + 1] = { name = "M  " .. fit(("End routine (%d of %d done)"):format(routine.done or 0, #routine.items), w - 3), section = "Morning routine", action = routine_end }
+  return items
+end
+
+-- ── Revision (spaced repetition) ───────────────────────────────────
+-- `notesview revise due --json` (works on the files, no server): the next note due for revision and
+-- how many are due. `p` (or Enter) runs quiz.py --revise on it; when it is done the start page comes
+-- back with the next one. See revision.go.
+local revision = nil   -- nil: still loading
+local run_quiz         -- defined below (Vocab quiz)
+
+local function load_revision()
+  if vim.fn.executable("notesview") == 0 then revision = false; return end
+  vim.system({ "notesview", "revise", "--dir", NOTES, "--json", "due" }, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      local ok, decoded = pcall(vim.json.decode, r.stdout or "", { luanil = { object = true, array = true } })
+      revision = (r.code == 0 and ok and type(decoded) == "table") and decoded or false
+      refresh()
+    end)
+  end)
+end
+
+local function revise_next()
+  local t = revision and revision.next
+  if not t then return vim.notify("Nothing to revise today", vim.log.levels.INFO) end
+  run_quiz({ "--revise", t.id })
+end
+
+local function revision_items()
+  local t = revision and revision.next
+  if not t then return {} end
+  local w = next_width()
+  local tail = cut(("  (%d of %d · +%d)"):format(1, revision.due, revision.points or 5), w - 10)
+  local label = fit(cut(("%s · %s"):format(t.title, t.subject), w - 3 - vim.fn.strdisplaywidth(tail)) .. tail, w - 3)
+  return { { name = "p  " .. label, section = "Revise", action = revise_next } }
+end
+
+-- ── Your data: optional labels, no points (renderer/labels.go) ─────────
+-- `notesview label --json prompts`: an open focus check-in (random times), the evening check-out (from
+-- 18:00) and the labelling queue (titles, sites, places the sense helper could not classify).
+-- i answers the check-in, w does the check-out, h labels a few items. All skippable.
+local labels = nil   -- nil: still loading
+
+local function load_labels()
+  if vim.fn.executable("notesview") == 0 then labels = false; return end
+  vim.system({ "notesview", "label", "--dir", NOTES, "--json", "prompts" }, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      local ok, decoded = pcall(vim.json.decode, r.stdout or "", { luanil = { object = true, array = true } })
+      labels = (r.code == 0 and ok and type(decoded) == "table") and decoded or false
+      refresh()
+    end)
+  end)
+end
+
+local function nv_label(args, done)
+  local cmd = { "notesview", "label", "--dir", NOTES }
+  vim.list_extend(cmd, args)
+  vim.system(cmd, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      if r.code ~= 0 then vim.notify(vim.trim(r.stderr or "label failed"), vim.log.levels.WARN) end
+      load_labels()
+      if done then done() end
+    end)
+  end)
+end
+
+local function checkin()
+  local p = labels and labels.prompts
+  vim.ui.input({ prompt = "Focused right now? 1 not at all · 5 fully (Enter skips): " }, function(v)
+    v = vim.trim(v or "")
+    if v == "" then return nv_label({ "skip", "checkin", (p and p.checkin) or "" }) end
+    if not v:match("^[1-5]$") then return vim.notify("1-5", vim.log.levels.WARN) end
+    nv_label({ "checkin", v, (p and p.checkin) or "" })
+  end)
+end
+
+local function checkout()
+  local asks = { "Productive today", "Energy", "Mood", "Sleep last night" }
+  local got = {}
+  local function step(i)
+    if i > #asks then
+      return vim.ui.input({ prompt = "What helped or hurt today? (optional): " }, function(note)
+        local args = { "checkout" }
+        for _, g in ipairs(got) do args[#args + 1] = g end
+        if note and vim.trim(note) ~= "" then args[#args + 1] = vim.trim(note) end
+        nv_label(args, function() vim.notify("Checked out for today") end)
+      end)
+    end
+    vim.ui.input({ prompt = asks[i] .. " 1-5 (Enter leaves it out, q stops): " }, function(v)
+      v = vim.trim(v or "")
+      if v == "q" then return end
+      if v ~= "" and not v:match("^[1-5]$") then return vim.notify("1-5", vim.log.levels.WARN) end
+      got[i] = v == "" and "0" or v
+      step(i + 1)
+    end)
+  end
+  step(1)
+end
+
+local function label_queue()
+  local q = labels and labels.queue or {}
+  local function one(i)
+    local it = q[i]
+    if not it or i > 5 then return load_labels() end
+    local cats = it.kind == "place" and (labels.places or {}) or (labels.categories or {})
+    local choices = vim.list_extend(vim.deepcopy(cats), { "skip" })
+    local what = it.kind == "place" and "Where is this Wi-Fi network?" or ((it.text ~= "" and it.text or ("screen at " .. tostring(it.first):sub(12, 16))) .. (it.app and (" (" .. it.app .. ")") or ""))
+    vim.ui.select(choices, { prompt = it.kind .. ": " .. what }, function(c)
+      if not c then return load_labels() end
+      local args = c == "skip" and { "skip", it.kind, it.hash } or vim.list_extend({ "set", it.kind, it.hash, c }, it.tokens or {})
+      nv_label(args, function() one(i + 1) end)
+    end)
+  end
+  if #q == 0 then return vim.notify("Nothing to label", vim.log.levels.INFO) end
+  one(1)
+end
+
+-- the sensor helper (NotesViewSense, launch agent local.notesview-sense): z stops or starts it, Z restarts
+local helper = nil
+
+local function load_helper()
+  if vim.fn.executable("notesview") == 0 then return end
+  vim.system({ "notesview", "data", "--dir", NOTES, "--json", "helper" }, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      local ok, decoded = pcall(vim.json.decode, r.stdout or "")
+      helper = (r.code == 0 and ok and type(decoded) == "table") and decoded or nil
+      refresh()
+    end)
+  end)
+end
+
+local function helper_do(action)
+  if not (helper and helper.installed) then return vim.notify("The sensor helper's launch agent isn't installed", vim.log.levels.WARN) end
+  action = action or (helper.running and "stop" or "start")
+  vim.system({ "notesview", "data", "--dir", NOTES, "helper", action }, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
+    vim.schedule(function()
+      vim.notify(vim.trim((r.code == 0 and r.stdout or r.stderr) or ""), r.code == 0 and vim.log.levels.INFO or vim.log.levels.WARN)
+      load_helper()
+    end)
+  end)
+end
+
+local function label_items()
+  local p = labels and labels.prompts
+  local w, items = next_width(), {}
+  if helper and helper.installed then
+    local text = helper.running and "Sensors running (z stop · Z restart)" or "Sensors stopped (z start)"
+    items[#items + 1] = { name = "z  " .. fit(text, w - 3), section = "Your data", action = function() helper_do() end }
+  end
+  if not p then return items end
+  if p.checkin and p.checkin ~= "" then items[#items + 1] = { name = "i  " .. fit("Focused right now? (1-5)", w - 3), section = "Your data", action = checkin } end
+  if p.checkout then items[#items + 1] = { name = "w  " .. fit("Evening check-out", w - 3), section = "Your data", action = checkout } end
+  if (p.queue or 0) > 0 then items[#items + 1] = { name = "h  " .. fit(("Label data (%d)"):format(p.queue), w - 3), section = "Your data", action = label_queue } end
   return items
 end
 
@@ -421,6 +573,9 @@ local function restart_renderer()
       if b.code ~= 0 then
         return vim.notify("notesview build failed:\n" .. (b.stderr or ""), vim.log.levels.ERROR)
       end
+      -- sign with the local certificate (if there is one) so a Full Disk Access grant for the
+      -- Screen Time and Messages importers survives rebuilds; ad-hoc builds lose it every time
+      vim.system({ "codesign", "--force", "--sign", "NotesView Signing", "--identifier", "local.notesview", bin .. ".new" }):wait()
       -- swap the binary first: when the local.notesview-serve launch agent runs the server,
       -- launchd restarts it the moment it is killed, and it must pick up the new build
       os.rename(bin .. ".new", bin)
@@ -438,10 +593,10 @@ end
 -- Quiz in a full-screen terminal tab inside nvim. Used when nvim is a job of an interactive shell
 -- (typed `nvim`, or the `notes` function): SIGSTOPping the TUI there makes the shell think the job
 -- was suspended (like Ctrl-Z), so it grabs the terminal back and fights the quiz for keystrokes.
-local function run_quiz_in_terminal(script)
+local function run_quiz_in_terminal(script, args)
   vim.cmd("tabnew")
   local buf = vim.api.nvim_get_current_buf()
-  vim.fn.jobstart({ "sh", "-c", 'python3 "$1"; printf "\\n[Enter to go back]"; read _', "sh", script }, {
+  vim.fn.jobstart(vim.list_extend({ "sh", "-c", 'python3 "$@"; printf "\\n[Enter to go back]"; read _', "sh", script }, args or {}), {
     term = true,
     env = { NOTES_DIR = NOTES },
     on_exit = function()
@@ -449,6 +604,7 @@ local function run_quiz_in_terminal(script)
         if vim.api.nvim_buf_is_valid(buf) then pcall(vim.api.nvim_buf_delete, buf, { force = true }) end
         load_tasks()
         load_classes()
+        load_revision()
         load_stats()
       end)
     end,
@@ -457,13 +613,15 @@ local function run_quiz_in_terminal(script)
 end
 
 -- ── Vocab quiz: hand the real terminal to notes/quiz.py (outside nvim), come back Home after ──
-local function run_quiz()
+-- `args` (optional) are passed to quiz.py, e.g. { "--revise", "act200/accruals.md" }.
+function run_quiz(args)   -- the local declared in the Revision section
+  args = type(args) == "table" and args or {}
   local script = NOTES .. "/quiz.py"
   if vim.fn.filereadable(script) == 0 then return vim.notify("quiz not found: " .. script, vim.log.levels.ERROR) end
   local tui0 = vim.g.notes_tui or uv.os_getppid()
   -- Under job control the TUI leads its own process group; then freezing it is unsafe (see above).
   if vim.trim(vim.fn.system({ "ps", "-o", "pgid=", "-p", tostring(tui0) })) == tostring(tui0) then
-    return run_quiz_in_terminal(script)
+    return run_quiz_in_terminal(script, args)
   end
   -- `:!` children get piped stdio and no controlling terminal (no /dev/tty), so input() would hit EOF
   -- at once. Find nvim's own tty device, point the quiz at it, leave the alternate screen, switch to
@@ -483,7 +641,7 @@ local function run_quiz()
     "saved=$(stty -g <$T)",
     "printf '\\033[?1049l\\033[?1004l\\033[?1000l\\033[?1002l\\033[?1003l\\033[?1006l' >$T",
     "stty sane <$T",
-    "python3 " .. vim.fn.shellescape(script) .. " <$T >$T 2>&1",
+    "python3 " .. vim.fn.shellescape(script) .. table.concat(vim.tbl_map(function(a) return " " .. vim.fn.shellescape(a) end, args)) .. " <$T >$T 2>&1",
     "stty \"$saved\" <$T",
     "printf '\\033[?1049h\\033[?1004h" .. (vim.o.mouse ~= "" and "\\033[?1002h\\033[?1006h" or "") .. "' >$T",
   }, "; ")
@@ -493,6 +651,7 @@ local function run_quiz()
     vim.cmd("redraw!")
     load_tasks()
     load_classes()
+    load_revision()
     load_stats()
     pcall(require("mini.starter").open)
   end
@@ -545,11 +704,14 @@ function M.setup()
   load_tasks()
   load_classes()
   load_routine()
+  load_revision()
+  load_labels()
+  load_helper()
   load_stats()
 
   starter.setup({
     header = header,
-    items = { routine_items, class_items, reading_items, task_items, action_items },
+    items = { routine_items, class_items, revision_items, label_items, reading_items, task_items, action_items },
     footer = "",
     content_hooks = { split_keys, starter.gen_hook.aligning("center", "center") },
   })
@@ -585,10 +747,17 @@ function M.setup()
   })
 
   -- fresh tasks and numbers when you come back; the numbers also tick over once a minute while the page is up
-  vim.api.nvim_create_autocmd("FocusGained", { callback = function() load_tasks(); load_classes(); load_routine(); load_stats() end })
-  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = function() load_classes(); load_routine(); load_stats() end })
+  vim.api.nvim_create_autocmd("FocusGained", { callback = function() load_tasks(); load_classes(); load_routine(); load_revision(); load_labels(); load_helper(); load_stats() end })
+  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = function() load_classes(); load_routine(); load_revision(); load_labels(); load_stats() end })
+  -- time on the start page is a signal (lua/signals.lua)
+  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = function(ev)
+    pcall(function() require("signals").emit("start_enter") end)
+    vim.api.nvim_create_autocmd("BufLeave", { buffer = ev.buf, once = true, callback = function()
+      pcall(function() require("signals").emit("start_leave") end)
+    end })
+  end })
   uv.new_timer():start(60000, 60000, vim.schedule_wrap(function()
-    if vim.bo.filetype == "ministarter" then load_classes(); load_routine(); load_stats() end
+    if vim.bo.filetype == "ministarter" then load_classes(); load_routine(); load_revision(); load_labels(); load_stats() end
   end))
 
   -- mini.starter turns letters into a search query; give them back as direct keys.
@@ -600,6 +769,12 @@ function M.setup()
       bmap("l", function() log_pages() end)
       bmap("m", routine_next)
       bmap("M", routine_end)
+      bmap("p", revise_next)
+      bmap("i", function() if labels and labels.prompts and labels.prompts.checkin ~= "" then checkin() end end)
+      bmap("w", function() if labels and labels.prompts and labels.prompts.checkout then checkout() end end)
+      bmap("h", label_queue)
+      bmap("z", function() helper_do() end)
+      bmap("Z", function() helper_do("restart") end)
       for i = 1, 3 do
         bmap(tostring(i), function() if tasks and tasks[i] then
           vim.cmd.edit(vim.fn.fnameescape(NOTES .. "/" .. tasks[i].file))

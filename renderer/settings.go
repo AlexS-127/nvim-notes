@@ -377,6 +377,8 @@ func (s *Server) handleRebuild(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "build failed:\n"+string(out), 500)
 			return
 		}
+		// a stable signature keeps Full Disk Access (Screen Time, Messages importers) across rebuilds
+		_ = exec.Command("codesign", "--force", "--sign", "NotesView Signing", "--identifier", "local.notesview", exe+".new").Run()
 		if err := os.Rename(exe+".new", exe); err != nil {
 			http.Error(w, err.Error(), 500)
 			return

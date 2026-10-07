@@ -48,7 +48,32 @@
   });
   es.addEventListener("open", load);
 
+  // focus check-in (labels.go): while one is open the strip asks, and the app listens for ⌥⌘1–5
+  let asking = "";
+  const nv = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nv;
+  async function prompts() {
+    try {
+      const d = await (await fetch("/api/data/prompts")).json(), open = d.prompts.checkin || "";
+      if (open !== asking) {
+        asking = open;
+        $("ov-ask").hidden = !open;
+        if (nv) nv.postMessage(open ? "checkin-on" : "checkin-off");
+      }
+    } catch (e) {}
+  }
+  // called by NotesView.app when ⌥⌘1–5 is pressed
+  window.nvCheckin = async (n) => {
+    if (!asking) return;
+    try {
+      await fetch("/api/data/checkin", { method: "POST", headers: { "X-Notesview": "1", "Content-Type": "application/json" }, body: JSON.stringify({ prompted: asking, focus: n }) });
+      $("ov-ask").querySelector("b").textContent = "✓ " + n;
+      setTimeout(prompts, 1500);
+    } catch (e) {}
+  };
+
   load();
+  prompts();
   setInterval(load, 10000);
   setInterval(tick, 1000);
+  setInterval(prompts, 30000);
 })();

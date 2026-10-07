@@ -130,8 +130,14 @@ func TestToggleMovesToDone(t *testing.T) {
 		t.Error("out-of-range line should fail")
 	}
 	entries, _ := os.ReadDir(s.Root)
-	if len(entries) != 1 {
-		t.Errorf("temp files left behind: %v", entries)
+	var left []string
+	for _, e := range entries {
+		if e.Name() != "n.md" && e.Name() != signalsDir { // the task event goes to .signals/
+			left = append(left, e.Name())
+		}
+	}
+	if len(left) != 0 {
+		t.Errorf("temp files left behind: %v", left)
 	}
 }
 

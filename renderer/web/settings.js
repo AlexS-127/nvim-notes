@@ -5,7 +5,7 @@
 (() => {
   "use strict";
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const SECTIONS = [["appearance", "Appearance"], ["transparency", "Transparency"], ["overlay", "Overlay"], ["calendars", "Calendars"], ["routine", "Morning routine"],
+  const SECTIONS = [["appearance", "Appearance"], ["transparency", "Transparency"], ["overlay", "Overlay"], ["calendars", "Calendars"], ["revision", "Revision"], ["routine", "Morning routine"],
     ["books", "Books"], ["words", "New words"], ["colors", "Folder colours"], ["about", "About"]];
   const msg = (e) => String(e.message || e).replace(/^(routine|reading): /, "").trim();
 
@@ -99,6 +99,7 @@
     const [d, items, reading, words, folders, colors] = await Promise.all([env.api("/api/settings"), env.api("/api/routine/items"), env.api("/api/reading"),
       env.api("/api/words"), env.api("/api/folders"), env.api("/api/folder-colors")]);
     const cal = await window.nvCalendar.panel(env);
+    const rev = await window.nvRevision.settingsHtml(env);
     note.className = "note settings";
     env.setTitle("Settings");
     note._set = { d, items };
@@ -109,6 +110,7 @@
       ${sec("transparency", "Transparency", transparencyHtml(d))}
       ${sec("overlay", "Overlay", overlayHtml())}
       ${sec("calendars", "Calendars", cal + `<p class="act-note">Attendance is on the <a href="#/classes">Classes</a> page.</p>`)}
+      ${sec("revision", "Revision", rev)}
       ${sec("routine", "Morning routine", routineHtml(items))}
       ${sec("books", "Books", booksHtml(reading.books))}
       ${sec("words", "New words", wordsHtml(words))}
@@ -182,6 +184,7 @@
     note.addEventListener("change", async (ev) => {
       if (!on()) return;
       const t = ev.target;
+      if (t.dataset.rvfolder !== undefined || t.id === "rv-minwords" || t.id === "rv-intervals") return window.nvRevision.saveSettings(env);
       if (t.dataset.cfg) return appearance({ [t.dataset.cfg]: t.type === "checkbox" ? t.checked : t.value });
       if (t.id === "set-opacity-follow") return appearance({ opacity: t.checked ? 0 : (note._set.d.ghostty.opacity || 0.9) });
       if (t.id === "set-opacity") return appearance({ opacity: +t.value / 100 });

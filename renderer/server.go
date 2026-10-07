@@ -37,6 +37,7 @@ type Server struct {
 	clients    map[chan event]bool // value: connected from a window we launched (?app=1)
 	current    showMsg
 	lastLaunch time.Time
+	revKick    chan struct{} // wakes the revision question writer (revision_gen.go)
 }
 
 type showMsg struct {
@@ -54,7 +55,7 @@ func configDir() string {
 }
 
 func NewServer(store *Store, port int) *Server {
-	return &Server{store: store, port: port, css: filepath.Join(configDir(), "custom.css"), clients: map[chan event]bool{}}
+	return &Server{store: store, port: port, css: filepath.Join(configDir(), "custom.css"), clients: map[chan event]bool{}, revKick: make(chan struct{}, 1)}
 }
 
 func (s *Server) broadcast(e event) {
@@ -142,6 +143,9 @@ func (s *Server) Handler() http.Handler {
 	s.readingRoutes(mux)
 	s.routineRoutes(mux)
 	s.settingsRoutes(mux)
+	s.revisionRoutes(mux)
+	s.dataRoutes(mux)
+	s.dataViewRoutes(mux)
 	return s.guardHost(mux)
 }
 
@@ -499,7 +503,11 @@ func (s *Server) ListenAndServe() error {
 	if _, err := s.Watch(); err != nil {
 		log.Println("file watching disabled:", err)
 	}
-	go func() { // keep the score graph filled in even when nothing is open
+	go s.revisionWorker(s.revKick) // Claude writes revision questions in the background
+	go s.sysSampler()              // front app and idle every 15 s (signals.go)
+	go s.importLoop()              // pmset, Screen Time, message counts, weather, Health (sense_import.go)
+	go s.featureLoop()             // rebuild the feature store nightly (features.go)
+	go func() {                    // keep the score graph filled in even when nothing is open
 		for {
 			s.store.FullActivity(time.Now(), 1)
 			time.Sleep(scoreRecordEvery)

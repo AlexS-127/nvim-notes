@@ -25,14 +25,14 @@ func (s *Server) routineRoutes(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("/api/routine/forecast", s.post(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Strike *int `json:"strike"`
+			Rating *int `json:"rating"`
 		}
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.Strike == nil {
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.Rating == nil {
 			http.Error(w, "bad request", 400)
 			return
 		}
 		now := time.Now()
-		st, err := s.store.RoutineForecast(*req.Strike, s.store.scoreNow(now), now)
+		st, err := s.store.RoutineForecast(*req.Rating, s.store.scoreNow(now), now)
 		s.routineReply(w, st, err)
 	}))
 	mux.HandleFunc("/api/routine/end", s.post(func(w http.ResponseWriter, r *http.Request) {

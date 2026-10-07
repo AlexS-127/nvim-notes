@@ -203,6 +203,7 @@ func (s *Store) ToggleCheckbox(rel string, line int) error {
 		return fmt.Errorf("line %d out of range", line)
 	}
 	l := lines[line-1]
+	ev := "done"
 	switch {
 	case taskOpenRe.MatchString(l):
 		lines[line-1] = stampDone(taskOpenRe.ReplaceAllString(l, "${1}[x]"), time.Now())
@@ -210,10 +211,15 @@ func (s *Store) ToggleCheckbox(rel string, line int) error {
 	case taskDoneRe.MatchString(l):
 		lines[line-1] = unstampDone(taskDoneRe.ReplaceAllString(l, "${1}[ ]"))
 		lines = moveFromDone(lines, line-1)
+		ev = "undone"
 	default:
 		return fmt.Errorf("line %d is not a task", line)
 	}
-	return writeAtomic(full, []byte(joinLines(lines, lf)))
+	if err := writeAtomic(full, []byte(joinLines(lines, lf))); err != nil {
+		return err
+	}
+	s.taskSignal(ev, rel, l, time.Now()) // signals.go
+	return nil
 }
 
 var (

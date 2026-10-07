@@ -230,6 +230,28 @@ Calendars are imported on the **Settings** page (Calendars section); the **Class
 
 CLI: `notesview calendar [list | import | remove | next | today | checkin | attendance]`.
 
+## Data (for the future AI traders)
+
+Main collects a labelled history of how you work, so the score market's traders (merged later) can learn from it. Only counts, categories, hashes and model outputs are stored: never what you type, window titles, URLs, screenshots, camera frames or audio. Everything stays in your notes folder (`.signals/`, `.labels/`, `.features/`).
+
+- **Sources:** the server (front app, idle), Neovim (typing counts), quiz answers (latency, right/wrong), task events, importers (sleep/wake from `pmset`, Screen Time and message counts with Full Disk Access, weather for your city, Apple Watch data via a Health Auto Export folder), and the **NotesViewSense** helper app (`~/Applications/NotesViewSense.app`, built by `macapp/build.sh`): system-wide input counts, apps, window-title and website categories, on-screen activity class, camera presence and eye fatigue, sound level, place (Wi-Fi), music.
+- **Labels (optional, no points), offered from home:** the morning forecast (1–5), an evening check-out, random "Focused right now? 1–5" check-ins (also ⌥⌘1–5 from the overlay), labelling unknown titles/sites/places, and grades (`notesview grade act200 "Midterm 1" 87/100`).
+- **Feature store:** each night every day becomes one row per minute (with sensor masks, person-relative z-scores, classes and work ahead) in `.features/`; focus is inferred from it.
+- **Data tab** (`y`): today's timeline, every sensor with its switch, permission and coverage, forecast calibration, a day table, the feature store, and a privacy audit.
+
+CLI: `notesview data [status | features [DAY] | export DAY | forget DAY | imports | importance | fit-focus | audit]`.
+
+## Scheduled revision
+
+Notes you write in class get revised on a spaced schedule. A note in a watched course folder that gets 50+ of your own words in a day is scheduled for the next day, then after 3, 7, 14, 30, 60 and 120 days. Score 80%+ and the gap grows; under 50% and it starts again. Claude writes 5–8 questions for each note in the background (`claude -p`, no tools, given only that note) into `<notes>/.revision/questions/`, where you can edit them; without them the revision is self-graded recall.
+
+- **From home:** the start page shows the next topic due (`p` starts it) and the Activity view has a Revise card with a Start button (opens the quiz in Ghostty). Finish one and the next appears. Each revision scores 5 points (once per topic a day).
+- **Revision page** (`v` in the viewer): due today, coming up, everything covered, recent scores; schedule or remove notes, ask for new questions.
+- **Settings → Revision:** which folders count, how many words schedule a note, the gaps.
+- Neovim: `:Revise` schedules the current note, `:ReviseRemove` takes it off.
+
+CLI: `notesview revise [due | list | add NOTE | remove NOTE | done ID --score S | gen NOTE]`; quiz: `python3 ~/notes/quiz.py --revise act200/accruals.md`.
+
 ## Morning routine
 
 Every day the Activity view (top card) and the Neovim start page (top section) show the morning routine until every item is done or you press *End routine*: shower, brush teeth, breakfast, drink water, make bed, and **buy a call option**: the score you are 80% sure to reach today. Each item scores 1 point, the whole routine 5 more. A Forecast tile then shows your strike against the live score.
@@ -378,7 +400,7 @@ The window opens as a tab-less app window if Chrome, Chromium, Brave or Edge is 
   sidebar (`b`, or « / ») is remembered. `~/.config/notesview/custom.css` loads last and overrides
   the theme: `:root { --accent: … }` changes both themes, `:root[data-theme="dark"] { … }` just one.
 
-Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `a` activity · `c` classes · `r` reading · `,` settings · `o` overlay (app) · `g` today's daily note (created if needed) · `b` sidebar.
+Viewer keys: `j`/`k` scroll · `/` search · `t` tasks · `a` activity · `c` classes · `r` reading · `v` revision · `y` data · `,` settings · `o` overlay (app) · `g` today's daily note (created if needed) · `b` sidebar.
 
 ## Development
 

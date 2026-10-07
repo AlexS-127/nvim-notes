@@ -13,6 +13,7 @@ func init() {
 	}
 	// never touch the real Ghostty config (theme changes sync to it)
 	os.Setenv("NOTESVIEW_GHOSTTY_CONFIG", "off")
+	os.Setenv("NOTESVIEW_CLAUDE", "off") // never call the real claude (revision questions)
 }
 
 func ics(events ...string) string {

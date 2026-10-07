@@ -15,7 +15,8 @@ import (
 // Morning routine. The items are in .routine/routine.json (edit it to add, remove or reorder
 // them; written with the defaults the first time it is read). What you do each day is the
 // append-only .routine/log.jsonl: ticks, unticks, the day's forecast ("call option": the score
-// you are 80% sure to reach today), "complete" when every item is done, and "end" when you stop
+// rating 1-5: how productive you expect today to be; older lines have a score "strike"),
+// "complete" when every item is done, and "end" when you stop
 // the routine early. The routine shows on the home pages until it is complete or ended. Each item
 // done scores scoreRoutinePts, a complete routine scoreRoutineBonus (score.go). The forecasts are
 // kept for the score market (branch market) as training data and a live input.
@@ -25,7 +26,9 @@ const (
 	routineConfig   = "routine.json"
 	routineLogFile  = "log.jsonl"
 	routineForecast = "forecast" // item kind: asks for the forecast instead of a tick
-	routineConf     = 0.8        // the forecast is the score you are this sure to reach
+	routineConf     = 0.8        // older forecasts: the score you were this sure to reach
+	forecastLabel   = "Forecast: how productive will today be? (1-5)"
+	oldForecastLbl  = "Buy a call option: today's score, 80% sure"
 )
 
 // RoutineItem is one step of the routine.
@@ -41,7 +44,7 @@ var defaultRoutine = []RoutineItem{
 	{ID: "breakfast", Label: "Breakfast"},
 	{ID: "water", Label: "Drink water"},
 	{ID: "bed", Label: "Make bed"},
-	{ID: "forecast", Label: "Buy a call option: today's score, 80% sure", Kind: routineForecast},
+	{ID: "forecast", Label: forecastLabel, Kind: routineForecast},
 }
 
 // RoutineEntry is one line of the log.
@@ -50,7 +53,8 @@ type RoutineEntry struct {
 	Date   string  `json:"date"`
 	Kind   string  `json:"kind"` // tick, untick, forecast, complete, end
 	Item   string  `json:"item,omitempty"`
-	Strike int     `json:"strike,omitempty"` // forecast: the score
+	Rating int     `json:"rating,omitempty"` // forecast: how productive today will be, 1-5
+	Strike int     `json:"strike,omitempty"` // older forecasts: the score
 	Conf   float64 `json:"conf,omitempty"`   // forecast: how sure (0.8)
 	Total  int     `json:"total,omitempty"`  // forecast: the score when it was made
 }
@@ -78,6 +82,16 @@ func (s *Store) RoutineItems() []RoutineItem {
 	}
 	if json.Unmarshal(b, &cfg) != nil {
 		return append([]RoutineItem{}, defaultRoutine...) // a broken file shouldn't hide the routine
+	}
+	migrated := false
+	for i := range cfg.Items {
+		if cfg.Items[i].Kind == routineForecast && cfg.Items[i].Label == oldForecastLbl {
+			cfg.Items[i].Label, migrated = forecastLabel, true // the forecast became 1-5
+		}
+	}
+	if migrated {
+		out, _ := json.MarshalIndent(cfg, "", "  ")
+		_ = writeAtomic(s.routinePath(routineConfig), append(out, '\n'))
 	}
 	var items []RoutineItem
 	for _, it := range cfg.Items {
@@ -278,11 +292,11 @@ func (s *Store) TickRoutine(ref string, done bool, now time.Time) (RoutineState,
 	return s.Routine(now), nil
 }
 
-// RoutineForecast records today's call option: the score you are 80% sure to reach. Making it
-// again replaces it (the last one counts); total is today's score at that moment.
-func (s *Store) RoutineForecast(strike, total int, now time.Time) (RoutineState, error) {
-	if strike < 0 {
-		return RoutineState{}, fmt.Errorf("%w: the forecast is a score, 0 or more", ErrRoutine)
+// RoutineForecast records today's forecast: how productive you expect the day to be, 1-5. Making
+// it again replaces it (the last one counts); total is today's score at that moment.
+func (s *Store) RoutineForecast(rating, total int, now time.Time) (RoutineState, error) {
+	if !in1to5(rating) {
+		return RoutineState{}, fmt.Errorf("%w: the forecast is 1-5", ErrRoutine)
 	}
 	routineMu.Lock()
 	defer routineMu.Unlock()
@@ -294,7 +308,7 @@ func (s *Store) RoutineForecast(strike, total int, now time.Time) (RoutineState,
 		}
 	}
 	day := now.Format(isoDate)
-	if err := s.appendRoutine(RoutineEntry{At: now.Format(scoreStamp), Date: day, Kind: "forecast", Item: item, Strike: strike, Conf: routineConf, Total: total}); err != nil {
+	if err := s.appendRoutine(RoutineEntry{At: now.Format(scoreStamp), Date: day, Kind: "forecast", Item: item, Rating: rating, Total: total}); err != nil {
 		return RoutineState{}, err
 	}
 	s.completeIfDone(now)
