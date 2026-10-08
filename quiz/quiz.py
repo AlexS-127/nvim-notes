@@ -191,6 +191,51 @@ def save_stats(path, stats):
     tmp.replace(path)
 
 
+_mistake = None  # set by the askers when an answer is confirmed wrong; the loops take it with take_mistake()
+
+
+def note_mistake(q, guess, answer):
+    global _mistake
+    _mistake = {"q": q, "guess": guess, "answer": answer}
+
+
+def take_mistake():
+    global _mistake
+    m, _mistake = _mistake, None
+    return m
+
+
+def log_mistake(subject, m, notes=None):
+    """List a confirmed-wrong answer in <subject>/mistakes.md (one line per question, newest data
+    wins: `missed N×` counts up, `last` is today). Created excluded from word counts, and
+    revisable() leaves it out of the revision topics and the class graph."""
+    def one(t, n=300):
+        t = " ⏎ ".join(x.strip() for x in str(t).splitlines() if x.strip())
+        return t if len(t) <= n else t[: n - 1] + "…"
+    path = NOTES / subject / "mistakes.md"
+    q = one(m["q"], 400)
+    topics = ", ".join(Path(n).stem for n in notes or [])
+    head = f"- **Q:** {q} — "
+    lines = path.read_text(encoding="utf-8").split("\n") if path.exists() else [
+        "# Mistakes", "", "Answers the quiz marked wrong and you confirmed wrong, one line per question. Written by the quiz.", ""]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    today = date.today().isoformat()
+    for i, line in enumerate(lines):
+        if line.startswith(head):
+            c = re.search(r"missed (\d+)×", line)
+            lines[i] = re.sub(r"missed \d+× · last [\d-]+", f"missed {int(c[1]) + 1 if c else 2}× · last {today}", line)
+            break
+    else:
+        if not lines[-1].startswith("- **Q:**"):
+            lines.append("")
+        lines.append(head + f"you: {one(m['guess']) or '–'} — answer: {one(m['answer'])}" + (f" — {topics}" if topics else "") + f" · missed 1× · last {today}")
+    new = not path.exists()
+    path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+    if new:  # what you wrote here is not your own writing
+        subprocess.run([notesview_bin(), "words", "exclude", f"{subject}/mistakes.md"], capture_output=True, env={**os.environ, "NOTES_DIR": str(NOTES)})
+
+
 def record(stats, word, ok, notes=None):
     """Count an answer. `ok` is a credit from 0 to 1 (True/False work): only full credit is a right
     answer for the streak and scheduling; `credit` keeps a running average of how much you got (the
@@ -201,6 +246,8 @@ def record(stats, word, ok, notes=None):
     e["right" if full else "wrong"] += 1
     e["streak"] = e["streak"] + 1 if full else 0
     e["credit"] = round(credit if "credit" not in e else (e["credit"] + credit) / 2, 3)
+    if full:
+        e.pop("reask", None)  # a confirmed mistake is over once it is answered right
     e["last"] = date.today().isoformat()
     if notes:
         e["notes"] = sorted(set(notes) | set(e.get("notes", [])))
@@ -221,6 +268,8 @@ def weight(stats, word):
     e = stats.get(word)
     if not e:
         return W_NEW
+    if e.get("reask"):  # confirmed wrong last time: back soon
+        return W_STRUGGLING * 2
     if struggling(stats, word):
         return W_STRUGGLING
     if e["streak"] >= MASTERED_STREAK:
@@ -241,7 +290,7 @@ def pick(items, stats, asked, n, last=None):
     climbs back linearly over COOLDOWN_QUESTIONS questions. `asked` maps word -> question
     number it was last asked in; `n` is the current question number."""
     pool = [p for p in items if p[0] != last] or items
-    ws = [weight(stats, w) * cooldown(n - asked[w]) if w in asked else weight(stats, w) for w, _ in pool]
+    ws = [weight(stats, w) * cooldown((n - asked[w]) * (4 if stats.get(w, {}).get("reask") else 1)) if w in asked else weight(stats, w) for w, _ in pool]
     return random.choices(pool, ws)[0]
 
 
@@ -405,6 +454,7 @@ def vocab_bank(subject):
                 if forward:
                     add_meaning(NOTES / subject / "definitions.md", pairs, word, guess)
                 return True, "", ""
+            note_mistake(q, guess, a)
             return False, "", ""
         more = others(guess, a) if ok else []
         return ok, (f"  also: {', '.join(more)}" if more else ""), f"  ✗  {a}"
@@ -520,10 +570,13 @@ def ask_question(item, clock):
         while True:
             r = clock.input("  Did you get it? [y/n, p = partly] ").strip().lower()
             if r in ("y", "n"):
+                if r == "n":
+                    note_mistake(q["q"], "", q["solution"])
                 return r == "y", "", ""
             if r == "p":
                 v = clock.input("  How much of it, 1-99 % ").strip().rstrip("%")
                 if v.isdigit() and 0 < int(v) < 100:
+                    note_mistake(q["q"], f"{v}% of it", q["solution"])
                     return int(v) / 100, "", ""
             if r == "q":
                 return None
@@ -584,6 +637,13 @@ def ask_question(item, clock):
             if kind == "short":
                 add_answer(q, guess)
             return True, note + src, ""
+        if kind == "multi":
+            your = ", ".join(q["choices"][order[i]] for i in chosen)
+        elif kind == "mc":
+            your = q["choices"][order[letters.find(g) if g in letters else int(g) - 1]]
+        else:
+            your = guess
+        note_mistake(q["q"], your, "; ".join(x.strip() for x in answer.splitlines() if x.strip()))
         return ok, "", ""
     return ok, note + src, f"  ✗  {answer}" + note + src
 
@@ -694,6 +754,9 @@ def main():
         total += 1
         was_hard = struggling(stats, key)
         record(stats, key, credit)
+        if (m := take_mistake()):
+            log_mistake(subject, m)
+            stats[key]["reask"] = True
         notes = []
         if 0 < credit < 1:  # partial credit: XP in proportion, the combo neither grows nor breaks
             right += credit
@@ -952,6 +1015,9 @@ def revise(note_id, solo=False):
                 got[nid][1] += 1
                 got[nid][0] += credit
             record(stats, q["q"], credit, notes=q["rev_ids"])
+            if (m := take_mistake()):
+                log_mistake(subject, m, q["rev_ids"])
+                stats[q["q"]]["reask"] = True
             done += 1
             right += credit
             if credit < 1:
@@ -984,6 +1050,9 @@ def revise(note_id, solo=False):
                 if r is None:
                     break
                 record(stats, q["q"], r[0], notes=q["rev_ids"])
+                if (m := take_mistake()):
+                    log_mistake(subject, m, q["rev_ids"])
+                    stats[q["q"]]["reask"] = True
                 print(("  ✓" + r[1]) if r[0] >= 1 else r[2])
                 print()
             save_stats(stats_path, stats)

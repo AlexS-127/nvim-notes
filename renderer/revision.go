@@ -233,11 +233,12 @@ func (s *Store) noteTitle(rel string) string {
 	return Title(rel, src)
 }
 
-// revisable is whether a note can be a topic: a markdown note that exists, in a folder, not a quiz bank.
+// revisable is whether a note can be a topic: a markdown note that exists, in a folder, not a quiz bank
+// or the quiz's mistakes list.
 func (s *Store) revisable(rel string) bool {
 	base := filepath.Base(rel)
 	if !strings.HasSuffix(rel, ".md") || !strings.Contains(rel, "/") || strings.HasPrefix(rel, ".") ||
-		base == "questions.md" || base == "definitions.md" {
+		base == "questions.md" || base == "definitions.md" || base == "mistakes.md" {
 		return false
 	}
 	st, err := os.Stat(filepath.Join(s.Root, rel))
