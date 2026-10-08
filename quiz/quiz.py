@@ -13,11 +13,13 @@ Gamified: earn XP with combo multipliers, level up through Roman ranks, keep a d
 streak, and unlock badges. Player state lives in the same stats file.
 
 Time spent is logged per session to notes/.quiz_log.jsonl and shows up in the viewer's
-Activity view. Time you spend away (over IDLE_CAP seconds on one question) isn't counted.
+Activity view. Each kind of question has a cut-off (ANSWER_CAPS: 10 s for a vocab word, longer
+for questions, 10 minutes for worked problems): past it you count as idle, the time beyond it is
+not quiz time, and that answer's response time is not measured.
 
 At the start you can practise everything (just press Enter) or only one word type,
 taken from the "(noun)", "(verb)"... at the end of each definitions.md line, or, for a
-question bank, one `## ` topic. Worked problems are idle-capped at PROBLEM_IDLE_CAP instead.
+question bank, one `## ` topic.
 
 Every word has a score from how often it was right vs wrong (shown after each answer). A focused
 quiz (asked at the start; `--focused` skips the question) leaves out what you know well (3 right in
@@ -47,7 +49,11 @@ from pathlib import Path
 # through NOTES_DIR (like notesview and Neovim do), not through the script's own path.
 NOTES = Path(os.environ.get("NOTES_DIR") or Path.home() / "notes").expanduser()
 LOG = NOTES / ".quiz_log.jsonl"
-IDLE_CAP = 90  # seconds; a longer pause on one question counts as this much
+# Seconds an answer may take before you count as idle (stopped quizzing rather than still thinking):
+# time beyond it is not quiz time, and the answer's response time is not measured. Per question kind.
+ANSWER_CAPS = {"vocab": 10, "tf": 20, "mc": 30, "multi": 45, "short": 45, "problem": 600, "recall": 600}
+PROMPT_CAP = 10  # short follow-ups: "Actually right?", "sure?", "how much?"
+READ_CAP = 120  # reading a worked solution or a whole note before grading yourself
 
 
 # ---- per-answer signals (renderer/signals.go reads them; counts only, never the answer text) ----
@@ -62,13 +68,18 @@ def sensor_on(name, default=True):
 
 
 def log_answer(subject, kind, latency, ok, revision="", conf=None):
+    """`latency` None = the answer came after the kind's cut-off: logged as idle, without a time."""
     ok = float(ok)  # partial credit: 0 < ok < 1 is logged as not correct, with its credit
     """One line per answer in .signals/YYYY-MM-DD.jsonl: how long it took, right or wrong, the
     question kind and (if asked) how sure you were. Answer latency and accuracy track focus and fatigue."""
     if not sensor_on("quiz"):
         return
     rec = {"at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "src": "quiz", "subject": subject, "kind": kind,
-           "latency_ms": int(latency * 1000), "correct": ok >= 1}
+           "correct": ok >= 1}
+    if latency is None:
+        rec["idle"] = True
+    else:
+        rec["latency_ms"] = int(latency * 1000)
     if 0 < ok < 1:
         rec["credit"] = round(ok, 2)
     if revision:
@@ -91,7 +102,7 @@ def ask_confidence(clock, subject=None):
     """Optional (the Data tab's "confidence" switch): how sure you were, 1 guess / 2 unsure / 3 sure."""
     if subject in NO_CONFIDENCE or not sensor_on("confidence", False):
         return None
-    r = clock.input("  sure? 1 guess · 2 unsure · 3 sure (Enter skips) ").strip()
+    r = clock.input("  sure? 1 guess · 2 unsure · 3 sure (Enter skips) ", PROMPT_CAP).strip()
     return int(r) if r in ("1", "2", "3") else None
 
 
@@ -240,7 +251,7 @@ def log_mistake(subject, m, notes=None):
         subprocess.run([notesview_bin(), "words", "exclude", f"{subject}/mistakes.md"], capture_output=True, env={**os.environ, "NOTES_DIR": str(NOTES)})
 
 
-def record(stats, word, ok, notes=None):
+def record(stats, word, ok, notes=None, rt=None):
     """Count an answer. `ok` is a credit from 0 to 1 (True/False work): only full credit is a right
     answer for the streak and scheduling; `credit` keeps a running average of how much you got (the
     class graph's knowledge colour), `notes` the revision topics the question belongs to."""
@@ -253,6 +264,9 @@ def record(stats, word, ok, notes=None):
     if full:
         e.pop("reask", None)  # a confirmed mistake is over once it is answered right
     e["last"] = date.today().isoformat()
+    if rt is not None:  # response time (answers within the cut-off only): a running average, in ms
+        ms = round(rt * 1000)
+        e["rt_ms"] = ms if "rt_ms" not in e else round((e["rt_ms"] + ms) / 2)
     if notes:
         e["notes"] = sorted(set(notes) | set(e.get("notes", [])))
 
@@ -406,15 +420,25 @@ class Clock:
         self.logged = 0  # whole seconds already written to the log
         self.xp = self.levels = 0  # XP earned and levels gained this session
         self.logged_xp = self.logged_levels = 0
+        self.rt = None  # the last answer prompt: (seconds it took, its cut-off)
 
-    def input(self, prompt, cap=IDLE_CAP):
+    def input(self, prompt, cap=PROMPT_CAP, answer=False):
+        """`answer`: this prompt takes the answer itself, so its time is the response time."""
         asked = time.monotonic()
         self.pending = (asked, cap)
         try:
             return input(prompt)
         finally:  # so quitting or Ctrl-C at a prompt still counts
             self.pending = None
-            self.active += min(time.monotonic() - asked, cap)
+            took = time.monotonic() - asked
+            self.active += min(took, cap)
+            if answer:
+                self.rt = (took, cap)
+
+    def response_time(self):
+        """Seconds the last answer took, or None if it came after its cut-off (idle) or none was asked."""
+        rt, self.rt = self.rt, None
+        return rt[0] if rt and rt[0] <= rt[1] else None
 
     def live(self):
         """Active seconds so far, including the prompt that is still open (capped like a finished one).
@@ -481,13 +505,13 @@ def vocab_bank(subject):
         word, trans = item
         forward = d == 0 or (d == 2 and random.random() < 0.5)
         q, a = (word, trans) if forward else (trans, word)
-        guess = clock.input(f"{q}  → ").strip() or "?"  # a blank Enter skips and reveals, like '?'
+        guess = clock.input(f"{q}  → ", ANSWER_CAPS["vocab"], answer=True).strip() or "?"  # a blank Enter skips and reveals, like '?'
         if guess.lower() == "q":
             return None
         ok = guess != "?" and check(guess, a)
         if not ok and guess != "?":
             print(f"  ✗  {a}")
-            if clock.input("  Actually right? y = count it as correct (Enter = no) ").strip().lower() == "y":
+            if clock.input("  Actually right? y = count it as correct (Enter = no) ", PROMPT_CAP).strip().lower() == "y":
                 if forward:
                     add_meaning(NOTES / subject / "definitions.md", pairs, word, guess)
                 return True, "", ""
@@ -501,7 +525,6 @@ def vocab_bank(subject):
 
 # ---- question bank (questions.md) -------------------------------------------------------
 
-PROBLEM_IDLE_CAP = 600  # seconds; a worked problem on paper really does take minutes
 FIELD = re.compile(r"^(Q|A|Why|Src|Solution):[ \t]?(.*)$")
 CHOICE = re.compile(r"^([a-hA-H])[).][ \t]+(.*)$")
 REFERS_TO_LETTERS = re.compile(r"\babove\b|\b[A-H] and [A-H]\b", re.I)
@@ -600,18 +623,18 @@ def ask_question(item, clock):
     src = f"  ({q['src']})" if q["src"] else ""
 
     if kind == "problem":
-        r = clock.input("  Work it out, then Enter to see the solution (q to quit) ", PROBLEM_IDLE_CAP)
+        r = clock.input("  Work it out, then Enter to see the solution (q to quit) ", ANSWER_CAPS["problem"], answer=True)
         if r.strip().lower() == "q":
             return None
         print("\n".join(f"  {l}" for l in q["solution"].splitlines()) + note + ("\n" + src if src else ""))
         while True:
-            r = clock.input("  Did you get it? [y/n, p = partly] ").strip().lower()
+            r = clock.input("  Did you get it? [y/n, p = partly] ", READ_CAP).strip().lower()
             if r in ("y", "n"):
                 if r == "n":
                     note_mistake(q["q"], "", q["solution"])
                 return r == "y", "", ""
             if r == "p":
-                v = clock.input("  How much of it, 1-99 % ").strip().rstrip("%")
+                v = clock.input("  How much of it, 1-99 % ", PROMPT_CAP).strip().rstrip("%")
                 if v.isdigit() and 0 < int(v) < 100:
                     note_mistake(q["q"], f"{v}% of it", q["solution"])
                     return int(v) / 100, "", ""
@@ -640,7 +663,7 @@ def ask_question(item, clock):
         prompt, answer, valid = "  → ", q["a"], None
 
     while True:
-        guess = clock.input(prompt).strip() or "?"
+        guess = clock.input(prompt, ANSWER_CAPS[kind], answer=True).strip() or "?"
         g = guess.lower()
         if g == "q":
             return None
@@ -790,17 +813,16 @@ def main():
         key = item[0]
         last = key
         asked_at[key] = total + 1
-        t0 = time.monotonic()
         result = ask(item, clock)
         if result is None:
             break
-        latency = time.monotonic() - t0
+        rt = clock.response_time()
         ok, ok_note, wrong_note = result
         credit = float(ok)
-        log_answer(subject, qkind(item[1]) if noun == "question" else "vocab", latency, credit, conf=ask_confidence(clock, subject))
+        log_answer(subject, qkind(item[1]) if noun == "question" else "vocab", rt, credit, conf=ask_confidence(clock, subject))
         total += 1
         was_hard = struggling(stats, key)
-        record(stats, key, credit)
+        record(stats, key, credit, rt=rt)
         if (m := take_mistake()):
             log_mistake(subject, m)
             stats[key]["reask"] = True
@@ -859,7 +881,8 @@ def main():
             print(n)
         if noun == "word":
             e = stats[key]
-            print(f"  {word_score(stats, key):.0%} known ({e['right']} right, {e['wrong']} wrong)")
+            took = f"{rt:.1f}s" if rt is not None else f"idle (over {ANSWER_CAPS['vocab']}s, not timed)"
+            print(f"  {word_score(stats, key):.0%} known ({e['right']} right, {e['wrong']} wrong) · {took}")
         print()
         save_stats(stats_path, stats)
         clock.flush(subject)  # XP and level-ups score right away, not at the next minute tick
@@ -900,7 +923,7 @@ def recall(note_path, clock):
     print("\nWrite down everything you remember (an empty line ends, q quits):")
     lines = []
     while True:
-        l = clock.input("  ", PROBLEM_IDLE_CAP)
+        l = clock.input("  ", ANSWER_CAPS["recall"])
         if l.strip().lower() == "q" and not lines:
             return None
         if not l.strip():
@@ -911,7 +934,7 @@ def recall(note_path, clock):
     print("─" * 60)
     grades = {"1": 0.3, "a": 0.3, "2": 0.6, "h": 0.6, "3": 0.85, "g": 0.85, "4": 1.0, "e": 1.0}
     while True:
-        r = clock.input("How well did you remember it? 1) again  2) hard  3) good  4) easy → ").strip().lower()
+        r = clock.input("How well did you remember it? 1) again  2) hard  3) good  4) easy → ", READ_CAP).strip().lower()
         if r in grades:
             return grades[r]
         if r == "q":
@@ -1049,7 +1072,6 @@ def revise(note_id, solo=False):
         missed_qs, quit_early, done, right = [], False, 0, 0
         for i, q in enumerate(qs, 1):
             print(f"[{i}/{len(qs)}] ", end="")
-            t0 = time.monotonic()
             try:
                 r = ask_question((q["q"], q), clock)
             except (KeyboardInterrupt, EOFError):  # like q: what was answered still counts
@@ -1060,11 +1082,12 @@ def revise(note_id, solo=False):
                 break
             ok, ok_note, wrong_note = r
             credit = float(ok)
-            log_answer(subject, qkind(q), time.monotonic() - t0, credit, revision=q["rev_id"], conf=ask_confidence(clock, subject))
+            rt = clock.response_time()
+            log_answer(subject, qkind(q), rt, credit, revision=q["rev_id"], conf=ask_confidence(clock, subject))
             for nid in q["rev_ids"]:
                 got[nid][1] += 1
                 got[nid][0] += credit
-            record(stats, q["q"], credit, notes=q["rev_ids"])
+            record(stats, q["q"], credit, notes=q["rev_ids"], rt=rt)
             if (m := take_mistake()):
                 log_mistake(subject, m, q["rev_ids"])
                 stats[q["q"]]["reask"] = True

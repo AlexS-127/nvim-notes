@@ -597,3 +597,5 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 .qz-level { display: flex; align-items: center; gap: 10px; font: 13px var(--font-ui); } .qz-level .cg-bar { width: 160px; }
 .qz-missed li { font: 13px var(--font-ui); }
 @media (max-width: 640px) { .qz-tiles { grid-template-columns: 1fr 1fr; } .qz-prompt { font-size: 20px; } }
+.qz-idle { font: 13px var(--font-ui); color: var(--c-warning); margin: -10px 0 12px; } .qz-card.idle .qz-prompt { opacity: .6; }
+.qz-time { color: var(--muted); font-size: 12px; }

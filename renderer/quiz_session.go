@@ -36,6 +36,7 @@ type QuizCard struct {
 	Headings []string `json:"headings,omitempty"` // recall: what the note covers
 	Note     string   `json:"note,omitempty"`     // recall: the note's path
 	Known    *float64 `json:"known,omitempty"`    // the item's score before answering
+	Cap      int      `json:"cap"`                // seconds before you count as idle on this card
 }
 
 type QuizResult struct {
@@ -58,6 +59,8 @@ type QuizResult struct {
 	Wrong      int      `json:"wrong"`
 	Solution   string   `json:"solution,omitempty"` // a problem's worked solution (reveal)
 	Pending    bool     `json:"pending,omitempty"`  // waiting for override or Next
+	Seconds    *float64 `json:"seconds,omitempty"`  // response time, when within the cut-off
+	Idle       bool     `json:"idle,omitempty"`     // answered after the cut-off: not timed
 }
 
 type QuizSummary struct {
@@ -103,10 +106,12 @@ type quizAsk struct {
 	shown    time.Time
 	cap      time.Duration
 	revealed bool
+	solve    time.Duration // a problem: card shown → solution revealed (its response time)
+	readFrom time.Time     // a problem: when the solution was revealed
 }
 
 type quizPending struct {
-	took         time.Duration // from the card appearing to the answer (logged as the answer's latency)
+	rt           *time.Duration // response time (nil: idle, after the cut-off)
 	item         *quizItem
 	ask          *quizAsk
 	credit       float64
@@ -362,7 +367,7 @@ func (q *QuizSession) advance(s *Store, now time.Time) {
 			}
 		}
 		q.n = 1
-		q.cur = &quizAsk{card: QuizCard{N: 1, Total: 1, Kind: "recall", Prompt: q.topics[q.recall], Headings: heads, Note: q.recall}, shown: now, cap: quizProblemCap}
+		q.cur = &quizAsk{card: QuizCard{N: 1, Total: 1, Kind: "recall", Cap: int(quizAnswerCaps["recall"].Seconds()), Prompt: q.topics[q.recall], Headings: heads, Note: q.recall}, shown: now, cap: quizAnswerCaps["recall"]}
 		return
 	}
 	var it *quizItem
@@ -393,8 +398,8 @@ func (q *QuizSession) advance(s *Store, now time.Time) {
 }
 
 func (q *QuizSession) makeAsk(s *Store, it *quizItem, now time.Time) *quizAsk {
-	a := &quizAsk{item: it, shown: now, cap: quizIdleCap}
-	c := QuizCard{N: q.n, Kind: it.kind(), Retry: q.inRetry}
+	a := &quizAsk{item: it, shown: now, cap: quizAnswerCaps[it.kind()]}
+	c := QuizCard{N: q.n, Kind: it.kind(), Retry: q.inRetry, Cap: int(quizAnswerCaps[it.kind()].Seconds())}
 	if q.Mode == "revise" {
 		c.Total = len(q.queue)
 		if q.inRetry {
@@ -419,9 +424,6 @@ func (q *QuizSession) makeAsk(s *Store, it *quizItem, now time.Time) *quizAsk {
 		c.Prompt = qq.Q
 		if q.Mode == "practice" && qq.Topic != "" {
 			c.Hint = qq.Topic
-		}
-		if c.Kind == "problem" {
-			a.cap = quizProblemCap
 		}
 		if c.Kind == "mc" || c.Kind == "multi" {
 			a.order = make([]int, len(qq.Choices))
@@ -462,12 +464,27 @@ func (s *Store) AnswerQuiz(q *QuizSession, a QuizAnswer, now time.Time) (*QuizRe
 	}
 	kind := ask.card.Kind
 	if kind == "problem" && a.Reveal && !ask.revealed {
-		ask.revealed = true
+		ask.revealed, ask.solve, ask.readFrom = true, now.Sub(ask.shown), now
 		return &QuizResult{Solution: ask.item.Q.Solution, Why: ask.item.Q.Why, Src: ask.item.Q.Src, Pending: true}, nil
 	}
+	// quiz time: up to the kind's cut-off (beyond it you count as idle); a problem adds up to
+	// quizReadCap for reading its solution, and its response time is the time to the reveal
 	took := now.Sub(ask.shown)
-	q.active += min(took, ask.cap)
-	res := &QuizResult{}
+	if kind == "problem" && ask.revealed {
+		took = ask.solve
+		q.active += min(took, ask.cap) + min(now.Sub(ask.readFrom), quizReadCap)
+	} else {
+		q.active += min(took, ask.cap)
+	}
+	var rt *time.Duration
+	if took <= ask.cap {
+		rt = &took
+	}
+	res := &QuizResult{Idle: rt == nil}
+	if rt != nil {
+		sec := math.Round(rt.Seconds()*10) / 10
+		res.Seconds = &sec
+	}
 	credit, overridable, guess := 0.0, false, ""
 	skip := a.Skip || ((kind == "vocab" || kind == "short") && (strings.TrimSpace(a.Response) == "" || strings.TrimSpace(a.Response) == "?"))
 	switch kind {
@@ -593,13 +610,13 @@ func (s *Store) AnswerQuiz(q *QuizSession, a QuizAnswer, now time.Time) (*QuizRe
 	res.Credit = credit
 	if credit < 1 && overridable {
 		res.Override, res.Pending = true, true
-		q.pending = &quizPending{took: took, item: ask.item, ask: ask, credit: credit, guess: guess, shown: guess, result: res}
+		q.pending = &quizPending{rt: rt, item: ask.item, ask: ask, credit: credit, guess: guess, shown: guess, result: res}
 		q.last1 = res
 		q.cur = nil
 		return res, nil
 	}
 	mistake := kind == "problem" && !skip && credit < 1
-	s.commitQuiz(q, ask, credit, mistake, guess, res, took, now)
+	s.commitQuiz(q, ask, credit, mistake, guess, res, rt, now)
 	q.last1 = res
 	q.cur = nil
 	return res, nil
@@ -633,7 +650,7 @@ func (s *Store) OverrideQuiz(q *QuizSession, now time.Time) (*QuizResult, error)
 			res.Saved = g
 		}
 	}
-	s.commitQuiz(q, p.ask, 1, false, p.guess, res, p.took, now)
+	s.commitQuiz(q, p.ask, 1, false, p.guess, res, p.rt, now)
 	return res, nil
 }
 
@@ -649,7 +666,7 @@ func (s *Store) NextQuiz(q *QuizSession, now time.Time) {
 	q.touched = now
 	if p := q.pending; p != nil {
 		q.pending = nil
-		s.commitQuiz(q, p.ask, p.credit, true, p.shown, p.result, p.took, now)
+		s.commitQuiz(q, p.ask, p.credit, true, p.shown, p.result, p.rt, now)
 	}
 	if q.cur == nil {
 		q.advance(s, now)
@@ -661,19 +678,19 @@ func (s *Store) EndQuiz(q *QuizSession, now time.Time) {
 	q.touched = now
 	if p := q.pending; p != nil {
 		q.pending = nil
-		s.commitQuiz(q, p.ask, p.credit, true, p.shown, p.result, p.took, now)
+		s.commitQuiz(q, p.ask, p.credit, true, p.shown, p.result, p.rt, now)
 	}
 	q.cur = nil
 	q.finish(s, now)
 }
 
 // commitQuiz writes one answer: stats, XP, the time and XP log, the signal, the mistakes list.
-func (s *Store) commitQuiz(q *QuizSession, ask *quizAsk, credit float64, mistake bool, guess string, res *QuizResult, took time.Duration, now time.Time) {
+func (s *Store) commitQuiz(q *QuizSession, ask *quizAsk, credit float64, mistake bool, guess string, res *QuizResult, rt *time.Duration, now time.Time) {
 	it := ask.item
 	st := s.loadQuizStats(q.Subject)
 	pl := st.player()
 	wasHard := st.struggling(it.Key)
-	e := st.record(it.Key, credit, it.RevIDs, now.Format(isoDate))
+	e := st.record(it.Key, credit, it.RevIDs, rt, now.Format(isoDate))
 	if mistake {
 		e.Reask = true
 		qtext := ask.card.Prompt
@@ -754,7 +771,7 @@ func (s *Store) commitQuiz(q *QuizSession, ask *quizAsk, credit float64, mistake
 	if len(it.RevIDs) > 0 {
 		rev = it.RevIDs[0]
 	}
-	s.logQuizSignal(q.Subject, ask.card.Kind, took, credit, rev, now)
+	s.logQuizSignal(q.Subject, ask.card.Kind, rt, credit, rev, now)
 }
 
 func (a *quizAsk) answerText() string {

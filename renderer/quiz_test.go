@@ -226,3 +226,35 @@ func TestQuizFocused(t *testing.T) {
 		t.Errorf("a focused quiz with everything known should not start")
 	}
 }
+
+func TestQuizIdleCutoff(t *testing.T) {
+	s := newTestStore(t, map[string]string{"lat/definitions.md": "puella :: girl (noun)\n"})
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local)
+	q, _ := s.StartQuiz(QuizStart{Mode: "practice", Subject: "lat"}, now)
+	if q.cur.card.Cap != 10 {
+		t.Fatalf("vocab cut-off: %d", q.cur.card.Cap)
+	}
+	res, _ := s.AnswerQuiz(q, QuizAnswer{Response: "girl"}, now.Add(4*time.Second))
+	if res.Idle || res.Seconds == nil || *res.Seconds != 4 {
+		t.Errorf("timed answer: %+v", res)
+	}
+	s.NextQuiz(q, now.Add(5*time.Second))
+	res, _ = s.AnswerQuiz(q, QuizAnswer{Response: "girl"}, now.Add(5*time.Second+40*time.Second)) // away 40 s
+	if !res.Idle || res.Seconds != nil {
+		t.Errorf("idle answer: %+v", res)
+	}
+	if q.active != 14*time.Second {
+		t.Errorf("quiz time should stop at the cut-off: %v", q.active)
+	}
+	sig, _ := os.ReadFile(filepath.Join(s.Root, ".signals", "2026-10-07.jsonl"))
+	if !strings.Contains(string(sig), `"latency_ms":4000`) || !strings.Contains(string(sig), `"idle":true`) {
+		t.Errorf("signals: %s", sig)
+	}
+	if e := quizStatsOf(t, s, "lat")["puella"]; e["rt_ms"].(float64) != 4000 {
+		t.Errorf("response time in stats should only average timed answers: %v", e)
+	}
+	log, _ := os.ReadFile(filepath.Join(s.Root, quizLog))
+	if !strings.Contains(string(log), `"seconds":4`) || !strings.Contains(string(log), `"seconds":10`) {
+		t.Errorf("quiz log: %s", log)
+	}
+}

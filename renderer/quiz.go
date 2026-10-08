@@ -29,14 +29,19 @@ import (
 // also saves the answer as an accepted one.
 
 const (
-	quizIdleCap    = 90 * time.Second  // a longer pause on one question counts as this much
-	quizProblemCap = 600 * time.Second // worked problems and recall take minutes
-	quizPlayer     = "__player__"
-	quizMixTopics  = 3 // a blended revision covers up to this many due topics of one folder
-	quizMixPer     = 4 // questions drawn from each topic when blending
-	quizMixCross   = 3 // cross-topic questions added to a blend
-	quizMastered   = 5 // correct answers in a row = mastered
+	quizReadCap   = 120 * time.Second // reading a worked solution before grading it
+	quizPlayer    = "__player__"
+	quizMixTopics = 3 // a blended revision covers up to this many due topics of one folder
+	quizMixPer    = 4 // questions drawn from each topic when blending
+	quizMixCross  = 3 // cross-topic questions added to a blend
+	quizMastered  = 5 // correct answers in a row = mastered
 )
+
+// quizAnswerCaps is how long an answer may take before you count as idle (stopped quizzing rather than
+// still thinking), per question kind: time beyond it is not quiz time, and the answer's response time
+// is not measured (quiz.py ANSWER_CAPS).
+var quizAnswerCaps = map[string]time.Duration{"vocab": 10 * time.Second, "tf": 20 * time.Second, "mc": 30 * time.Second,
+	"multi": 45 * time.Second, "short": 45 * time.Second, "problem": 600 * time.Second, "recall": 600 * time.Second}
 
 var (
 	quizRanks  = []string{"Tiro", "Miles", "Optio", "Centurio", "Tribunus", "Legatus", "Consul", "Imperator"}
@@ -465,6 +470,7 @@ type quizStat struct {
 	Last   string   `json:"last,omitempty"`
 	Notes  []string `json:"notes,omitempty"`
 	Reask  bool     `json:"reask,omitempty"`
+	RtMs   *int     `json:"rt_ms,omitempty"` // response time, a running average of answers within the cut-off
 }
 
 type quizPlayerRec struct {
@@ -571,7 +577,7 @@ func (st *quizStats) weight(key string) float64 {
 }
 
 // record counts an answer: only full credit is right; credit keeps a running average.
-func (st *quizStats) record(key string, credit float64, notes []string, today string) *quizStat {
+func (st *quizStats) record(key string, credit float64, notes []string, rt *time.Duration, today string) *quizStat {
 	e := st.get(key)
 	if e == nil {
 		e = &quizStat{}
@@ -593,6 +599,13 @@ func (st *quizStats) record(key string, credit float64, notes []string, today st
 	c = math.Round(c*1000) / 1000
 	e.Credit = &c
 	e.Last = today
+	if rt != nil {
+		ms := int(rt.Milliseconds())
+		if e.RtMs != nil {
+			ms = int(math.Round(float64(*e.RtMs+ms) / 2))
+		}
+		e.RtMs = &ms
+	}
 	if len(notes) > 0 {
 		set := map[string]bool{}
 		for _, n := range append(append([]string{}, e.Notes...), notes...) {
@@ -788,12 +801,18 @@ func (s *Store) logQuizTime(subject string, secs, answered, correct, xp, levels 
 	f.Write(append(b, '\n'))
 }
 
-func (s *Store) logQuizSignal(subject, kind string, latency time.Duration, credit float64, revision string, now time.Time) {
+// logQuizSignal: rt nil = the answer came after its cut-off, logged as idle without a time.
+func (s *Store) logQuizSignal(subject, kind string, rt *time.Duration, credit float64, revision string, now time.Time) {
 	if !s.Sensors().Sensors["quiz"] {
 		return
 	}
 	rec := map[string]any{"at": now.Format(scoreStamp), "src": "quiz", "subject": subject, "kind": kind,
-		"latency_ms": latency.Milliseconds(), "correct": credit >= 1, "from": "viewer"}
+		"correct": credit >= 1, "from": "viewer"}
+	if rt == nil {
+		rec["idle"] = true
+	} else {
+		rec["latency_ms"] = rt.Milliseconds()
+	}
 	if credit > 0 && credit < 1 {
 		rec["credit"] = math.Round(credit*100) / 100
 	}

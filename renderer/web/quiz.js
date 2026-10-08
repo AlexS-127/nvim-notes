@@ -14,6 +14,8 @@
   let env = null;
   let S = null;        // { state, result, picked: Set, revealed, recallShown, busy }
   let lastStart = null; // the request that started the session (for "Again")
+  let idle = { key: "", timer: 0, on: false }; // the open card goes idle after its cut-off (card.cap seconds)
+  const capWords = (s) => (s >= 120 ? `${Math.round(s / 60)} min` : `${s} s`);
 
   // ── home: what to revise, what to practise ──
   async function home() {
@@ -92,8 +94,9 @@
     if (!r || (c && c.kind === "problem" && r.pending)) return "";
     const state = r.skipped ? ["skip", "Skipped"] : r.credit >= 1 ? ["right", r.overridden ? "Counted as right" : "Right"] : r.credit > 0 ? ["part", `${pct(r.credit)} credit${r.partial ? " · " + r.partial : ""}`] : ["wrong", "Wrong"];
     const known = r.known != null && !r.pending ? `<small>${pct(r.known)} known (${r.right} right, ${r.wrong} wrong)</small>` : "";
+    const timed = r.idle ? `<small class="qz-time">idle, not timed</small>` : r.seconds != null ? `<small class="qz-time">${r.seconds} s</small>` : "";
     return `<div class="qz-result" data-state="${state[0]}">
-      <div class="qz-verdict"><b>${state[1]}</b>${r.xp ? `<span>+${r.xp} XP${r.combo >= 3 ? ` · combo ${r.combo}` : ""}</span>` : ""}${known}</div>
+      <div class="qz-verdict"><b>${state[1]}</b>${r.xp ? `<span>+${r.xp} XP${r.combo >= 3 ? ` · combo ${r.combo}` : ""}</span>` : ""}${timed}${known}</div>
       ${(r.credit < 1 || r.overridden) && c.kind !== "problem" ? `<div class="qz-answer">${r.guess && !r.overridden ? `<small>You answered</small><p class="qz-yours">${esc(r.guess)}</p>` : ""}<small>Answer</small><pre>${esc(r.answer)}</pre></div>` : ""}
       ${r.also && r.also.length ? `<p class="qz-also">Also: ${esc(r.also.join(", "))}</p>` : ""}
       ${r.saved ? `<p class="qz-also">Saved “${esc(r.saved)}” as an accepted answer.</p>` : ""}
@@ -131,6 +134,24 @@
     </div>`;
     const inp = note.querySelector(".qz-input, .qz-recall");
     if (inp) inp.focus();
+    watchIdle(c && !S.result ? c : null);
+  }
+
+  // Past its cut-off (10 s for a vocab word) a card goes idle: quiz time stops counting and the answer
+  // will not be timed (the server applies the same cut-off; this only shows it).
+  function watchIdle(c) {
+    const key = c ? `${S.state.id}:${c.n}:${c.retry ? 1 : 0}` : "";
+    if (key !== idle.key) {
+      clearTimeout(idle.timer);
+      idle = { key, timer: 0, on: false };
+      if (c && c.cap) idle.timer = setTimeout(() => { idle.on = true; showIdle(c); }, c.cap * 1000);
+    } else if (idle.on && c) showIdle(c);
+  }
+  function showIdle(c) {
+    const card = env.note.querySelector(".qz-card");
+    if (!card || !env.isActive("quiz") || card.querySelector(".qz-idle")) return;
+    card.classList.add("idle");
+    card.querySelector(".qz-prompt").insertAdjacentHTML("afterend", `<p class="qz-idle">Idle: no answer for ${capWords(c.cap)}. Quiz time has stopped counting, and this answer won't be timed.</p>`);
   }
 
   async function call(path, body) {
