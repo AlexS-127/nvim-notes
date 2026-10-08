@@ -8,7 +8,7 @@
   const enc = (p) => p.split("/").map(encodeURIComponent).join("/");
   const W = 1000, H = 640, NS = "http://www.w3.org/2000/svg";
   const pos = {};       // folder -> id -> {x, y, vx, vy}: layouts survive refreshes
-  const KINDS = [["link", "Links"], ["mention", "Mentions"], ["similar", "Similar"]];
+  const KINDS = [["part", "Structure"], ["link", "Links"], ["mention", "Mentions"], ["similar", "Similar"]];
   let anim = 0;
 
   // knowledge colour: red → amber → green; grey when nothing was ever asked
@@ -16,7 +16,8 @@
     : m < 0.5 ? `color-mix(in srgb, var(--c-warning) ${Math.round(m * 200)}%, var(--c-danger))`
     : `color-mix(in srgb, var(--c-tip) ${Math.round((m - 0.5) * 200)}%, var(--c-warning))`;
   const pct = (m) => m == null ? "not asked yet" : Math.round(m * 100) + "%";
-  const radius = (n, max) => 7 + 15 * Math.sqrt(Math.max(n.words, 1) / Math.max(max, 1));
+  // a note is the big node, its headings smaller by level; a little extra for longer sections
+  const radius = (n, max) => 1.3 * ((n.kind === "note" ? 12 : [0, 8, 6.5, 5.5, 5][n.level] || 5) + 4 * Math.sqrt(Math.max(n.words, 1) / Math.max(max, 1)));
 
   // which folder is this class? the course code in its title ("ACT 200 …" → act200), else the longest folder name inside it
   async function open(env, title) {
@@ -49,36 +50,42 @@
     catch (e) { env.setTitle("Classes"); note.innerHTML = `<p><a href="#/classes">← Classes</a></p><p class="act-note">${esc(String(e.message || e).trim())}</p>`; return; }
     env.setTitle(r.sub);
     const subjects = (await env.api("/api/classes/graph")).subjects;
-    const st = { g, sub: r.sub, sel: null, hover: null, kinds: new Set(JSON.parse(env.store.get("cgKinds", '["link","mention","similar"]'))),
-      labels: env.store.get("cgLabels", "1") === "1", k: 1, tx: 0, ty: 0 };
+    const st = { g, sub: r.sub, sel: null, hover: null, kinds: new Set(JSON.parse(env.store.get("cgKinds2", '["part","link","mention","similar"]'))),
+      labels: env.store.get("cgAllLabels", "0") === "1", k: 1, tx: 0, ty: 0 };
     const P = (pos[r.sub] ||= {});
     const ids = g.nodes.map((n) => n.id), maxW = Math.max(...g.nodes.map((n) => n.words));
-    g.nodes.forEach((n, i) => {
-      if (!P[n.id]) { const a = i / g.nodes.length * 2 * Math.PI; P[n.id] = { x: W / 2 + Math.cos(a) * 230 + Math.random() * 20, y: H / 2 + Math.sin(a) * 200 + Math.random() * 20, vx: 0, vy: 0, fresh: true }; }
-    });
+    // the layout area grows with the graph; the view is then fitted to it
+    const grow = 1 + 0.5 * Math.max(0, Math.sqrt(g.nodes.length / 35) - 1), LW = W * grow, LH = H * grow;
+    const roots = g.nodes.filter((n) => n.kind === "note");
+    const spot = (n) => {  // notes on a ring, their headings scattered around them
+      const r = roots.findIndex((x) => x.id === n.note), a = r / roots.length * 2 * Math.PI, jit = n.kind === "note" ? 12 : 55;
+      return { x: LW / 2 + Math.cos(a) * 250 * grow + (Math.random() - 0.5) * jit, y: LH / 2 + Math.sin(a) * 210 * grow + (Math.random() - 0.5) * jit, vx: 0, vy: 0 };
+    };
+    g.nodes.forEach((n) => { if (!P[n.id]) P[n.id] = { ...spot(n), fresh: true }; });
     for (const id of Object.keys(P)) if (!ids.includes(id)) delete P[id];
     const by = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
     const nb = {};
     for (const e of g.edges) { (nb[e.a] ||= []).push([e.b, e]); (nb[e.b] ||= []).push([e.a, e]); }
     note._graph = st;
 
-    const known = g.nodes.filter((n) => n.mastery != null).length, due = g.nodes.filter((n) => n.scheduled && n.due <= new Date().toISOString().slice(0, 10)).length;
+    const today = new Date().toISOString().slice(0, 10), notes = g.nodes.filter((n) => n.kind === "note");
+    const known = notes.filter((n) => n.mastery != null).length, due = notes.filter((n) => n.scheduled && n.due <= today).length;
     note.innerHTML = `<p class="cg-back"><a href="#/classes">← Classes</a></p>
       <div class="cg-head"><h1>${esc(r.sub)}</h1>
         <select id="cg-sub" aria-label="Folder">${subjects.map((s) => `<option${s === r.sub ? " selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
-      <div class="cg-stats"><span><b>${g.average == null ? "–" : pct(g.average)}</b> average knowledge</span><span><b>${g.nodes.length}</b> topics</span>
-        <span><b>${known}</b> asked</span><span><b>${due}</b> due</span><span><b>${g.edges.length}</b> connections</span></div>
+      <div class="cg-stats"><span><b>${g.average == null ? "–" : pct(g.average)}</b> average knowledge</span><span><b>${notes.length}</b> notes</span><span><b>${g.nodes.length - notes.length}</b> headings</span>
+        <span><b>${known}</b> notes asked</span><span><b>${due}</b> due</span><span><b>${g.edges.length}</b> connections</span></div>
       <div class="cg-tools">${KINDS.map(([k, l]) => `<button class="cg-chip${st.kinds.has(k) ? " on" : ""}" data-kind="${k}"><i class="cg-key k-${k}"></i>${l}</button>`).join("")}
-        <button class="cg-chip${st.labels ? " on" : ""}" data-labels>Labels</button><button class="cg-chip" data-relayout>Re-layout</button>
-        <span class="cg-legend"><i style="background:${knowColor(0.05)}"></i>weak <i style="background:${knowColor(0.5)}"></i>shaky <i style="background:${knowColor(0.95)}"></i>solid <i class="unk"></i>not asked · ring = due · size = words</span></div>
+        <button class="cg-chip${st.labels ? " on" : ""}" data-labels>All labels</button><button class="cg-chip" data-relayout>Re-layout</button>
+        <span class="cg-legend"><i style="background:${knowColor(0.05)}"></i>weak <i style="background:${knowColor(0.5)}"></i>shaky <i style="background:${knowColor(0.95)}"></i>solid <i class="unk"></i>not asked · big = note, small = heading</span></div>
       <div class="cg-body"><svg class="cg-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Topic graph"><g class="cg-zoom"></g></svg><aside class="cg-side"></aside></div>`;
     const svg = note.querySelector("svg"), zoom = svg.querySelector(".cg-zoom"), side = note.querySelector(".cg-side");
     const mk = (tag, attrs, parent) => { const el = document.createElementNS(NS, tag); for (const k in attrs) el.setAttribute(k, attrs[k]); (parent || zoom).appendChild(el); return el; };
 
-    const edgeEls = g.edges.map((e) => mk("line", { class: "cg-edge k-" + e.kind, "stroke-width": (e.kind === "link" ? 2.2 : e.kind === "mention" ? 1.5 : 1) * (0.6 + e.w) }));
+    const edgeEls = g.edges.map((e) => mk("line", { class: "cg-edge k-" + e.kind, "stroke-width": e.kind === "part" ? 1.4 : (e.kind === "link" ? 2.2 : e.kind === "mention" ? 1.5 : 1) * (0.6 + e.w) }));
     const nodeEls = {};
     for (const n of g.nodes) {
-      const gr = mk("g", { class: "cg-node" + (n.mastery != null && n.mastery < 0.4 ? " weak" : "") + (n.overdue > 0 ? " over" : n.scheduled && n.due <= new Date().toISOString().slice(0, 10) ? " due" : "") + (n.mastery == null ? " unk" : ""), "data-id": n.id });
+      const gr = mk("g", { class: "cg-node " + n.kind + (n.mastery != null && n.mastery < 0.4 ? " weak" : "") + (n.mastery == null ? " unk" : "") + (n.inferred ? " inferred" : ""), "data-id": n.id });
       mk("circle", { r: radius(n, maxW), fill: knowColor(n.mastery) }, gr);
       mk("text", { class: "cg-label", y: radius(n, maxW) + 13 }, gr).textContent = n.title.length > 24 ? n.title.slice(0, 23) + "…" : n.title;
       nodeEls[n.id] = gr;
@@ -86,7 +93,7 @@
 
     function applyView() {
       zoom.setAttribute("transform", `translate(${st.tx} ${st.ty}) scale(${st.k})`);
-      svg.classList.toggle("nolabels", !st.labels);
+      svg.classList.toggle("alllabels", st.labels || st.k >= 1.6);
     }
     function draw() {
       g.edges.forEach((e, i) => {
@@ -99,6 +106,7 @@
       const near = focus ? new Set([focus, ...(nb[focus] || []).filter(([, e]) => st.kinds.has(e.kind)).map(([o]) => o)]) : null;
       for (const n of g.nodes) {
         nodeEls[n.id].classList.toggle("dim", !!near && !near.has(n.id));
+        nodeEls[n.id].classList.toggle("near", !!near && near.has(n.id));
         nodeEls[n.id].classList.toggle("sel", n.id === st.sel);
       }
       g.edges.forEach((e, i) => edgeEls[i].classList.toggle("dim", !!focus && e.a !== focus && e.b !== focus));
@@ -107,13 +115,13 @@
     // force layout: nodes push apart, connected ones pull together (stronger when more related)
     let alpha = 1, dragging = null;
     function tick() {
-      const ns = g.nodes, n = ns.length;
+      const ns = g.nodes, n = ns.length, rep = 16000 * Math.min(1, 40 / n) + 2500;
       for (let i = 0; i < n; i++) {
         const a = P[ns[i].id];
         for (let j = i + 1; j < n; j++) {
           const b = P[ns[j].id];
           let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy + 0.01;
-          const d = Math.sqrt(d2), f = Math.min(16000 / d2, 10);
+          const d = Math.sqrt(d2), f = Math.min(rep / d2, 10);
           dx = dx / d * f; dy = dy / d * f;
           a.vx += dx; a.vy += dy; b.vx -= dx; b.vy -= dy;
         }
@@ -121,17 +129,17 @@
       for (const e of g.edges) {
         if (!st.kinds.has(e.kind)) continue;
         const a = P[e.a], b = P[e.b], dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
-        const rest = 200 - 110 * e.w, f = (d - rest) * 0.01 * (0.3 + e.w);
+        const part = e.kind === "part", rest = part ? 48 : 250 - 110 * e.w, f = (d - rest) * (part ? 0.06 : 0.0035 * (0.3 + e.w));
         a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f;
       }
       let moved = 0;
       for (const nd of ns) {
         const p = P[nd.id];
-        p.vx += (W / 2 - p.x) * 0.0012; p.vy += (H / 2 - p.y) * 0.0018;
+        p.vx += (LW / 2 - p.x) * 0.0012; p.vy += (LH / 2 - p.y) * 0.0018;
         if (dragging === nd.id) { p.vx = p.vy = 0; continue; }
         p.vx *= 0.8; p.vy *= 0.8;
         p.x += p.vx * alpha; p.y += p.vy * alpha;
-        p.x = Math.max(30, Math.min(W - 30, p.x)); p.y = Math.max(30, Math.min(H - 40, p.y));
+        p.x = Math.max(30, Math.min(LW - 30, p.x)); p.y = Math.max(30, Math.min(LH - 40, p.y));
         moved += Math.abs(p.vx) + Math.abs(p.vy);
       }
       alpha = Math.max(0.05, alpha * 0.985);
@@ -147,25 +155,31 @@
     const kick = (a = 0.6) => { alpha = Math.max(alpha, a); frames = 0; cancelAnimationFrame(anim); anim = requestAnimationFrame(loop); };
     for (let i = 0; i < (Object.values(P).some((p) => p.fresh) ? 180 : 0); i++) tick();  // settle new layouts before the first paint
     Object.values(P).forEach((p) => { delete p.fresh; });
-    alpha = 0.3; applyView(); draw(); kick(0.3);
+    function fit() {  // scale and shift the view so the whole graph shows
+      const xs = g.nodes.map((n) => P[n.id].x), ys = g.nodes.map((n) => P[n.id].y);
+      const x0 = Math.min(...xs) - 50, x1 = Math.max(...xs) + 50, y0 = Math.min(...ys) - 40, y1 = Math.max(...ys) + 55;
+      st.k = Math.max(0.35, Math.min(1.5, W / (x1 - x0), H / (y1 - y0)));
+      st.tx = (W - (x1 - x0) * st.k) / 2 - x0 * st.k; st.ty = (H - (y1 - y0) * st.k) / 2 - y0 * st.k;
+    }
+    fit(); alpha = 0.3; applyView(); draw(); kick(0.3);
 
     // side panel: the topic you point at, else what to review next
     const bar = (m) => `<span class="cg-bar"><span style="width:${Math.round((m || 0) * 100)}%;background:${knowColor(m)}"></span></span>`;
-    function nodeRow(n) { return `<button class="cg-row" data-pick="${esc(n.id)}">${bar(n.mastery)}<span>${esc(n.title)}</span><small>${pct(n.mastery)}</small></button>`; }
+    function nodeRow(n) { return `<button class="cg-row" data-pick="${esc(n.id)}">${bar(n.mastery)}<span>${esc(n.title)}${n.kind === "heading" ? `<em>${esc(by[n.note].title)}</em>` : ""}</span><small>${pct(n.mastery)}</small></button>`; }
     function panel() {
       const n = by[st.sel || st.hover];
       if (!n) {
-        const next = [...g.nodes].sort((a, b) => (1 - (b.mastery ?? 0.3)) * (1 + 0.15 * b.degree) - (1 - (a.mastery ?? 0.3)) * (1 + 0.15 * a.degree)).slice(0, 7);
-        side.innerHTML = `<h3>Review next</h3><p class="act-note">Weak topics first; ones many others lean on come before loose ends.</p>${next.map(nodeRow).join("")}
+        const next = [...g.nodes].sort((a, b) => (1 - (b.mastery ?? 0.3)) * (1 + 0.15 * b.degree) - (1 - (a.mastery ?? 0.3)) * (1 + 0.15 * a.degree)).slice(0, 8);
+        side.innerHTML = `<h3>Review next</h3><p class="act-note">Weak first; topics many others lean on come before loose ends.</p>${next.map(nodeRow).join("")}
           <p class="act-note">Click a topic for details. Drag to rearrange, scroll to zoom.</p>`;
         return;
       }
       const links = (nb[n.id] || []).filter(([, e]) => st.kinds.has(e.kind)).sort((a, b) => b[1].w - a[1].w);
-      const q = n.questions ? `${n.seen} of ${n.questions} questions seen${n.q_mastery != null ? ` · ${pct(n.q_mastery)}` : ""}` : "no questions yet";
-      const rv = n.revisions ? `last revision ${pct(n.last_score)}${n.overdue ? `, ${n.overdue} day${n.overdue > 1 ? "s" : ""} overdue (fading)` : ""}${n.due ? ` · next ${n.due}` : ""}` : n.scheduled ? `scheduled, due ${n.due}` : "not scheduled for revision";
-      side.innerHTML = `<h3>${esc(n.title)}</h3><div class="cg-big">${bar(n.mastery)}<b>${pct(n.mastery)}</b></div>
+      const nt = by[n.note], q = n.questions ? `${n.seen} of ${n.questions} question${n.questions === 1 ? "" : "s"} seen${n.q_mastery != null ? ` · ${pct(n.q_mastery)}` : ""}${n.kind === "note" ? " (whole note)" : ""}` : "no questions on this yet";
+      const rv = (n.inferred ? "from the note's revisions · " : "") + (nt.revisions ? `last revision ${pct(nt.last_score)}${nt.overdue ? `, ${nt.overdue} day${nt.overdue > 1 ? "s" : ""} overdue (fading)` : ""}${nt.due ? ` · next ${nt.due}` : ""}` : nt.scheduled ? `note scheduled, due ${nt.due}` : "note not scheduled for revision");
+      side.innerHTML = `<h3>${esc(n.title)}</h3>${n.kind === "heading" ? `<p class="act-note">heading in ${esc(nt.title)}</p>` : `<p class="act-note">note</p>`}<div class="cg-big">${bar(n.mastery)}<b>${pct(n.mastery)}</b></div>
         <ul class="cg-facts"><li>${esc(q)}</li><li>${esc(rv)}</li><li>${n.words} words · ${n.degree} connection${n.degree === 1 ? "" : "s"}</li></ul>
-        <div class="cg-actions"><a class="cg-chip" href="#/note/${enc(n.id)}">Open note</a><button class="cg-chip on" data-revise="${esc(n.id)}">Revise now</button></div>
+        <div class="cg-actions"><a class="cg-chip" href="#/note/${enc(n.note)}${n.line ? "?line=" + n.line : ""}">Open ${n.kind === "heading" ? "section" : "note"}</a><button class="cg-chip on" data-revise="${esc(n.note)}">Revise note</button></div>
         <h4>Connected</h4>${links.length ? links.map(([o, e]) => `<div class="cg-link"><small class="k-${e.kind}">${e.kind}</small>${nodeRow(by[o])}</div>`).join("") : `<p class="act-note">Nothing connects to this topic yet.</p>`}
         ${st.sel ? `<button class="cg-chip" data-clear>Back to list</button>` : ""}`;
     }
@@ -204,9 +218,9 @@
     note.querySelector(".cg-tools").addEventListener("click", (ev) => {
       const b = ev.target.closest("button");
       if (!b) return;
-      if (b.dataset.kind) { st.kinds.has(b.dataset.kind) ? st.kinds.delete(b.dataset.kind) : st.kinds.add(b.dataset.kind); b.classList.toggle("on"); env.store.set("cgKinds", JSON.stringify([...st.kinds])); kick(0.5); panel(); }
-      else if (b.dataset.labels !== undefined) { st.labels = !st.labels; b.classList.toggle("on"); env.store.set("cgLabels", st.labels ? "1" : "0"); applyView(); }
-      else if (b.dataset.relayout !== undefined) { g.nodes.forEach((n, i) => { const a = i / g.nodes.length * 2 * Math.PI; Object.assign(P[n.id], { x: W / 2 + Math.cos(a) * 230, y: H / 2 + Math.sin(a) * 200, vx: 0, vy: 0 }); }); st.k = 1; st.tx = st.ty = 0; applyView(); kick(1); }
+      if (b.dataset.kind) { st.kinds.has(b.dataset.kind) ? st.kinds.delete(b.dataset.kind) : st.kinds.add(b.dataset.kind); b.classList.toggle("on"); env.store.set("cgKinds2", JSON.stringify([...st.kinds])); kick(0.5); panel(); }
+      else if (b.dataset.labels !== undefined) { st.labels = !st.labels; b.classList.toggle("on"); env.store.set("cgAllLabels", st.labels ? "1" : "0"); applyView(); }
+      else if (b.dataset.relayout !== undefined) { g.nodes.forEach((n) => Object.assign(P[n.id], spot(n))); for (let i = 0; i < 180; i++) tick(); fit(); applyView(); draw(); kick(1); }
     });
     side.addEventListener("click", async (ev) => {
       const b = ev.target.closest("button");
