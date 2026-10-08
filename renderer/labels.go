@@ -231,7 +231,7 @@ func (s *Store) Skip(target, key string, now time.Time) error {
 		e.Hash = key
 	}
 	if target != "checkin" && target != "checkout" && target != "sleep" {
-		s.updateRules(func(r *Rules) { r.Skipped[key] = true })
+		s.updateRules(func(r *Rules) { r.Snoozed[key] = now.Format(scoreStamp) }) // for now, not for good
 		dropPreview(key)
 	}
 	return s.appendLabel(e)
@@ -315,7 +315,10 @@ type Rules struct {
 	Domains map[string]string         `json:"domains"` // domain hash → category
 	Places  map[string]string         `json:"places"`  // network hash → place
 	Tokens  map[string]map[string]int `json:"tokens"`  // category → token hash → count
-	Skipped map[string]bool           `json:"skipped"` // hashes you chose not to label
+	Skipped map[string]bool           `json:"skipped"` // hashes you chose not to label (screens once answered; older skips)
+	// Snoozed: queue items you skipped, hash → when. Hidden only until the helper sees them again
+	// (the item's `last` is later than the skip); skipping never blacklists.
+	Snoozed map[string]string `json:"snoozed,omitempty"`
 	// Shared: Wi-Fi networks you labelled as different places through their access points (one
 	// campus network everywhere); the helper then trusts only access point labels on them
 	Shared map[string]bool `json:"shared_nets,omitempty"`
@@ -345,6 +348,9 @@ func (s *Store) loadRules() Rules {
 	}
 	if r.Shared == nil {
 		r.Shared = map[string]bool{}
+	}
+	if r.Snoozed == nil {
+		r.Snoozed = map[string]string{}
 	}
 	for _, m := range []map[string]string{r.Titles, r.Domains} { // labels made under earlier category names
 		for k, v := range m {
@@ -389,6 +395,7 @@ type QueueItem struct {
 	Guess  string   `json:"guess,omitempty"` // the helper's best guess
 	Tokens []string `json:"tokens,omitempty"`
 	First  string   `json:"first"`
+	Last   string   `json:"last,omitempty"` // newest sighting
 	Count  int      `json:"count"`
 	Net    string   `json:"net,omitempty"` // an access point's network hash
 	// Preview: a screen item has a thumbnail you can look at while labelling (see screenPreview)
@@ -448,7 +455,7 @@ func prunePreviews(waiting map[string]bool, now time.Time) {
 	}
 }
 
-// LabelQueue is the helper's queue minus what is labelled or skipped, most seen first, last 7 days.
+// LabelQueue is the helper's queue minus what is labelled, or skipped until seen again, most seen first, last 7 days.
 func (s *Store) LabelQueue(now time.Time) []QueueItem {
 	var q []QueueItem
 	if b, err := os.ReadFile(queuePath()); err == nil {
@@ -461,6 +468,9 @@ func (s *Store) LabelQueue(now time.Time) []QueueItem {
 		known := r.Skipped[it.Hash] || r.Titles[it.Hash] != "" || r.Domains[it.Hash] != "" || r.Places[it.Hash] != ""
 		// a title that is only the app's name (a blank window title) can't be labelled meaningfully
 		bare := it.Kind == "title" && (strings.TrimSpace(it.Text) == "" || strings.EqualFold(strings.Trim(strings.TrimSpace(it.Text), "()"), it.App))
+		if at, ok := r.Snoozed[it.Hash]; ok && it.Last <= at {
+			continue // skipped; comes back when the helper sees it again
+		}
 		if !known && !bare && it.First >= cutoff {
 			it.Preview = it.Kind == "screen" && screenPreview(it.Hash, now) != ""
 			out = append(out, it)

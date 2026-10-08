@@ -414,7 +414,7 @@ local function label_queue()
     if not it or i > 5 then return load_labels() end
     local cats = it.kind == "place" and (labels.places or {}) or (labels.categories or {})
     local choices = vim.list_extend(vim.deepcopy(cats), { "skip" })
-    local what = it.kind == "place" and ("Where is this? " .. (it.text or "")) or ((it.text ~= "" and it.text or ("screen at " .. tostring(it.first):sub(12, 16))) .. (it.app and (" (" .. it.app .. ")") or "") .. (it.preview and " · picture in the viewer (Activity)" or ""))
+    local what = it.kind == "place" and ("Where is this? " .. (it.text or "") .. (it.first and (" · first seen " .. tostring(it.first):sub(1, 10) .. " " .. tostring(it.first):sub(12, 16)) or "")) or ((it.text ~= "" and it.text or ("screen at " .. tostring(it.first):sub(12, 16))) .. (it.app and (" (" .. it.app .. ")") or "") .. (it.preview and " · picture in the viewer (Activity)" or ""))
     vim.ui.select(choices, { prompt = it.kind .. ": " .. what }, function(c)
       if not c then return load_labels() end
       local args = c == "skip" and { "skip", it.kind, it.hash } or vim.list_extend({ "set", it.kind, it.hash, c }, it.tokens or {})
@@ -666,7 +666,11 @@ function run_quiz(args)   -- the local declared in the Revision section
   }, "; ")
   vim.cmd("silent !" .. vim.fn.escape(cmd, "%#!"))
   -- Restart nvim so the normal start page comes up clean (redrawing in place after the quiz looks off).
-  if not pcall(vim.cmd, ("restart lua vim.g.notes_tui = %d; require('mini.starter').open()"):format(tui)) then
+  -- On nvim 0.12 the old server can hang in exit (os_exit -> loop_close spinning at 100% CPU forever, orphaned),
+  -- so the new server kills it a moment after it starts.
+  local reap = "local old = %d; vim.defer_fn(function() if old ~= vim.fn.getpid() then pcall(vim.uv.kill, old, 'sigkill') end end, 500)"
+  local after = ("lua vim.g.notes_tui = %d; %s; require('mini.starter').open()"):format(tui, reap:format(vim.fn.getpid()))
+  if not pcall(vim.cmd, "restart " .. after) then
     vim.cmd("redraw!")
     load_tasks()
     load_classes()

@@ -16,8 +16,8 @@ import (
 // what it is given) gets the quiz format spec and one note, and writes 5-8 questions in that
 // format. The output is checked (at least revMinQuestions valid blocks) before it is saved to
 // .revision/questions/<note path>, where you can edit it. One note at a time, in the server's
-// background worker; a failure is retried the next day. A note that has grown by half since its
-// questions were written gets new ones.
+// background worker; a failure is retried the next day. Banks are never rewritten on their own
+// after that: the class page's Rebuild banks (classbanks.go) does it when you choose.
 
 const (
 	revMinQuestions = 3
@@ -234,7 +234,8 @@ func (s *Store) GenerateQuestions(id string, now time.Time) (int, error) {
 	if err := writeAtomic(p, []byte(text)); err != nil {
 		return 0, err
 	}
-	return n, s.setGen(id, RevisionGen{Status: "ok", At: now.Format(scoreStamp), Words: countWords(string(note)), Count: n})
+	// stamped after the write: the bank's file time then marks a later change as an edit by hand
+	return n, s.setGen(id, RevisionGen{Status: "ok", At: time.Now().Format(scoreStamp), Words: countWords(string(note)), Count: n})
 }
 
 func firstLine(s string) string {
@@ -278,7 +279,7 @@ func (s *Store) needsQuestions(now time.Time) string {
 	due := s.RevisionDue(now)
 	order := append(due, s.Topics()...) // due topics first
 	for _, t := range order {
-		st, statErr := os.Stat(s.QuestionsPath(t.ID))
+		_, statErr := os.Stat(s.QuestionsPath(t.ID))
 		switch t.Gen.Status {
 		case "", "none":
 			if statErr != nil { // a bank written by hand is kept
@@ -294,14 +295,22 @@ func (s *Store) needsQuestions(now time.Time) string {
 			if statErr != nil {
 				return t.ID // file deleted
 			}
-			gen, _ := time.ParseInLocation(scoreStamp, t.Gen.At, now.Location())
-			edited := st.ModTime().After(gen.Add(5 * time.Second))
-			if !edited && t.Gen.Words > 0 && s.TopicWords(t.ID)*2 >= t.Gen.Words*3 {
-				return t.ID // the note grew by half (questions you edited are kept)
-			}
+			// a note that changed is not rewritten here: it is a reason on the class page's
+			// Rebuild banks list (classbanks.go), and you decide when to rebuild
 		}
 	}
 	return ""
+}
+
+// bankEdited reports whether a bank file was changed after Claude wrote it (by hand, or by the quiz
+// adding an accepted answer). Stamps written before 2026-10-08 are the time generation started, so
+// the file is allowed up to the generation timeout after the stamp.
+func bankEdited(mod time.Time, at string) bool {
+	gen, err := time.ParseInLocation(scoreStamp, at, mod.Location())
+	if err != nil {
+		return false
+	}
+	return mod.After(gen.Add(revGenTimeout + 5*time.Second))
 }
 
 // revisionWorker writes questions in the background, one topic at a time; kick wakes it early.
@@ -309,6 +318,7 @@ func (s *Server) revisionWorker(kick <-chan struct{}) {
 	if os.Getenv("NOTESVIEW_NO_REVISION_GEN") != "" {
 		return
 	}
+	s.store.resetRebuilding()    // a rebuild cut short by a restart (classbanks.go)
 	time.Sleep(10 * time.Second) // let the score loop schedule new topics first (RecordRevision)
 	t := time.NewTicker(revGenEvery)
 	defer t.Stop()

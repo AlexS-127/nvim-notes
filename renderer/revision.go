@@ -44,11 +44,13 @@ type RevisionConfig struct {
 
 // RevisionGen is the state of a topic's Claude-written questions.
 type RevisionGen struct {
-	Status string `json:"status"`          // none, pending, ok, failed
+	Status string `json:"status"`          // none, pending, ok, failed, rebuilding (classbanks.go)
 	At     string `json:"at,omitempty"`    // when it last ran
 	Words  int    `json:"words,omitempty"` // the note's word count then
 	Count  int    `json:"count,omitempty"` // questions written
 	Error  string `json:"error,omitempty"`
+	Mode   string `json:"mode,omitempty"` // set by Rebuild banks: repair or full
+	Kept   int    `json:"kept,omitempty"` // repair: questions kept word for word
 }
 
 // Topic is one note on the revision schedule.
@@ -469,7 +471,7 @@ func (a *Activity) AddRevision(s *Store, now time.Time) {
 	a.Revision = r
 }
 
-// TopicWords is a note's current word count (for regenerating questions when it has grown).
+// TopicWords is a note's current word count (Rebuild banks compares it with the count its questions were written from).
 func (s *Store) TopicWords(rel string) int {
 	b, err := os.ReadFile(filepath.Join(s.Root, rel))
 	if err != nil {

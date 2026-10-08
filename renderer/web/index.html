@@ -30,10 +30,16 @@
 </head>
 <body>
 <script>if (document.documentElement.classList.contains("sidebar-collapsed-pending")) document.body.classList.add("sidebar-collapsed");</script>
-<button id="btn-expand" class="icon-btn" title="Show sidebar (b)" aria-label="Show sidebar">»</button>
+<div id="corner">
+  <button id="btn-expand" class="icon-btn" title="Show sidebar (b)" aria-label="Show sidebar">»</button>
+  <button class="icon-btn nav-back" title="Back ( [ )" aria-label="Back">‹</button>
+  <button class="icon-btn nav-fwd" title="Forward ( ] )" aria-label="Forward">›</button>
+</div>
 <aside id="sidebar">
   <div class="side-head">
     <div class="side-top">
+      <button class="icon-btn nav-back" title="Back ( [ )" aria-label="Back">‹</button>
+      <button class="icon-btn nav-fwd" title="Forward ( ] )" aria-label="Forward">›</button>
       <input id="search" type="search" placeholder="Search notes  ( / )" autocomplete="off" spellcheck="false">
       <button id="btn-collapse" class="icon-btn" title="Hide sidebar (b)" aria-label="Hide sidebar">«</button>
     </div>
@@ -59,6 +65,7 @@
 <script src="/pace.js"></script>
 <script src="/calendar.js"></script>
 <script src="/classgraph.js"></script>
+<script src="/classtools.js"></script>
 <script src="/reading.js"></script>
 <script src="/routine.js"></script>
 <script src="/revision.js"></script>

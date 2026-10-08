@@ -92,8 +92,21 @@ func TestLabelQueueAndRules(t *testing.T) {
 	if len(s.LabelQueue(now)) != 0 {
 		t.Fatal("labelled/skipped items still queued")
 	}
+	// a skip is not a blacklist: the item is offered again once the helper sees it again
+	q[0].Last = now.Format(scoreStamp)
+	b, _ = json.Marshal(q)
+	os.WriteFile(qf, b, 0o600)
+	if len(s.LabelQueue(now)) != 0 {
+		t.Fatal("skipped item back without being seen again")
+	}
+	q[0].Last = now.Add(time.Minute).Format(scoreStamp)
+	b, _ = json.Marshal(q)
+	os.WriteFile(qf, b, 0o600)
+	if g := s.LabelQueue(now); len(g) != 1 || g[0].Hash != h1 {
+		t.Fatalf("seen-again item not offered: %+v", g)
+	}
 	r := s.loadRules()
-	if r.Titles[h2] != "study" || r.Tokens["study"][saltedHash(salt, "chapter")] != 1 || !r.Skipped[h1] {
+	if r.Titles[h2] != "study" || r.Tokens["study"][saltedHash(salt, "chapter")] != 1 || r.Snoozed[h1] == "" || r.Skipped[h1] {
 		t.Fatalf("rules %+v", r)
 	}
 }

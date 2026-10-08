@@ -501,6 +501,7 @@ func (s *Store) ClassGraph(subject string, now time.Time) (ClassGraph, error) {
 	for ni, id := range ids {
 		stem := strings.TrimSuffix(filepath.Base(id), ".md")
 		noteIdx[foldText(stem)] = ni
+		noteIdx[foldText(strings.TrimSuffix(id, ".md"))] = ni // [[act200/revenue]]: the path form Check notes uses for a name that is not unique
 		noteIdx[foldText(strings.ReplaceAll(stem, "-", " "))] = ni
 		noteIdx[foldText(g.Nodes[root[ni]].Title)] = ni
 	}

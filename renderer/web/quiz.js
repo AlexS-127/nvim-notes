@@ -48,7 +48,7 @@
       const r = await env.post("/api/quiz/start", req);
       lastStart = req;
       S = { state: r.state, result: null, picked: new Set() };
-      history.replaceState(null, "", "#/quiz?s=" + r.state.id);
+      history.replaceState(history.state, "", "#/quiz?s=" + r.state.id);
       const cur = env.current();  // a refresh (file changes after each answer) re-renders this route: keep the session
       if (cur && cur.view === "quiz") { cur.session = r.state.id; cur.revise = ""; }
       draw();
@@ -255,7 +255,7 @@
         const d = await env.api("/api/quiz/session?id=" + encodeURIComponent(sid));
         S = { state: d.state, result: d.state.result || null, picked: new Set(), lastCard: d.state.last || null };
         return draw();
-      } catch (err) { env.toast(msg(err)); history.replaceState(null, "", "#/quiz"); }
+      } catch (err) { env.toast(msg(err)); history.replaceState(history.state, "", "#/quiz"); }
     }
     S = null;
     if (r.stats) {
@@ -264,7 +264,7 @@
       return statsView(r.stats);
     }
     env.note.dataset.statsFor = "";
-    if (r.revise) { history.replaceState(null, "", "#/quiz"); return start({ mode: "revise", id: r.revise }); }
+    if (r.revise) { history.replaceState(history.state, "", "#/quiz"); return start({ mode: "revise", id: r.revise }); }
     await home();
   }
 

@@ -16,7 +16,7 @@
     return day(s).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   };
   const pct = (v) => Math.round((v || 0) * 100) + "%";
-  const genLabel = (t) => ({ ok: `${t.gen.count || ""} questions`.trim(), pending: "writing questions…", none: t.questions ? "own questions" : "writing questions…", failed: "questions failed: recall" }[t.gen.status] || "");
+  const genLabel = (t) => ({ ok: `${t.gen.count || ""} questions`.trim(), pending: "writing questions…", none: t.questions ? "own questions" : "writing questions…", failed: "questions failed: recall", rebuilding: "rebuilding questions…" }[t.gen.status] || "");
   const msg = (e) => String(e.message || e).replace(/^revision: /, "").trim();
 
   // ── Activity card: the next topic, "1 of N", Start ──

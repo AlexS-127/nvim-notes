@@ -44,7 +44,7 @@ func defaultPort() int {
 // version is the notesview release. Release builds override it with
 // -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
 // relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
-var version = "0.11.0"
+var version = "0.12.0"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:

@@ -72,13 +72,15 @@
     const known = notes.filter((n) => n.mastery != null).length, due = notes.filter((n) => n.scheduled && n.due <= today).length;
     note.innerHTML = `<p class="cg-back"><a href="#/classes">← Classes</a></p>
       <div class="cg-head"><h1>${esc(r.sub)}</h1>
-        <select id="cg-sub" aria-label="Folder">${subjects.map((s) => `<option${s === r.sub ? " selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
+        <select id="cg-sub" aria-label="Folder">${subjects.map((s) => `<option${s === r.sub ? " selected" : ""}>${esc(s)}</option>`).join("")}</select>
+        <span class="cg-toolbtns"><button class="cg-chip" data-tool="banks">Rebuild banks</button><button class="cg-chip" data-tool="check">Check notes</button></span></div>
       <div class="cg-stats"><span><b>${g.average == null ? "–" : pct(g.average)}</b> average knowledge</span><span><b>${notes.length}</b> notes</span><span><b>${g.nodes.length - notes.length}</b> headings</span>
         <span><b>${known}</b> notes asked</span><span><b>${due}</b> due</span><span><b>${g.edges.length}</b> connections</span></div>
       <div class="cg-tools">${KINDS.map(([k, l]) => `<button class="cg-chip${st.kinds.has(k) ? " on" : ""}" data-kind="${k}"><i class="cg-key k-${k}"></i>${l}</button>`).join("")}
         <button class="cg-chip${st.labels ? " on" : ""}" data-labels>All labels</button><button class="cg-chip" data-relayout>Re-layout</button>
         <span class="cg-legend"><i style="background:${knowColor(0.05)}"></i>weak <i style="background:${knowColor(0.5)}"></i>shaky <i style="background:${knowColor(0.95)}"></i>solid <i class="unk"></i>not asked · big = note, small = heading</span></div>
-      <div class="cg-body"><svg class="cg-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Topic graph"><g class="cg-zoom"></g></svg><aside class="cg-side"></aside></div>`;
+      <div class="cg-body"><svg class="cg-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Topic graph"><g class="cg-zoom"></g></svg><aside class="cg-side"></aside></div>
+      <section class="ct-panel" hidden></section>`;
     const svg = note.querySelector("svg"), zoom = svg.querySelector(".cg-zoom"), side = note.querySelector(".cg-side");
     const mk = (tag, attrs, parent) => { const el = document.createElementNS(NS, tag); for (const k in attrs) el.setAttribute(k, attrs[k]); (parent || zoom).appendChild(el); return el; };
 
@@ -214,6 +216,15 @@
       const [, , px, py] = svgPoint(ev), k2 = Math.max(0.4, Math.min(3, st.k * (ev.deltaY < 0 ? 1.12 : 1 / 1.12)));
       st.tx = px - (px - st.tx) * k2 / st.k; st.ty = py - (py - st.ty) * k2 / st.k; st.k = k2; applyView();
     }, { passive: false });
+    // Rebuild banks / Check notes (classtools.js), below the graph; the open one is remembered
+    const toolBtns = note.querySelector(".cg-toolbtns"), toolEl = note.querySelector(".ct-panel");
+    const setTool = (t) => {
+      env.store.set("ctTool", t || "");
+      toolBtns.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.tool === t));
+      window.nvClassTools.mount(env, toolEl, r.sub, t);
+    };
+    toolBtns.onclick = (ev) => { const b = ev.target.closest("button"); if (b) setTool(env.store.get("ctTool", "") === b.dataset.tool ? "" : b.dataset.tool); };
+    setTool(env.store.get("ctTool", ""));
     note.querySelector("#cg-sub").onchange = (ev) => { location.hash = "#/classes/" + encodeURIComponent(ev.target.value); };
     note.querySelector(".cg-tools").addEventListener("click", (ev) => {
       const b = ev.target.closest("button");

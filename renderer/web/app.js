@@ -65,22 +65,24 @@
     if (p === "/revision") return { view: "revision", line: 0 };
     if (p === "/quiz") { const u = new URLSearchParams(q || ""); return { view: "quiz", session: u.get("s") || "", revise: u.get("revise") || "", stats: u.get("stats") || "", line: 0 }; }
     if (p === "/data") return { view: "data", line: 0 };
-    if (p.startsWith("/note/")) return { view: "note", path: dec(p.slice(6)), line };
+    if (p.startsWith("/note/")) return { view: "note", path: dec(p.slice(6)), line, hl: new URLSearchParams(q || "").getAll("hl") };
     if (p.startsWith("/folder/")) return { view: "folder", path: dec(p.slice(8)), line: 0 };
     return null;
   }
   const go = (path, line) => { location.hash = "#/note/" + enc(path) + (line ? "?line=" + line : ""); };
 
   let firstRoute = true;
+  // in place of the current entry, so Back doesn't land on a page that sends you here again
+  function toActivity() { history.replaceState({ nv: navPos }, "", "#/activity"); return route(); }
   async function route() {
     let r = parseHash();
     if (firstRoute) {
       firstRoute = false;
       let reload = false;
       try { reload = performance.getEntriesByType("navigation")[0].type === "reload"; } catch (e) {}
-      if (!r || reload) { if (r && r.view === "activity") { /* already there */ } else { location.hash = "#/activity"; return; } }
+      if (!r || reload) { if (r && r.view === "activity") { /* already there */ } else return toActivity(); }
     }
-    if (!r) { location.hash = "#/activity"; return; }
+    if (!r) return toActivity();
     pendingLine = r.line || 0;
     await show(r, false);
   }
@@ -127,6 +129,68 @@
     else if (pendingLine) scrollToLine(pendingLine, true);
     else main.scrollTop = 0;
     pendingLine = 0;
+    if (r.view === "note" && r.hl && r.hl.length) markFinds(r.hl, !keepScroll);
+  }
+
+  // Highlight the text Check notes suggestions are about: each hl is "line:text", text being the
+  // note's markdown. Its rendered form is looked for in the block at that line, then the whole note;
+  // when it can't be found (math, arrows) the block's flash from ?line= is all there is.
+  function markFinds(list, scroll) {
+    let first = null;
+    for (const h of list) {
+      const i = h.indexOf(":"), line = Number(h.slice(0, i)) || 0;
+      const r = findText(blockAt(line), h.slice(i + 1)) || findText(note, h.slice(i + 1));
+      if (!r) continue;
+      const m = document.createElement("mark");
+      m.className = "nv-find";
+      m.appendChild(r.extractContents());
+      r.insertNode(m);
+      first ||= m;
+    }
+    if (first && scroll) {
+      const y = first.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+      main.scrollTop = Math.max(0, y - main.clientHeight / 3);
+    }
+  }
+  function blockAt(line) {
+    let best = null;
+    for (const el of note.querySelectorAll("[data-line]")) {
+      if (Number(el.dataset.line) <= line) best = el; else break;
+    }
+    return best;
+  }
+  // markdown → the text it renders as (near enough), lower case with spaces collapsed
+  const plainMd = (s) => s
+    .replace(/!?\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g, (m, t, l) => l || t)
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s*(#{1,6}\s+|[-*+]\s+(\[.\]\s+)?|\d+[.)]\s+|>\s*)/, "")
+    .replace(/\*\*|__|==|~~|[*`]/g, "").replace(/(^|\W)_|_(?=\W|$)/g, "$1");
+  const fold = (s) => s.replace(/\s+/g, " ").toLowerCase();
+  function findText(root, md) {
+    if (!root) return null;
+    const text = plainMd(md);
+    // the whole text, else its longest piece between math and arrows
+    const tries = [text, ...text.split(/\$[^$]*\$|<?[-=]{1,2}>|<[-=]{1,2}/).map((t) => t.trim()).sort((a, b) => b.length - a.length).slice(0, 1)];
+    let flat = "";
+    const at = [];   // flat index → [text node, offset]
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.parentElement.closest(".katex, mark.nv-find") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    for (let n; (n = walk.nextNode());) {
+      const t = n.nodeValue;
+      for (let i = 0; i < t.length; i++) {
+        if (/\s/.test(t[i])) { if (!flat.endsWith(" ")) { flat += " "; at.push([n, i]); } continue; }
+        for (const c of t[i].toLowerCase()) { flat += c; at.push([n, i]); }
+      }
+    }
+    for (const t of tries) {
+      const want = fold(t).trim();
+      const k = want.length >= 3 ? flat.indexOf(want) : -1;
+      if (k < 0) continue;
+      const r = document.createRange(), end = at[k + want.length - 1];
+      r.setStart(at[k][0], at[k][1]);
+      r.setEnd(end[0], end[1] + 1);
+      return r;
+    }
+    return null;
   }
 
   // Typeset the $$…$$ spans the server emitted (TeX is their text content).
@@ -776,6 +840,7 @@
 
   // ── keyboard ──
   document.addEventListener("keydown", (e) => {
+    if (e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "[" || e.key === "]")) { e.preventDefault(); return e.key === "[" ? history.back() : history.forward(); }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
     switch (e.key) {
@@ -797,6 +862,8 @@
       case "o": if (!toggleOverlay()) return; break;
       case "g": goToday(); break;
       case "b": toggleSidebar(); break;
+      case "[": history.back(); break;
+      case "]": history.forward(); break;
       default: return;
     }
   });
@@ -848,6 +915,30 @@
       scrollToLine(m.line, false);
     });
   }
+
+  // ── back and forward ──
+  // The app's web view has no browser buttons. Each history entry is numbered in history.state so the
+  // buttons know when there is nowhere to go (top = the last entry ahead of us, kept for reloads).
+  let navPos = 0, navTop = Number(store.get("navTop", "0")) || 0;
+  function trackNav() {
+    const st = history.state;
+    if (st && typeof st.nv === "number") navPos = st.nv;
+    else {
+      navPos = navTop = (firstNav ? navPos : navPos + 1);
+      history.replaceState({ nv: navPos }, "");
+    }
+    firstNav = false;
+    navTop = Math.max(navTop, navPos);
+    store.set("navTop", String(navTop));
+    for (const b of document.querySelectorAll(".nav-back")) b.disabled = navPos <= 0;
+    for (const b of document.querySelectorAll(".nav-fwd")) b.disabled = navPos >= navTop;
+  }
+  let firstNav = !(history.state && typeof history.state.nv === "number");
+  if (firstNav) navTop = 0;
+  for (const b of document.querySelectorAll(".nav-back")) b.onclick = () => history.back();
+  for (const b of document.querySelectorAll(".nav-fwd")) b.onclick = () => history.forward();
+  window.addEventListener("hashchange", trackNav);
+  trackNav();
 
   window.addEventListener("hashchange", route);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) loadTree().catch(() => {}); });

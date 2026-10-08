@@ -166,9 +166,9 @@ final class LabelQueue {
     @discardableResult
     func add(kind: String, hash: String, text: String, app: String, guess: String, tokenHashes: [String], rules: Rules, net: String = "") -> Bool {
         if rules.skipped.contains(hash) || rules.titles[hash] != nil || rules.domains[hash] != nil || rules.places[hash] != nil { return false }
-        if var it = items[hash] { it["count"] = (it["count"] as? Int ?? 1) + 1; items[hash] = it; save(rules); return false }
+        if var it = items[hash] { it["count"] = (it["count"] as? Int ?? 1) + 1; it["last"] = stamp(); items[hash] = it; save(rules); return false }
         if kind == "screen" && items.values.filter({ ($0["kind"] as? String) == "screen" }).count >= 5 { return false } // a few at a time
-        items[hash] = ["kind": kind, "hash": hash, "text": text, "app": app, "guess": guess, "tokens": tokenHashes, "first": stamp(), "count": 1]
+        items[hash] = ["kind": kind, "hash": hash, "text": text, "app": app, "guess": guess, "tokens": tokenHashes, "first": stamp(), "last": stamp(), "count": 1]
         if !net.isEmpty { items[hash]?["net"] = net }
         save(rules)
         return true
@@ -234,6 +234,13 @@ final class Sense: NSObject, NSApplicationDelegate, CLLocationManagerDelegate, A
     var lastNet = ""
 
     func on(_ name: String) -> Bool { config.sensors[name] ?? false }
+
+    // nobody is at the screen: the heavy sensors (mic, camera, screen) skip their bursts to save battery
+    var away: Bool {
+        if displayAsleep { return true }
+        if let d = CGSessionCopyCurrentDictionary() as? [String: Any] { return (d["CGSSessionScreenIsLocked"] as? Bool) ?? false }
+        return false
+    }
 
     func setState(_ sensor: String, _ state: String) {
         if states[sensor] != state { states[sensor] = state; emit(sensor, ["state": state]) }
@@ -379,7 +386,7 @@ final class Sense: NSObject, NSApplicationDelegate, CLLocationManagerDelegate, A
             if states["screen"] == nil { CGRequestScreenCaptureAccess() }
             return setState("screen", "denied")
         }
-        if screenBusy || displayAsleep { return }
+        if screenBusy || away { return }
         screenBusy = true
         let salt = config.salt, rules = self.rules, app = lastApp
         Task {
@@ -427,7 +434,7 @@ final class Sense: NSObject, NSApplicationDelegate, CLLocationManagerDelegate, A
         case .denied, .restricted: return setState("camera", "denied")
         default: break
         }
-        if session != nil || displayAsleep { return }
+        if session != nil || away { return }
         guard let dev = AVCaptureDevice.default(for: .video), let inp = try? AVCaptureDeviceInput(device: dev) else { return setState("camera", "absent") }
         setState("camera", "on")
         let s = AVCaptureSession()
@@ -518,7 +525,7 @@ final class Sense: NSObject, NSApplicationDelegate, CLLocationManagerDelegate, A
         case .denied, .restricted: return setState("mic", "denied")
         default: break
         }
-        if engine != nil { return }
+        if engine != nil || away { return }
         let e = AVAudioEngine()
         let node = e.inputNode
         micDevice = "default"
