@@ -43,7 +43,7 @@ const (
 	scoreQuizPerMin   = 2.0 // points per minute of quiz time
 	scoreWordsPer     = 20  // new words per point
 	scoreOverduePts   = 10  // points lost per overdue task
-	scoreXPPer        = 10  // quiz XP per point (a correct answer is 10 XP, up to 40 with a combo)
+	scoreXPPer        = 30  // quiz XP per point (a correct answer is 10 XP, up to 40 with a combo)
 	scoreLevelPts     = 5   // points per quiz level gained
 	scoreCheckinPts   = 5   // points per class checked in to (calendar.go)
 	scoreReadPagesPer = 1   // pages read per point (reading.go)
