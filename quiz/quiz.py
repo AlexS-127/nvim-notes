@@ -19,7 +19,10 @@ At the start you can practise everything (just press Enter) or only one word typ
 taken from the "(noun)", "(verb)"... at the end of each definitions.md line, or, for a
 question bank, one `## ` topic. Worked problems are idle-capped at PROBLEM_IDLE_CAP instead.
 
-Usage: python3 ~/notes/quiz.py [subject]   (a link to nvim-notes/quiz/quiz.py)
+Every word has a score from how often it was right vs wrong (shown after each answer). At the
+start you can practise only your weakest N (`--worst N` skips the question).
+
+Usage: python3 ~/notes/quiz.py [subject] [--worst N]   (a link to nvim-notes/quiz/quiz.py)
        python3 ~/notes/quiz.py --revise NOTE   (one scheduled revision, see revise())
 """
 
@@ -251,6 +254,22 @@ def record(stats, word, ok, notes=None):
     e["last"] = date.today().isoformat()
     if notes:
         e["notes"] = sorted(set(notes) | set(e.get("notes", [])))
+
+
+def word_score(stats, word):
+    """How well a word is known, 0-1, from how often it was right vs wrong ((right+1)/(answers+2), so one
+    answer never means 0 or 100%); None while it has never been answered."""
+    e = stats.get(word)
+    if not e or e["right"] + e["wrong"] == 0:
+        return None
+    return (e["right"] + 1) / (e["right"] + e["wrong"] + 2)
+
+
+def weakest(items, stats, n):
+    """The n answered words with the lowest score (more wrong answers first on a tie)."""
+    seen = [it for it in items if word_score(stats, it[0]) is not None]
+    seen.sort(key=lambda it: (word_score(stats, it[0]), -stats[it[0]]["wrong"], it[0]))
+    return seen[:n]
 
 
 def struggling(stats, word):
@@ -722,6 +741,22 @@ def main():
 
     stats_path = NOTES / subject / ".quiz_stats.json"
     stats = load_stats(stats_path)
+    worst = None
+    if "--worst" in sys.argv[2:]:
+        i = sys.argv.index("--worst")
+        worst = int(sys.argv[i + 1]) if i + 1 < len(sys.argv) and sys.argv[i + 1].isdigit() else 10
+    elif any(word_score(stats, k) is not None for k, _ in items):
+        r = input(f"Practise only your weakest {noun}s? a number N, or Enter for everything: ").strip()
+        worst = int(r) if r.isdigit() and int(r) > 0 else None
+    if worst:
+        picked = weakest(items, stats, worst)
+        if not picked:
+            sys.exit(f"No {noun} has been answered yet, so none is the weakest.")
+        print(f"\nYour {len(picked)} weakest {noun}s:")
+        for it in picked:
+            e = stats[it[0]]
+            print(f"  {word_score(stats, it[0]):4.0%}  {label(it)}  ({e['right']} right, {e['wrong']} wrong)")
+        items = picked
     hard = sum(struggling(stats, k) for k, _ in items)
     pl, streak_msg = start_player(stats)
     lvl = level_of(pl["xp"])
@@ -810,6 +845,9 @@ def main():
                 missed.append(label(item))
         for n in filter(None, notes):
             print(n)
+        if noun == "word":
+            e = stats[key]
+            print(f"  {word_score(stats, key):.0%} known ({e['right']} right, {e['wrong']} wrong)")
         print()
         save_stats(stats_path, stats)
         clock.flush(subject)  # XP and level-ups score right away, not at the next minute tick
