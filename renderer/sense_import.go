@@ -258,13 +258,13 @@ func (s *Store) importScreenTime(st *importState, _ SensorConfig, _ time.Time) e
 func bundleCategory(id string) string {
 	id = strings.ToLower(id)
 	for _, c := range []struct{ cat, keys string }{
-		{"social", "instagram,twitter,tiktok,reddit,facebook,snapchat,threads,linkedin,bereal"},
+		{"surfing", "instagram,twitter,tiktok,reddit,facebook,snapchat,threads,linkedin,bereal"},
 		{"entertainment", "youtube,netflix,spotify,music,tv,twitch,hulu,disney,game,steam,podcasts"},
-		{"comms", "mail,messages,mobilesms,whatsapp,discord,slack,teams,zoom,telegram,signal,facetime"},
+		{"admin", "mail,messages,mobilesms,whatsapp,discord,slack,teams,zoom,telegram,signal,facetime"},
 		{"browser", "safari,chrome,firefox,arc,brave,edge,browser"},
 		{"code", "ghostty,terminal,iterm,xcode,vscode,code,cursor,zed,github,dbeaver,postman"},
 		{"study", "notesview,word,excel,powerpoint,pages,numbers,keynote,notion,obsidian,anki,quizlet,canvas,claude,preview,books"},
-		{"news", "news,nytimes,bbc"},
+		{"reading", "news,nytimes,bbc"},
 		{"shopping", "amazon,ebay,shop"},
 	} {
 		for _, k := range strings.Split(c.keys, ",") {

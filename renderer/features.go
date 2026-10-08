@@ -41,8 +41,9 @@ var sensorNames = []string{"sys", "nvim", "quiz", "input", "apps", "window", "br
 var zChannels = []string{"keys", "clicks", "scroll", "idle", "switches", "nvim_keys", "nvim_bs", "db", "perclos", "hr", "hrv", "quiz_latency", "score", "focus"}
 
 // categoryWork is how much a category counts as focused work (focus.go and the Data tab).
-var categoryWork = map[string]float64{"study": 1, "code": 1, "problem": 1, "writing": 1, "reading": 0.9, "admin": 0.5, "comms": 0.3, "other": 0.4, "unknown": 0.5,
-	"news": 0.1, "shopping": 0, "social": 0, "entertainment": 0, "none": 0.4, "browser": 0.5}
+var categoryWork = map[string]float64{"study": 1, "code": 1, "problem": 1, "writing": 1, "reading": 0.8, "admin": 0.5, "surfing": 0.1, "other": 0.4, "unknown": 0.5,
+	"shopping": 0, "entertainment": 0, "none": 0.4, "browser": 0.5,
+	"comms": 0.5, "news": 0.8, "social": 0.1} // the last three: earlier names, same as their new category
 
 // Row is one minute: numbers in V, categories in C, sensor masks in Mask, z-scores in Z.
 type Row struct {
@@ -60,8 +61,8 @@ type DayFeatures struct {
 	Day     string         `json:"day"`
 	Built   string         `json:"built"`
 	Minutes int            `json:"minutes"`
-	Inputs  map[string]any `json:"inputs"` // day-level context known at (or before) the start of the day
-	Labels  map[string]any `json:"labels"` // targets: never an input for this day
+	Inputs  map[string]any `json:"inputs"`   // day-level context known at (or before) the start of the day
+	Labels  map[string]any `json:"labels"`   // targets: never an input for this day
 	Cover   map[string]int `json:"coverage"` // minutes each sensor was on
 	Rows    []Row          `json:"-"`
 }

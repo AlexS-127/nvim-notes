@@ -105,8 +105,11 @@
   }
 
   // ── Data tab (#/data, key y) ──
-  const CAT_COLORS = { study: "var(--sw-blue)", code: "var(--sw-green)", problem: "var(--sw-indigo)", writing: "var(--sw-teal)", reading: "var(--sw-cyan)", admin: "var(--sw-slate)", comms: "var(--sw-amber)",
-    entertainment: "var(--sw-red)", social: "var(--sw-pink)", news: "var(--sw-orange)", shopping: "var(--sw-brown)", other: "var(--sw-gray)", browser: "var(--sw-gray)", unknown: "var(--sw-gray)" };
+  const CAT_COLORS = { study: "var(--sw-blue)", code: "var(--sw-green)", problem: "var(--sw-indigo)", writing: "var(--sw-teal)", reading: "var(--sw-cyan)", admin: "var(--sw-slate)", surfing: "var(--sw-amber)",
+    entertainment: "var(--sw-red)", shopping: "var(--sw-brown)", other: "var(--sw-gray)", browser: "var(--sw-gray)", unknown: "var(--sw-gray)" };
+  // minutes recorded under earlier category names (shown like their new category, not in the legend)
+  const LEGACY_CATS = { comms: "admin", news: "reading", social: "surfing" };
+  for (const [k, v] of Object.entries(LEGACY_CATS)) CAT_COLORS[k] = CAT_COLORS[v];
   const PLACE_COLORS = { home: "var(--sw-green)", library: "var(--sw-blue)", class: "var(--sw-violet)", cafe: "var(--sw-amber)", other: "var(--sw-gray)", unknown: "var(--sw-gray)", none: "transparent" };
   const STATE_LABEL = { on: "collecting", waiting: "waiting for data", denied: "permission needed", absent: "not available", off: "switched off" };
 
@@ -152,7 +155,7 @@
       ${row("Place", stripSvg(s.place, n, t.now, "cat", PLACE_COLORS), "your label for the Wi-Fi network")}
       ${row("Heart rate", stripSvg(norm(s.hr, (v) => Math.min(1, Math.max(0.05, (v - 45) / 80))), n, t.now, "num"), "Apple Watch")}
       <div class="dt-hours">${hours}</div>
-      <div class="dt-legend">${Object.entries(CAT_COLORS).filter(([k]) => !["browser", "unknown"].includes(k)).map(([k, c]) => `<span><i style="background:${c}"></i>${k}</span>`).join("")}</div>
+      <div class="dt-legend">${Object.entries(CAT_COLORS).filter(([k]) => !["browser", "unknown", ...Object.keys(LEGACY_CATS)].includes(k)).map(([k, c]) => `<span><i style="background:${c}"></i>${k}</span>`).join("")}</div>
     </div>`;
   }
 

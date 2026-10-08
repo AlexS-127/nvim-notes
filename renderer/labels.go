@@ -42,7 +42,18 @@ const (
 // study = coursework (problems and essays too), reading = books and articles outside courses,
 // code = programming and your own projects. "problem" and "writing" were folded into study (2026-10-06);
 // old records with them still count through categoryWork.
-var labelCategories = []string{"study", "reading", "code", "comms", "entertainment", "social", "news", "shopping", "admin", "other"}
+var labelCategories = []string{"study", "reading", "surfing", "entertainment", "code", "shopping", "admin", "other"}
+
+// categoryAlias maps the categories of earlier versions onto the current ones (labels, learned rules
+// and old minutes keep working): news is reading, social feeds are surfing, mail and messages are admin.
+var categoryAlias = map[string]string{"news": "reading", "social": "surfing", "comms": "admin"}
+
+func canonCategory(c string) string {
+	if a, ok := categoryAlias[c]; ok {
+		return a
+	}
+	return c
+}
 
 // Place labels.
 var placeLabels = []string{"home", "library", "class", "cafe", "other"}
@@ -335,6 +346,23 @@ func (s *Store) loadRules() Rules {
 	if r.Shared == nil {
 		r.Shared = map[string]bool{}
 	}
+	for _, m := range []map[string]string{r.Titles, r.Domains} { // labels made under earlier category names
+		for k, v := range m {
+			m[k] = canonCategory(v)
+		}
+	}
+	for old := range categoryAlias {
+		if toks, ok := r.Tokens[old]; ok {
+			cat := canonCategory(old)
+			if r.Tokens[cat] == nil {
+				r.Tokens[cat] = map[string]int{}
+			}
+			for h, n := range toks {
+				r.Tokens[cat][h] += n
+			}
+			delete(r.Tokens, old)
+		}
+	}
 	return r
 }
 
@@ -450,6 +478,7 @@ func (s *Store) LabelQueue(now time.Time) []QueueItem {
 // Label gives a queue item (or any hash) a category: kept as a rule, and its tokens are counted
 // for the classifier.
 func (s *Store) Label(kind, hash, category string, tokenHashes []string, now time.Time) error {
+	category = canonCategory(category)
 	ok := false
 	for _, c := range append(append([]string{}, labelCategories...), placeLabels...) {
 		ok = ok || c == category

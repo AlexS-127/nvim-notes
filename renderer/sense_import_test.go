@@ -77,7 +77,7 @@ func TestImportWeatherAndHealth(t *testing.T) {
 }
 
 func TestBundleCategory(t *testing.T) {
-	for id, want := range map[string]string{"com.burbn.instagram": "social", "com.google.ios.youtube": "entertainment", "com.apple.MobileSMS": "comms", "com.mitchellh.ghostty": "code", "local.notesview.app": "study", "com.example.x": "other"} {
+	for id, want := range map[string]string{"com.burbn.instagram": "surfing", "com.google.ios.youtube": "entertainment", "com.apple.MobileSMS": "admin", "com.mitchellh.ghostty": "code", "local.notesview.app": "study", "com.example.x": "other"} {
 		if got := bundleCategory(id); got != want {
 			t.Errorf("%s: %s, want %s", id, got, want)
 		}

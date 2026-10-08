@@ -228,3 +228,32 @@ func TestSharedNetwork(t *testing.T) {
 		t.Fatalf("rules %+v", r)
 	}
 }
+
+func TestCategoryAliases(t *testing.T) {
+	for old, want := range map[string]string{"news": "reading", "social": "surfing", "comms": "admin", "study": "study", "other": "other"} {
+		if got := canonCategory(old); got != want {
+			t.Errorf("canonCategory(%q) = %q, want %q", old, got, want)
+		}
+	}
+	for _, c := range labelCategories {
+		if _, ok := categoryAlias[c]; ok {
+			t.Errorf("%q is a current category and an alias", c)
+		}
+	}
+	st := newTestStore(t, map[string]string{"inbox.md": "# Inbox\n"})
+	if err := st.updateRules(func(r *Rules) {
+		r.Titles["h1"] = "social"
+		r.Domains["h2"] = "news"
+		r.Tokens["comms"] = map[string]int{"t": 2}
+		r.Tokens["admin"] = map[string]int{"t": 1}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r := st.loadRules()
+	if r.Titles["h1"] != "surfing" || r.Domains["h2"] != "reading" || r.Tokens["admin"]["t"] != 3 || r.Tokens["comms"] != nil {
+		t.Errorf("rules not migrated: %+v", r)
+	}
+	if err := st.Label("title", "h3", "social", nil, time.Now()); err != nil {
+		t.Errorf("legacy label name rejected: %v", err)
+	}
+}

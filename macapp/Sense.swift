@@ -88,10 +88,12 @@ struct Rules {
 func loadRules() -> Rules {
     let o = loadJSON(signalsDir.appendingPathComponent("rules.json"))
     var r = Rules()
-    r.titles = o["titles"] as? [String: String] ?? [:]
-    r.domains = o["domains"] as? [String: String] ?? [:]
+    r.titles = (o["titles"] as? [String: String] ?? [:]).mapValues(canon)
+    r.domains = (o["domains"] as? [String: String] ?? [:]).mapValues(canon)
     r.places = o["places"] as? [String: String] ?? [:]
-    r.tokens = o["tokens"] as? [String: [String: Int]] ?? [:]
+    for (cat, counts) in (o["tokens"] as? [String: [String: Int]] ?? [:]) {
+        r.tokens[canon(cat), default: [:]].merge(counts, uniquingKeysWith: +)
+    }
     r.skipped = Set((o["skipped"] as? [String: Bool] ?? [:]).keys)
     r.shared = Set((o["shared_nets"] as? [String: Bool] ?? [:]).keys)
     return r
@@ -99,19 +101,20 @@ func loadRules() -> Rules {
 
 // ── classifier: your labels (naive Bayes over hashed tokens) + generic keyword lists ──
 
-let categories = ["study", "reading", "code", "comms", "entertainment", "social", "news", "shopping", "admin", "other"]
+let categories = ["study", "reading", "surfing", "entertainment", "code", "shopping", "admin", "other"]
+/// Earlier category names (labels made before the change keep working).
+let categoryAlias = ["news": "reading", "social": "surfing", "comms": "admin"]
+func canon(_ c: String) -> String { categoryAlias[c] ?? c }
 var keywords: [String: Set<String>] = [
     "study": ["lecture", "chapter", "syllabus", "exam", "midterm", "final", "homework", "assignment", "canvas", "quiz", "notes", "textbook", "slides", "course", "module", "seminar", "tutorial", "study", "flashcards", "revision", "notesview",
               "problem", "problems", "exercise", "solution", "solutions", "calculate", "equation", "practice", "worksheet", "journal", "entry", "essay", "draft", "outline"],
     "code": ["github", "gitlab", "git", "commit", "repo", "python", "swift", "golang", "javascript", "typescript", "npm", "pip",
              "debug", "compile", "terminal", "xcode", "vscode", "cursor", "stackoverflow", "zsh", "bash", "nvim", "vim", "localhost", "api", "json", "traceback"],
-    "reading": ["article", "paper", "journal", "kindle", "book", "reader", "pdf", "chapter"],
-    "comms": ["mail", "inbox", "messages", "slack", "discord", "teams", "zoom", "whatsapp", "gmail", "outlook", "message", "chat", "meet"],
+    "reading": ["article", "paper", "journal", "kindle", "book", "reader", "pdf", "chapter", "news", "nytimes", "bbc", "cnn", "guardian", "bloomberg", "reuters", "wsj"],
     "entertainment": ["youtube", "netflix", "twitch", "spotify", "hulu", "disney", "prime", "video", "watch", "game", "steam", "episode", "trailer"],
-    "social": ["instagram", "twitter", "tiktok", "reddit", "facebook", "snapchat", "threads", "linkedin", "feed"],
-    "news": ["news", "nytimes", "bbc", "cnn", "guardian", "bloomberg", "reuters", "wsj"],
+    "surfing": ["instagram", "twitter", "tiktok", "reddit", "facebook", "snapchat", "threads", "linkedin", "feed", "forum", "wiki", "blog"],
     "shopping": ["amazon", "cart", "checkout", "ebay", "shop", "order", "etsy"],
-    "admin": ["settings", "preferences", "finder", "bank", "calendar", "downloads"],
+    "admin": ["settings", "preferences", "finder", "bank", "calendar", "downloads", "mail", "inbox", "messages", "slack", "discord", "teams", "zoom", "whatsapp", "gmail", "outlook", "message", "chat", "meet"],
 ]
 
 /// Course folders (top-level folders of the notes with a code like act200) count as study words.
@@ -338,11 +341,11 @@ final class Sense: NSObject, NSApplicationDelegate, CLLocationManagerDelegate, A
                     "com.microsoft.edgemac": ("Microsoft Edge", "URL of active tab of front window")]
     let domainDefaults: [String: String] = [
         "youtube.com": "entertainment", "netflix.com": "entertainment", "twitch.tv": "entertainment", "disneyplus.com": "entertainment", "hulu.com": "entertainment", "open.spotify.com": "entertainment",
-        "instagram.com": "social", "twitter.com": "social", "x.com": "social", "tiktok.com": "social", "reddit.com": "social", "facebook.com": "social", "linkedin.com": "social",
-        "mail.google.com": "comms", "outlook.office.com": "comms", "outlook.live.com": "comms", "web.whatsapp.com": "comms", "discord.com": "comms", "slack.com": "comms", "zoom.us": "comms",
+        "instagram.com": "surfing", "twitter.com": "surfing", "x.com": "surfing", "tiktok.com": "surfing", "reddit.com": "surfing", "facebook.com": "surfing", "linkedin.com": "surfing",
+        "mail.google.com": "admin", "outlook.office.com": "admin", "outlook.live.com": "admin", "web.whatsapp.com": "admin", "discord.com": "admin", "slack.com": "admin", "zoom.us": "admin",
         "github.com": "code", "gitlab.com": "code", "stackoverflow.com": "code", "developer.apple.com": "code", "pkg.go.dev": "code", "docs.python.org": "code", "pypi.org": "code", "npmjs.com": "code", "canvas.instructure.com": "study", "instructure.com": "study", "claude.ai": "study", "chatgpt.com": "study", "quizlet.com": "study", "khanacademy.org": "study",
         "scholar.google.com": "reading", "jstor.org": "reading", "wikipedia.org": "reading", "amazon.com": "shopping", "ebay.com": "shopping",
-        "nytimes.com": "news", "bbc.com": "news", "bbc.co.uk": "news", "cnn.com": "news", "theguardian.com": "news", "wsj.com": "news", "bloomberg.com": "news",
+        "nytimes.com": "reading", "bbc.com": "reading", "bbc.co.uk": "reading", "cnn.com": "reading", "theguardian.com": "reading", "wsj.com": "reading", "bloomberg.com": "reading",
     ]
     func browser() {
         guard on("browser") else { return setState("browser", "off") }
