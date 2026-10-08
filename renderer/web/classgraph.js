@@ -231,8 +231,7 @@
         b.disabled = true;
         try {
           if (!by[b.dataset.revise].scheduled) await env.post("/api/revision/add", { id: b.dataset.revise });
-          await env.post("/api/revision/start", { id: b.dataset.revise });
-          env.toast("Quiz opened in a terminal window");
+          location.hash = "#/quiz?revise=" + encodeURIComponent(b.dataset.revise);
         } catch (e) { env.toast(String(e.message || e).replace(/^revision: /, "").trim()); }
         setTimeout(() => { b.disabled = false; }, 3000);
       }

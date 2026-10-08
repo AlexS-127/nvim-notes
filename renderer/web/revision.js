@@ -28,12 +28,8 @@
       <button class="nc-btn" data-revise="${esc(t.id)}">Start  +${r.points}</button></div></section>`;
   }
 
-  async function start(env, id, btn) {
-    if (btn) btn.disabled = true;
-    try { await env.post("/api/revision/start", { id }); env.toast("Quiz opened in a terminal window"); }
-    catch (e) { env.toast(msg(e)); }
-    if (btn) setTimeout(() => { btn.disabled = false; }, 3000);
-  }
+  // Start opens the revision in the Quiz tab (quiz.js); the terminal quiz stays on the start page (p)
+  function start(env, id) { location.hash = "#/quiz?revise=" + encodeURIComponent(id); }
 
   // ── Revision page ──
   function topicRow(t, today, actions) {

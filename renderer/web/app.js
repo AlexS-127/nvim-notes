@@ -63,6 +63,7 @@
     if (p === "/reading") return { view: "reading", line: 0 };
     if (p === "/settings") return { view: "settings", line: 0 };
     if (p === "/revision") return { view: "revision", line: 0 };
+    if (p === "/quiz") { const u = new URLSearchParams(q || ""); return { view: "quiz", session: u.get("s") || "", revise: u.get("revise") || "", line: 0 }; }
     if (p === "/data") return { view: "data", line: 0 };
     if (p.startsWith("/note/")) return { view: "note", path: dec(p.slice(6)), line };
     if (p.startsWith("/folder/")) return { view: "folder", path: dec(p.slice(8)), line: 0 };
@@ -100,6 +101,8 @@
       await window.nvSettings.render(calEnv);
     } else if (r.view === "revision") {
       await window.nvRevision.render(calEnv);
+    } else if (r.view === "quiz") {
+      await window.nvQuiz.render(calEnv, r);
     } else if (r.view === "data") {
       await window.nvData.render(calEnv);
     } else if (r.view === "folder") {
@@ -758,6 +761,7 @@
   $("#btn-reading").onclick = () => { location.hash = "#/reading"; };
   $("#btn-settings").onclick = () => { location.hash = "#/settings"; };
   $("#btn-revision").onclick = () => { location.hash = "#/revision"; };
+  $("#btn-quiz").onclick = () => { location.hash = "#/quiz"; };
   $("#btn-data").onclick = () => { location.hash = "#/data"; };
   $("#btn-today").onclick = goToday;
   // creates today's daily note (with carry-over) if it doesn't exist yet
@@ -788,6 +792,7 @@
       case "r": location.hash = "#/reading"; break;
       case ",": location.hash = "#/settings"; break;
       case "v": location.hash = "#/revision"; break;
+      case "q": location.hash = "#/quiz"; break;
       case "y": location.hash = "#/data"; break;
       case "o": if (!toggleOverlay()) return; break;
       case "g": goToday(); break;
@@ -813,6 +818,7 @@
   window.nvRoutine.bind(calEnv);
   window.nvSettings.bind(calEnv);
   window.nvRevision.bind(calEnv);
+  window.nvQuiz.bind(calEnv);
   window.nvData.bind(calEnv);
 
   // ── live updates ──
