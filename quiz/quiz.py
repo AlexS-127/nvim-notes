@@ -19,10 +19,11 @@ At the start you can practise everything (just press Enter) or only one word typ
 taken from the "(noun)", "(verb)"... at the end of each definitions.md line, or, for a
 question bank, one `## ` topic. Worked problems are idle-capped at PROBLEM_IDLE_CAP instead.
 
-Every word has a score from how often it was right vs wrong (shown after each answer). At the
-start you can practise only your weakest N (`--worst N` skips the question).
+Every word has a score from how often it was right vs wrong (shown after each answer). A focused
+quiz (asked at the start; `--focused` skips the question) leaves out what you know well (3 right in
+a row) and asks the least-asked first.
 
-Usage: python3 ~/notes/quiz.py [subject] [--worst N]   (a link to nvim-notes/quiz/quiz.py)
+Usage: python3 ~/notes/quiz.py [subject] [--focused]   (a link to nvim-notes/quiz/quiz.py)
        python3 ~/notes/quiz.py --revise NOTE   (one scheduled revision, see revise())
 """
 
@@ -265,11 +266,28 @@ def word_score(stats, word):
     return (e["right"] + 1) / (e["right"] + e["wrong"] + 2)
 
 
-def weakest(items, stats, n):
-    """The n answered words with the lowest score (more wrong answers first on a tie)."""
-    seen = [it for it in items if word_score(stats, it[0]) is not None]
-    seen.sort(key=lambda it: (word_score(stats, it[0]), -stats[it[0]]["wrong"], it[0]))
-    return seen[:n]
+KNOWN_STREAK = 3  # right this many times in a row = known well (a focused quiz skips it)
+
+
+def known_well(stats, word):
+    e = stats.get(word)
+    return bool(e) and e.get("streak", 0) >= KNOWN_STREAK
+
+
+def times_asked(stats, word):
+    e = stats.get(word)
+    return e["right"] + e["wrong"] if e else 0
+
+
+def pick_focused(items, stats, last=None):
+    """Focused quiz: never what you know well (KNOWN_STREAK right in a row); of the rest, one of those
+    asked the fewest times so far (random among ties; not the one just asked unless it is the only one left). None when all are known."""
+    pool = [it for it in items if not known_well(stats, it[0])]
+    if not pool:
+        return None
+    pool = [it for it in pool if it[0] != last] or pool  # never the same one twice in a row
+    least = min(times_asked(stats, it[0]) for it in pool)
+    return random.choice([it for it in pool if times_asked(stats, it[0]) == least])
 
 
 def struggling(stats, word):
@@ -741,22 +759,13 @@ def main():
 
     stats_path = NOTES / subject / ".quiz_stats.json"
     stats = load_stats(stats_path)
-    worst = None
-    if "--worst" in sys.argv[2:]:
-        i = sys.argv.index("--worst")
-        worst = int(sys.argv[i + 1]) if i + 1 < len(sys.argv) and sys.argv[i + 1].isdigit() else 10
-    elif any(word_score(stats, k) is not None for k, _ in items):
-        r = input(f"Practise only your weakest {noun}s? a number N, or Enter for everything: ").strip()
-        worst = int(r) if r.isdigit() and int(r) > 0 else None
-    if worst:
-        picked = weakest(items, stats, worst)
-        if not picked:
-            sys.exit(f"No {noun} has been answered yet, so none is the weakest.")
-        print(f"\nYour {len(picked)} weakest {noun}s:")
-        for it in picked:
-            e = stats[it[0]]
-            print(f"  {word_score(stats, it[0]):4.0%}  {label(it)}  ({e['right']} right, {e['wrong']} wrong)")
-        items = picked
+    focused = "--focused" in sys.argv[2:] or input(
+        f"Focused quiz? skips {noun}s you know well, asks the least-asked first (y, or Enter for a normal quiz): ").strip().lower() == "y"
+    if focused:
+        known = sum(known_well(stats, k) for k, _ in items)
+        if known == len(items):
+            sys.exit(f"You know all {len(items)} {noun}s well ({KNOWN_STREAK} right in a row): nothing to focus on.")
+        print(f"\nFocused: {len(items) - known} {noun}s to go, {known} known well and skipped.")
     hard = sum(struggling(stats, k) for k, _ in items)
     pl, streak_msg = start_player(stats)
     lvl = level_of(pl["xp"])
@@ -774,7 +783,10 @@ def main():
     atexit.register(lambda: clock.flush(subject, total, right))
 
     while True:
-        item = pick(items, stats, asked_at, total + 1, last)
+        item = pick_focused(items, stats, last) if focused else pick(items, stats, asked_at, total + 1, last)
+        if item is None:
+            print(f"Every {noun} here is now known well. Nothing left to focus on.")
+            break
         key = item[0]
         last = key
         asked_at[key] = total + 1

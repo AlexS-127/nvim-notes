@@ -190,3 +190,39 @@ func TestQuizRecall(t *testing.T) {
 		t.Errorf("recall not recorded: %+v", s.Topics()[0])
 	}
 }
+
+func TestQuizFocused(t *testing.T) {
+	s := newTestStore(t, map[string]string{
+		"t/definitions.md":   "a :: x (noun)\nb :: y (noun)\nc :: z (noun)\n",
+		"t/.quiz_stats.json": `{"a":{"right":3,"wrong":0,"streak":3},"b":{"right":1,"wrong":1,"streak":1}}`,
+	})
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local)
+	q, err := s.StartQuiz(QuizStart{Mode: "practice", Subject: "t", Focused: true}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seq []string
+	answers := map[string]string{"a": "x", "b": "y", "c": "z"}
+	for i := 0; i < 8 && !q.done; i++ {
+		w := q.cur.card.Prompt
+		seq = append(seq, w)
+		s.AnswerQuiz(q, QuizAnswer{Response: answers[w]}, now)
+		s.NextQuiz(q, now)
+	}
+	// a is known well: never asked; c (never asked) first; no repeats in a row; it ends once b and c
+	// are known well too (3 right in a row)
+	if strings.Contains(strings.Join(seq, ""), "a") || seq[0] != "c" {
+		t.Errorf("order: %v", seq)
+	}
+	for i := 1; i < len(seq); i++ {
+		if seq[i] == seq[i-1] {
+			t.Errorf("repeat: %v", seq)
+		}
+	}
+	if !q.done || len(q.summary.Notes) == 0 {
+		t.Errorf("should finish when all known well: %v %+v", seq, q.summary)
+	}
+	if _, err := s.StartQuiz(QuizStart{Mode: "practice", Subject: "t", Focused: true}, now); err == nil {
+		t.Errorf("a focused quiz with everything known should not start")
+	}
+}

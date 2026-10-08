@@ -11,7 +11,7 @@ import (
 // Quiz API for the viewer's Quiz tab (web/quiz.js); the engine is quiz.go / quiz_session.go.
 //   GET  /api/quiz                 subjects to practise, notes due for revision
 //   GET  /api/quiz/session?id=     a session's state (to resume after a reload)
-//   POST /api/quiz/start           {mode: practice|revise, subject, group, dir, weakest, id, solo}
+//   POST /api/quiz/start           {mode: practice|revise, subject, group, dir, focused, id, solo}
 //   POST /api/quiz/answer          {session, response | choices | reveal | grade, percent | skip}
 //   POST /api/quiz/override        {session}: "Actually right?"
 //   POST /api/quiz/next            {session}: confirm the last answer, next card

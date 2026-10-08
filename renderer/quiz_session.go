@@ -16,7 +16,7 @@ import (
 )
 
 // Quiz sessions for the viewer (quiz.go has the shared pieces). A session is either practice (one
-// subject, endless weighted draws, optionally one word type / topic or your weakest N) or a revision
+// subject, endless weighted draws, optionally one word type / topic, optionally focused: skipping what you know well, least-asked first) or a revision
 // (one scheduled note, blended with other due notes of its folder, as quiz.py --revise). Sessions live
 // in memory on the server; the stats, logs and revision schedule they write are the same files the
 // terminal quiz writes, after every answer.
@@ -130,6 +130,7 @@ type QuizSession struct {
 	asked   map[string]int
 	last    string
 	dir     int // vocab: 0 forward, 1 backward, 2 mixed
+	focused bool
 
 	recall  string            // revision with no bank: the note asked by recall
 	topics  map[string]string // revision: id → title
@@ -184,7 +185,7 @@ type QuizStart struct {
 	Subject string `json:"subject"` // practice
 	Group   string `json:"group"`   // practice: one word type or topic ("" = all)
 	Dir     int    `json:"dir"`     // vocab: 0 forward, 1 backward, 2 mixed
-	Weakest int    `json:"weakest"` // practice: only the N weakest answered items
+	Focused bool   `json:"focused"` // practice: skip what you know well, least-asked first
 	ID      string `json:"id"`      // revise: the note
 	Solo    bool   `json:"solo"`    // revise: no blending
 }
@@ -208,22 +209,21 @@ func (s *Store) StartQuiz(req QuizStart, now time.Time) (*QuizSession, error) {
 			items = keep
 		}
 		st := s.loadQuizStats(req.Subject)
-		if req.Weakest > 0 {
-			items = weakestQuiz(items, st, req.Weakest)
-			if len(items) == 0 {
-				return nil, fmt.Errorf("%w: nothing has been answered yet, so nothing is the weakest", ErrRevision)
-			}
+		if req.Focused && pickFocused(items, st, "", q.rnd) == nil {
+			return nil, fmt.Errorf("%w: you know all of these well (%d right in a row): nothing to focus on", ErrRevision, quizKnownStreak)
 		}
 		if len(items) == 0 {
 			return nil, fmt.Errorf("%w: nothing in that group", ErrRevision)
 		}
 		q.Subject, q.items = req.Subject, items
 		q.Title = req.Subject
-		if req.Weakest > 0 {
-			q.Title += fmt.Sprintf(" · weakest %d", len(items))
-		} else if req.Group != "" {
+		if req.Group != "" {
 			q.Title += " · " + req.Group
 		}
+		if req.Focused {
+			q.Title += " · focused"
+		}
+		q.focused = req.Focused
 		if kind == "vocab" {
 			q.Title += " · " + []string{"Latin → English", "English → Latin", "mixed"}[min(max(req.Dir, 0), 2)]
 		}
@@ -367,6 +367,12 @@ func (q *QuizSession) advance(s *Store, now time.Time) {
 	}
 	var it *quizItem
 	switch {
+	case q.Mode == "practice" && q.focused:
+		if it = pickFocused(q.items, s.loadQuizStats(q.Subject), q.last, q.rnd); it == nil {
+			q.notes = append(q.notes, "Everything here is now known well: nothing left to focus on.")
+			q.finish(s, now)
+			return
+		}
 	case q.Mode == "practice":
 		st := s.loadQuizStats(q.Subject)
 		it = pickQuiz(q.items, st, q.asked, q.n+1, q.last, q.rnd)
@@ -780,7 +786,7 @@ func (q *QuizSession) finish(s *Store, now time.Time) {
 	st := s.loadQuizStats(q.Subject)
 	pl := st.player()
 	sum := &QuizSummary{Answered: q.answered, Right: math.Round(q.right*10) / 10, XP: q.xp, BestCombo: q.best,
-		Seconds: int(q.active.Seconds()), Missed: q.missed}
+		Seconds: int(q.active.Seconds()), Missed: q.missed, Notes: q.notes}
 	if q.answered >= 10 && q.right >= float64(q.answered) {
 		if m := pl.award("perfect"); m != "" {
 			sum.Notes = append(sum.Notes, m)

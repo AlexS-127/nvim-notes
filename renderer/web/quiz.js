@@ -30,7 +30,7 @@
         <div class="qz-opts">
           <select data-f="group" aria-label="${s.kind === "vocab" ? "Word type" : "Topic"}"><option value="">${s.kind === "vocab" ? "All word types" : "All topics"}</option>${s.groups.map((g) => `<option${p.group === g ? " selected" : ""}>${esc(g)}</option>`).join("")}</select>
           ${s.kind === "vocab" ? `<select data-f="dir" aria-label="Direction">${["Latin → English", "English → Latin", "Mixed"].map((l, i) => `<option value="${i}"${(p.dir || 0) === i ? " selected" : ""}>${l}</option>`).join("")}</select>` : ""}
-          <label class="qz-weak">weakest <input data-f="weakest" type="number" min="1" placeholder="all" value="${p.weakest || ""}"${s.seen ? "" : " disabled title='Nothing answered yet'"}></label>
+          <label class="qz-weak" title="Skips what you know well (3 right in a row) and asks the least-asked first"><input data-f="focused" type="checkbox"${p.focused ? " checked" : ""}> focused${s.known ? ` (skips ${s.known} known well)` : ""}</label>
           <button class="qz-btn on" data-practise>Practise</button>
         </div></section>`;
     }).join("");
@@ -215,8 +215,8 @@
       if ((b = q("[data-revise]"))) return start({ mode: "revise", id: b.dataset.revise });
       if ((b = q("[data-practise]"))) {
         const sec = b.closest(".qz-subject"), name = sec.dataset.subject, f = (k) => sec.querySelector(`[data-f="${k}"]`);
-        const req = { mode: "practice", subject: name, group: f("group").value, dir: f("dir") ? Number(f("dir").value) : 0, weakest: Number(f("weakest").value) || 0 };
-        try { const p = JSON.parse(e.store.get("quizPrefs", "{}")) || {}; p[name] = { group: req.group, dir: req.dir, weakest: req.weakest || "" }; e.store.set("quizPrefs", JSON.stringify(p)); } catch (err) {}
+        const req = { mode: "practice", subject: name, group: f("group").value, dir: f("dir") ? Number(f("dir").value) : 0, focused: f("focused").checked };
+        try { const p = JSON.parse(e.store.get("quizPrefs", "{}")) || {}; p[name] = { group: req.group, dir: req.dir, focused: req.focused }; e.store.set("quizPrefs", JSON.stringify(p)); } catch (err) {}
         return start(req);
       }
       if (!S) return;

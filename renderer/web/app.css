@@ -570,7 +570,7 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 .qz-sh { display: grid; grid-template-columns: 1fr auto; gap: 0 12px; } .qz-sh b { grid-column: 1; } .qz-sh .qz-rank { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
 .qz-opts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .qz-opts select, .qz-opts input, .qz-partly input { font: 13px var(--font-ui); background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; }
-.qz-weak { color: var(--muted); font-size: 13px; } .qz-weak input { width: 64px; }
+.qz-weak { color: var(--muted); font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
 .qz-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font: 13px var(--font-ui); padding-bottom: 10px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
 .qz-top .qz-back { color: var(--muted); text-decoration: none; } .qz-meta { color: var(--muted); margin-left: auto; }
 .qz-card { font-family: var(--font-ui); }

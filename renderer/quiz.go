@@ -371,6 +371,7 @@ type QuizSubject struct {
 	Groups []string `json:"groups"` // word types or bank topics
 	Seen   int      `json:"seen"`   // answered at least once
 	Weak   int      `json:"weak"`   // struggling
+	Known  int      `json:"known"`  // known well (a focused quiz skips them)
 	Level  int      `json:"level"`
 	Rank   string   `json:"rank"`
 	XP     int      `json:"xp"`
@@ -397,6 +398,9 @@ func (s *Store) QuizSubjects() []QuizSubject {
 			}
 			if st.struggling(it.Key) {
 				sub.Weak++
+			}
+			if st.knownWell(it.Key) {
+				sub.Known++
 			}
 		}
 		for g := range groups {
@@ -837,28 +841,51 @@ func pickQuiz(items []*quizItem, st *quizStats, asked map[string]int, n int, las
 	return pool[len(pool)-1]
 }
 
-// weakestQuiz is the n answered items with the lowest score (more wrong answers first on a tie).
-func weakestQuiz(items []*quizItem, st *quizStats, n int) []*quizItem {
-	var seen []*quizItem
+const quizKnownStreak = 3 // right this many times in a row = known well (a focused quiz skips it)
+
+func (st *quizStats) knownWell(key string) bool {
+	e := st.get(key)
+	return e != nil && e.Streak >= quizKnownStreak
+}
+
+func (st *quizStats) timesAsked(key string) int {
+	if e := st.get(key); e != nil {
+		return e.Right + e.Wrong
+	}
+	return 0
+}
+
+// pickFocused is a focused quiz's draw: never what you know well; of the rest, one asked the fewest
+// times so far (random among ties; not the one just asked unless it is the only one left). Nil when
+// everything is known well.
+func pickFocused(items []*quizItem, st *quizStats, last string, rnd *rand.Rand) *quizItem {
+	var pool, other []*quizItem
 	for _, it := range items {
-		if st.score(it.Key) >= 0 {
-			seen = append(seen, it)
+		if st.knownWell(it.Key) {
+			continue
+		}
+		pool = append(pool, it)
+		if it.Key != last {
+			other = append(other, it)
 		}
 	}
-	sort.SliceStable(seen, func(i, j int) bool {
-		a, b := st.score(seen[i].Key), st.score(seen[j].Key)
-		if a != b {
-			return a < b
-		}
-		if wa, wb := st.get(seen[i].Key).Wrong, st.get(seen[j].Key).Wrong; wa != wb {
-			return wa > wb
-		}
-		return seen[i].Key < seen[j].Key
-	})
-	if len(seen) > n {
-		seen = seen[:n]
+	if len(other) > 0 {
+		pool = other
 	}
-	return seen
+	if len(pool) == 0 {
+		return nil
+	}
+	least := math.MaxInt
+	for _, it := range pool {
+		least = min(least, st.timesAsked(it.Key))
+	}
+	var cands []*quizItem
+	for _, it := range pool {
+		if st.timesAsked(it.Key) == least {
+			cands = append(cands, it)
+		}
+	}
+	return cands[rnd.Intn(len(cands))]
 }
 
 // sampleWeighted draws n questions, missed and unseen ones more likely, no repeats.
