@@ -599,3 +599,17 @@ rect.hm-cell.today { stroke: var(--fg); stroke-width: 1.5; }
 @media (max-width: 640px) { .qz-tiles { grid-template-columns: 1fr 1fr; } .qz-prompt { font-size: 20px; } }
 .qz-idle { font: 13px var(--font-ui); color: var(--c-warning); margin: -10px 0 12px; } .qz-card.idle .qz-prompt { opacity: .6; }
 .qz-time { color: var(--muted); font-size: 12px; }
+.qz-intro { font: 13px var(--font-ui); color: var(--accent); margin: 0 0 10px; }
+.qz-why-pick { margin-left: 10px; padding: 1px 8px; border-radius: 999px; background: var(--hl); color: var(--fg); font-size: 12px; }
+.qz-tile { cursor: pointer; } .qz-tile.on { border-color: var(--accent); background: var(--hl); } .qz-tiles.qz-tiles { grid-template-columns: repeat(5, 1fr); }
+.qz-search { font: 14px var(--font-ui); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); width: 240px; margin: 4px 0 10px; }
+.qz-stats { width: 100%; border-collapse: collapse; font: 13px var(--font-ui); }
+.qz-stats th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; padding: 4px 8px; cursor: pointer; user-select: none; white-space: nowrap; }
+.qz-stats th.sorted { color: var(--fg); } .qz-stats th.asc::after { content: " ↑"; } .qz-stats th.desc::after { content: " ↓"; }
+.qz-stats td { padding: 6px 8px; border-top: 1px solid var(--border); vertical-align: top; } .qz-stats td small { display: block; color: var(--muted); font-size: 11.5px; }
+.qz-stats td .cg-bar { display: inline-block; width: 46px; margin-right: 6px; vertical-align: middle; }
+.qz-status { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+tr[data-status="mastered"] .qz-status, tr[data-status="known"] .qz-status { border-color: var(--c-tip); color: var(--c-tip); }
+tr[data-status="shaky"] .qz-status, .qz-status.miss { border-color: var(--c-danger); color: var(--c-danger); }
+@media (max-width: 760px) { .qz-tiles.qz-tiles { grid-template-columns: repeat(3, 1fr); } .qz-stats td:nth-child(n+4):nth-child(-n+8), .qz-stats th:nth-child(n+4):nth-child(-n+8) { display: none; } }
+.note.quiz.quiz-wide { max-width: 1100px; } .qz-stats td:nth-child(8), .qz-stats td:nth-child(7) { white-space: nowrap; }

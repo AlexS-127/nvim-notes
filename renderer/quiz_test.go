@@ -258,3 +258,51 @@ func TestQuizIdleCutoff(t *testing.T) {
 		t.Errorf("quiz log: %s", log)
 	}
 }
+
+func TestQuizPersonalAndStats(t *testing.T) {
+	s := newTestStore(t, map[string]string{
+		"t/definitions.md": "a :: x (noun)\nb :: y (noun)\nc :: z (noun)\nd :: w (noun)\n",
+		"t/.quiz_stats.json": `{"a":{"right":6,"wrong":0,"streak":6,"credit":1,"rt_ms":1500,"last":"2026-10-07"},
+			"b":{"right":1,"wrong":3,"streak":0,"credit":0.2,"reask":true,"rt_ms":2000,"last":"2026-10-07"},
+			"c":{"right":3,"wrong":0,"streak":3,"credit":1,"rt_ms":7000,"last":"2026-10-07"}}`,
+	})
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.Local)
+	items, _ := s.quizBank("t")
+	st := s.loadQuizStats("t")
+	med := medianRT(items, st)
+	want := map[string]string{"a": "", "b": "missed last time", "c": "slow: 7.0s vs your usual 2.0s", "d": "new"}
+	for k, w := range want {
+		if _, why := st.need(k, med, now); why != w {
+			t.Errorf("need(%s) reason %q, want %q", k, why, w)
+		}
+	}
+	if sc, _ := st.need("a", med, now); sc > 0.05 {
+		t.Errorf("a mastered, fast and recent should need little: %v", sc)
+	}
+	if got := personalSummary(items, st, now); got != "1 missed last time, 1 new, 1 slow" {
+		t.Errorf("summary %q", got)
+	}
+	q, err := s.StartQuiz(QuizStart{Mode: "practice", Subject: "t", Personal: true}, now)
+	if err != nil || q.intro == "" || !strings.Contains(q.Title, "personalized") {
+		t.Fatalf("start: %v %+v", err, q)
+	}
+	counts := map[string]int{}
+	for i := 0; i < 400; i++ {
+		it, _ := pickPersonal(items, st, map[string]int{}, 1, "", now, q.rnd)
+		counts[it.Key]++
+	}
+	if counts["b"] < counts["d"] || counts["d"] < counts["a"] {
+		t.Errorf("draws should follow need: %v", counts)
+	}
+	rows, err := s.QuizStats("t", now)
+	if err != nil || len(rows) != 4 {
+		t.Fatal(err, rows)
+	}
+	status := map[string]string{}
+	for _, r := range rows {
+		status[r.Key] = r.Status
+	}
+	if status["a"] != "mastered" || status["b"] != "shaky" || status["c"] != "known" || status["d"] != "new" {
+		t.Errorf("status: %v", status)
+	}
+}

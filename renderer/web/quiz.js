@@ -32,8 +32,9 @@
         <div class="qz-opts">
           <select data-f="group" aria-label="${s.kind === "vocab" ? "Word type" : "Topic"}"><option value="">${s.kind === "vocab" ? "All word types" : "All topics"}</option>${s.groups.map((g) => `<option${p.group === g ? " selected" : ""}>${esc(g)}</option>`).join("")}</select>
           ${s.kind === "vocab" ? `<select data-f="dir" aria-label="Direction">${["Latin → English", "English → Latin", "Mixed"].map((l, i) => `<option value="${i}"${(p.dir || 0) === i ? " selected" : ""}>${l}</option>`).join("")}</select>` : ""}
-          <label class="qz-weak" title="Skips what you know well (3 right in a row) and asks the least-asked first"><input data-f="focused" type="checkbox"${p.focused ? " checked" : ""}> focused${s.known ? ` (skips ${s.known} known well)` : ""}</label>
+          <select data-f="mode" aria-label="Mode" title="Normal: weighted towards new and missed. Focused: skips what you know well (3 right in a row), least-asked first. Personalized: what needs the most practice from your answers (missed, slow, not seen in a while, new).">${[["", "Normal"], ["focused", `Focused${s.known ? ` (skips ${s.known} known)` : ""}`], ["personal", "Personalized"]].map(([v, l]) => `<option value="${v}"${(p.mode || (p.focused ? "focused" : "")) === v ? " selected" : ""}>${l}</option>`).join("")}</select>
           <button class="qz-btn on" data-practise>Practise</button>
+          <a class="qz-btn" href="#/quiz?stats=${encodeURIComponent(s.name)}" title="Every ${s.kind === "vocab" ? "word" : "question"} with its score">${s.kind === "vocab" ? "Words" : "Questions"}</a>
         </div></section>`;
     }).join("");
     note.innerHTML = `<h1>Quiz</h1>
@@ -126,7 +127,8 @@
     if (!c && !S.result) { note.innerHTML = header(st) + `<p class="act-note">Loading…</p>`; return; }
     const card = c || S.lastCard;
     note.innerHTML = header(st) + `<div class="qz-card" data-kind="${esc(card.kind)}">
-      ${card.hint ? `<p class="qz-hint">${esc(card.hint)}</p>` : ""}
+      ${st.intro && st.answered === 0 && !S.result ? `<p class="qz-intro">${esc(st.intro)}</p>` : ""}
+      ${card.hint || card.why ? `<p class="qz-hint">${esc(card.hint || "")}${card.why ? `<span class="qz-why-pick">${esc(card.why)}</span>` : ""}</p>` : ""}
       <div class="qz-prompt">${esc(card.prompt)}</div>
       ${card.known != null && !S.result ? `<p class="qz-known">${pct(card.known)} known so far</p>` : ""}
       ${c ? inputHtml(card, st) : ""}
@@ -208,6 +210,40 @@
     if (inp) answer({ response: inp.value });
   }
 
+  // ── stats table (#/quiz?stats=SUBJECT): every word / question with its record ──
+  const STATUS = { mastered: "mastered", known: "known well", learning: "learning", shaky: "shaky", new: "new" };
+  let tbl = { sort: "need", dir: -1, status: "", q: "" };
+  async function statsView(subject) {
+    const d = await env.api("/api/quiz/stats?subject=" + encodeURIComponent(subject)), note = env.note;
+    env.setTitle(subject + " words");
+    note.classList.add("quiz-wide");
+    const counts = {};
+    d.items.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });
+    const fmtDay = (s) => s ? new Date(s + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    const cols = [["key", "Word"], ["status", "Status"], ["score", "Score"], ["right", "Right"], ["wrong", "Wrong"], ["streak", "Streak"], ["rt_ms", "Time"], ["last", "Last"], ["need", "Need"]];
+    const val = (r, k) => k === "score" ? (r.score ?? -1) : k === "rt_ms" ? (r.rt_ms ?? -1) : k === "status" ? ["new", "shaky", "learning", "known", "mastered"].indexOf(r.status) : r[k] ?? "";
+    function table() {
+      const q = tbl.q.toLowerCase();
+      const rows = d.items.filter((r) => (!tbl.status || r.status === tbl.status) && (!q || (r.key + " " + (r.answer || "")).toLowerCase().includes(q)))
+        .sort((a, b) => { const x = val(a, tbl.sort), y = val(b, tbl.sort); return (x < y ? -1 : x > y ? 1 : 0) * tbl.dir || a.key.localeCompare(b.key); });
+      return `<table class="qz-stats"><thead><tr>${cols.map(([k, l]) => `<th data-sort="${k}"${tbl.sort === k ? ` class="sorted ${tbl.dir > 0 ? "asc" : "desc"}"` : ""}>${l}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr data-status="${r.status}">
+        <td><b>${esc(r.key.split("\n")[0].slice(0, 90))}</b>${r.answer ? `<small>${esc(r.answer)}</small>` : ""}</td>
+        <td><span class="qz-status">${STATUS[r.status]}</span>${r.missed ? ` <span class="qz-status miss">missed</span>` : ""}</td>
+        <td>${r.score != null ? `<span class="cg-bar"><span style="width:${Math.round(r.score * 100)}%;background:var(--accent)"></span></span>${pct(r.score)}` : "–"}</td>
+        <td>${r.right}</td><td>${r.wrong}</td><td>${r.streak}</td><td>${r.rt_ms ? (r.rt_ms / 1000).toFixed(1) + " s" : "–"}</td><td>${fmtDay(r.last)}</td>
+        <td title="${esc(r.why || "")}">${r.need.toFixed(2)}${r.why ? `<small>${esc(r.why)}</small>` : ""}</td></tr>`).join("")}</tbody></table>
+        <p class="act-note">${rows.length} of ${d.items.length} shown.</p>`;
+    }
+    note.innerHTML = `<p class="cg-back"><a href="#/quiz">← Quiz</a></p><h1>${esc(subject)}</h1>
+      <div class="qz-tiles">${["mastered", "known", "learning", "shaky", "new"].map((k) => `<div class="qz-tile${tbl.status === k ? " on" : ""}" data-status="${k}"><b>${counts[k] || 0}</b><small>${STATUS[k]}</small></div>`).join("")}</div>
+      <p class="act-note">Known well = ${d.known_streak} right in a row (a focused quiz skips these); mastered = ${d.mastered_streak}. Score = (right + 1) / (answers + 2). Time = average response time of answers within the cut-off. Need = what a personalized quiz goes by. Click a tile to filter, a column to sort.</p>
+      <input class="qz-search" type="search" placeholder="Search" value="${esc(tbl.q)}">
+      <div class="qz-table">${table()}</div>`;
+    note.querySelector(".qz-search").oninput = (ev) => { tbl.q = ev.target.value; note.querySelector(".qz-table").innerHTML = table(); };
+    note.querySelector(".qz-tiles").onclick = (ev) => { const t = ev.target.closest("[data-status]"); if (!t) return; tbl.status = tbl.status === t.dataset.status ? "" : t.dataset.status; statsView(subject); };
+    note.querySelector(".qz-table").onclick = (ev) => { const th = ev.target.closest("th[data-sort]"); if (!th) return; tbl.dir = tbl.sort === th.dataset.sort ? -tbl.dir : (th.dataset.sort === "key" ? 1 : -1); tbl.sort = th.dataset.sort; note.querySelector(".qz-table").innerHTML = table(); };
+  }
+
   // ── entry ──
   async function render(e, r) {
     env = e;
@@ -222,6 +258,12 @@
       } catch (err) { env.toast(msg(err)); history.replaceState(null, "", "#/quiz"); }
     }
     S = null;
+    if (r.stats) {
+      if (env.note.querySelector(".qz-stats") && env.note.dataset.statsFor === r.stats) return;  // a refresh: keep filters and scroll
+      env.note.dataset.statsFor = r.stats;
+      return statsView(r.stats);
+    }
+    env.note.dataset.statsFor = "";
     if (r.revise) { history.replaceState(null, "", "#/quiz"); return start({ mode: "revise", id: r.revise }); }
     await home();
   }
@@ -236,8 +278,8 @@
       if ((b = q("[data-revise]"))) return start({ mode: "revise", id: b.dataset.revise });
       if ((b = q("[data-practise]"))) {
         const sec = b.closest(".qz-subject"), name = sec.dataset.subject, f = (k) => sec.querySelector(`[data-f="${k}"]`);
-        const req = { mode: "practice", subject: name, group: f("group").value, dir: f("dir") ? Number(f("dir").value) : 0, focused: f("focused").checked };
-        try { const p = JSON.parse(e.store.get("quizPrefs", "{}")) || {}; p[name] = { group: req.group, dir: req.dir, focused: req.focused }; e.store.set("quizPrefs", JSON.stringify(p)); } catch (err) {}
+        const req = { mode: "practice", subject: name, group: f("group").value, dir: f("dir") ? Number(f("dir").value) : 0, focused: f("mode").value === "focused", personal: f("mode").value === "personal" };
+        try { const p = JSON.parse(e.store.get("quizPrefs", "{}")) || {}; p[name] = { group: req.group, dir: req.dir, mode: f("mode").value }; e.store.set("quizPrefs", JSON.stringify(p)); } catch (err) {}
         return start(req);
       }
       if (!S) return;

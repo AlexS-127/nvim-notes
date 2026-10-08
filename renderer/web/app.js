@@ -63,7 +63,7 @@
     if (p === "/reading") return { view: "reading", line: 0 };
     if (p === "/settings") return { view: "settings", line: 0 };
     if (p === "/revision") return { view: "revision", line: 0 };
-    if (p === "/quiz") { const u = new URLSearchParams(q || ""); return { view: "quiz", session: u.get("s") || "", revise: u.get("revise") || "", line: 0 }; }
+    if (p === "/quiz") { const u = new URLSearchParams(q || ""); return { view: "quiz", session: u.get("s") || "", revise: u.get("revise") || "", stats: u.get("stats") || "", line: 0 }; }
     if (p === "/data") return { view: "data", line: 0 };
     if (p.startsWith("/note/")) return { view: "note", path: dec(p.slice(6)), line };
     if (p.startsWith("/folder/")) return { view: "folder", path: dec(p.slice(8)), line: 0 };

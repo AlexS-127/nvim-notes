@@ -907,6 +907,140 @@ func pickFocused(items []*quizItem, st *quizStats, last string, rnd *rand.Rand) 
 	return cands[rnd.Intn(len(cands))]
 }
 
+// medianRT is the middle response time (ms) of the answered items, for telling slow answers apart.
+func medianRT(items []*quizItem, st *quizStats) float64 {
+	var ts []int
+	for _, it := range items {
+		if e := st.get(it.Key); e != nil && e.RtMs != nil && *e.RtMs > 0 {
+			ts = append(ts, *e.RtMs)
+		}
+	}
+	if len(ts) == 0 {
+		return 0
+	}
+	sort.Ints(ts)
+	return float64(ts[len(ts)/2])
+}
+
+// quizNeed is how much practice an item needs (0-1.5) and the main reason (quiz.py need): how much
+// credit you got, a confirmed mistake, still shaky, answering slowly (1.5x your usual time or more),
+// not seen for longer than its streak holds (1, 2, 4… days). New items 0.6; well-known, fast, recent
+// ones next to nothing.
+func (st *quizStats) need(key string, medRT float64, today time.Time) (float64, string) {
+	e := st.get(key)
+	if e == nil || e.Right+e.Wrong == 0 {
+		return 0.6, "new"
+	}
+	acc := float64(e.Right) / float64(e.Right+e.Wrong)
+	if e.Credit != nil {
+		acc = *e.Credit
+	}
+	score, reasons := 1-acc, []string{}
+	if e.Reask {
+		score += 0.4
+		reasons = append(reasons, "missed last time")
+	} else if e.Wrong > 0 && e.Streak < quizKnownStreak {
+		score += 0.2
+		reasons = append(reasons, "still shaky")
+	}
+	if e.RtMs != nil && medRT > 0 && float64(*e.RtMs) >= 1.5*medRT {
+		score += 0.3 * math.Min(1, (float64(*e.RtMs)/medRT-1)/2)
+		reasons = append(reasons, fmt.Sprintf("slow: %.1fs vs your usual %.1fs", float64(*e.RtMs)/1000, medRT/1000))
+	}
+	if last, err := time.ParseInLocation(isoDate, e.Last, today.Location()); err == nil {
+		y, m, d := today.Date()
+		days := int(time.Date(y, m, d, 0, 0, 0, 0, today.Location()).Sub(last).Hours()/24 + 0.5)
+		holds := float64(int(1) << min(e.Streak, 6))
+		if float64(days) > holds {
+			score += math.Min(0.3, 0.1*float64(days)/holds)
+			reasons = append(reasons, fmt.Sprintf("not seen in %d days", days))
+		}
+	}
+	if e.Streak >= quizMastered && len(reasons) == 0 {
+		score *= 0.3
+	}
+	if len(reasons) == 0 && acc < 0.7 {
+		reasons = append(reasons, fmt.Sprintf("%d%% right so far", int(math.Round(acc*100))))
+	}
+	why := ""
+	if len(reasons) > 0 {
+		why = reasons[0]
+	}
+	return math.Min(score, 1.5), why
+}
+
+// pickPersonal is a personalized quiz's draw: weight need² (the neediest come up far more often), cut
+// to almost nothing right after an item was asked, as in pickQuiz. Returns the item and its reason.
+func pickPersonal(items []*quizItem, st *quizStats, asked map[string]int, n int, last string, now time.Time, rnd *rand.Rand) (*quizItem, string) {
+	med := medianRT(items, st)
+	pool := items
+	if len(items) > 1 {
+		pool = nil
+		for _, it := range items {
+			if it.Key != last {
+				pool = append(pool, it)
+			}
+		}
+	}
+	ws, whys := make([]float64, len(pool)), make([]string, len(pool))
+	total := 0.0
+	for i, it := range pool {
+		sc, why := st.need(it.Key, med, now)
+		w := 0.05 + sc*sc
+		if a, ok := asked[it.Key]; ok {
+			w *= quizCooldown(n - a)
+		}
+		ws[i], whys[i] = w, why
+		total += w
+	}
+	r := rnd.Float64() * total
+	for i, w := range ws {
+		if r -= w; r <= 0 {
+			return pool[i], whys[i]
+		}
+	}
+	return pool[len(pool)-1], whys[len(pool)-1]
+}
+
+// personalSummary says what a personalized quiz will work on, by main reason.
+func personalSummary(items []*quizItem, st *quizStats, now time.Time) string {
+	med := medianRT(items, st)
+	counts := map[string]int{}
+	for _, it := range items {
+		sc, why := st.need(it.Key, med, now)
+		if sc < 0.3 || why == "" {
+			continue
+		}
+		label := strings.SplitN(strings.SplitN(why, ":", 2)[0], " in ", 2)[0]
+		if strings.HasSuffix(label, "% right so far") {
+			label = "low accuracy"
+		}
+		counts[label]++
+	}
+	type kv struct {
+		k string
+		n int
+	}
+	var kvs []kv
+	for k, n := range counts {
+		kvs = append(kvs, kv{k, n})
+	}
+	sort.Slice(kvs, func(i, j int) bool {
+		if kvs[i].n != kvs[j].n {
+			return kvs[i].n > kvs[j].n
+		}
+		return kvs[i].k < kvs[j].k
+	})
+	var parts []string
+	for _, x := range kvs {
+		parts = append(parts, fmt.Sprintf("%d %s", x.n, x.k))
+	}
+	if len(parts) == 0 {
+		return "nothing stands out"
+	}
+	return strings.Join(parts, ", ")
+}
+
 // sampleWeighted draws n questions, missed and unseen ones more likely, no repeats.
 func sampleWeighted(qs []*quizItem, st *quizStats, n int, rnd *rand.Rand) []*quizItem {
 	type kv struct {
@@ -938,4 +1072,56 @@ func interleave(qs []*quizItem, rnd *rand.Rand) {
 			}
 		}
 	}
+}
+
+// QuizItemStat is one word or question in the Quiz tab's stats table.
+type QuizItemStat struct {
+	Key    string   `json:"key"`
+	Answer string   `json:"answer,omitempty"` // vocab: the meaning
+	Group  string   `json:"group"`
+	Status string   `json:"status"` // new, shaky, learning, known (3 right in a row), mastered (5)
+	Score  *float64 `json:"score"`  // (right+1)/(answers+2)
+	Right  int      `json:"right"`
+	Wrong  int      `json:"wrong"`
+	Streak int      `json:"streak"`
+	Credit *float64 `json:"credit,omitempty"`
+	RtMs   *int     `json:"rt_ms,omitempty"`
+	Last   string   `json:"last,omitempty"`
+	Need   float64  `json:"need"` // what a personalized quiz goes by
+	Why    string   `json:"why,omitempty"`
+	Missed bool     `json:"missed,omitempty"` // a confirmed mistake not answered right since
+}
+
+// QuizStats is every item of a subject with its record, for the stats table.
+func (s *Store) QuizStats(subject string, now time.Time) ([]QuizItemStat, error) {
+	items, _ := s.quizBank(subject)
+	if len(items) == 0 {
+		return nil, fmt.Errorf("%w: nothing to quiz in %q", ErrRevision, subject)
+	}
+	st := s.loadQuizStats(subject)
+	med := medianRT(items, st)
+	out := []QuizItemStat{}
+	for _, it := range items {
+		r := QuizItemStat{Key: it.Key, Group: it.group, Status: "new"}
+		if it.Pair != nil {
+			r.Answer = it.Pair.Trans
+		}
+		r.Need, r.Why = st.need(it.Key, med, now)
+		if e := st.get(it.Key); e != nil && e.Right+e.Wrong > 0 {
+			sc := st.score(it.Key)
+			r.Score, r.Right, r.Wrong, r.Streak, r.Credit, r.RtMs, r.Last, r.Missed = &sc, e.Right, e.Wrong, e.Streak, e.Credit, e.RtMs, e.Last, e.Reask
+			switch {
+			case e.Streak >= quizMastered:
+				r.Status = "mastered"
+			case e.Streak >= quizKnownStreak:
+				r.Status = "known"
+			case st.struggling(it.Key):
+				r.Status = "shaky"
+			default:
+				r.Status = "learning"
+			}
+		}
+		out = append(out, r)
+	}
+	return out, nil
 }

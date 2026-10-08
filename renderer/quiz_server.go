@@ -5,13 +5,15 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
 // Quiz API for the viewer's Quiz tab (web/quiz.js); the engine is quiz.go / quiz_session.go.
 //   GET  /api/quiz                 subjects to practise, notes due for revision
+//   GET  /api/quiz/stats?subject=  every word / question with its record (the stats table)
 //   GET  /api/quiz/session?id=     a session's state (to resume after a reload)
-//   POST /api/quiz/start           {mode: practice|revise, subject, group, dir, focused, id, solo}
+//   POST /api/quiz/start           {mode: practice|revise, subject, group, dir, focused, personal, id, solo}
 //   POST /api/quiz/answer          {session, response | choices | reveal | grade, percent | skip}
 //   POST /api/quiz/override        {session}: "Actually right?"
 //   POST /api/quiz/next            {session}: confirm the last answer, next card
@@ -36,6 +38,19 @@ func (s *Server) quizRoutes(mux *http.ServeMux) {
 			subs = []QuizSubject{}
 		}
 		writeJSON(w, map[string]any{"subjects": subs, "due": ds, "points": scoreRevisionPts})
+	})
+	mux.HandleFunc("/api/quiz/stats", func(w http.ResponseWriter, r *http.Request) {
+		sub := r.URL.Query().Get("subject")
+		if sub == "" || strings.ContainsAny(sub, "/\\") || strings.HasPrefix(sub, ".") {
+			http.Error(w, "bad subject", 400)
+			return
+		}
+		rows, err := s.store.QuizStats(sub, time.Now())
+		if err != nil {
+			s.quizError(w, err)
+			return
+		}
+		writeJSON(w, map[string]any{"subject": sub, "items": rows, "known_streak": quizKnownStreak, "mastered_streak": quizMastered})
 	})
 	mux.HandleFunc("/api/quiz/session", func(w http.ResponseWriter, r *http.Request) {
 		q := getQuizSession(r.URL.Query().Get("id"))

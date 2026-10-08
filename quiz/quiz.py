@@ -25,7 +25,10 @@ Every word has a score from how often it was right vs wrong (shown after each an
 quiz (asked at the start; `--focused` skips the question) leaves out what you know well (3 right in
 a row) and asks the least-asked first.
 
-Usage: python3 ~/notes/quiz.py [subject] [--focused]   (a link to nvim-notes/quiz/quiz.py)
+A personalized quiz (`--personalized`) draws by need: what you keep missing, answer slowly, haven't
+seen in a while or never saw, each shown with its reason.
+
+Usage: python3 ~/notes/quiz.py [subject] [--focused | --personalized]   (a link to nvim-notes/quiz/quiz.py)
        python3 ~/notes/quiz.py --revise NOTE   (one scheduled revision, see revise())
 """
 
@@ -291,6 +294,69 @@ def known_well(stats, word):
 def times_asked(stats, word):
     e = stats.get(word)
     return e["right"] + e["wrong"] if e else 0
+
+
+def median_rt(items, stats):
+    """The middle response time (ms) of the answered items, for telling slow answers apart."""
+    ts = sorted(stats[k]["rt_ms"] for k, _ in items if stats.get(k, {}).get("rt_ms"))
+    return ts[len(ts) // 2] if ts else None
+
+
+def need(stats, word, med_rt, today=None):
+    """How much practice an item needs (0-1.5) and the main reason, from its answers: how much credit
+    you got, a confirmed mistake, still shaky, answering slowly (1.5x your usual time or more), and
+    not seen for longer than its streak holds (1, 2, 4… days). New items get 0.6; well-known, fast,
+    recent ones next to nothing."""
+    e = stats.get(word)
+    if not e or e["right"] + e["wrong"] == 0:
+        return 0.6, "new"
+    n = e["right"] + e["wrong"]
+    acc = e["credit"] if e.get("credit") is not None else e["right"] / n
+    score, reasons = 1 - acc, []
+    if e.get("reask"):
+        score += 0.4
+        reasons.append("missed last time")
+    elif e["wrong"] and e["streak"] < KNOWN_STREAK:
+        score += 0.2
+        reasons.append("still shaky")
+    rt = e.get("rt_ms")
+    if rt and med_rt and rt >= 1.5 * med_rt:
+        score += 0.3 * min(1, (rt / med_rt - 1) / 2)
+        reasons.append(f"slow: {rt / 1000:.1f}s vs your usual {med_rt / 1000:.1f}s")
+    if e.get("last"):
+        days = ((today or date.today()) - date.fromisoformat(e["last"])).days
+        holds = 2 ** min(e["streak"], 6)
+        if days > holds:
+            score += min(0.3, 0.1 * days / holds)
+            reasons.append(f"not seen in {days} days")
+    if e["streak"] >= MASTERED_STREAK and not reasons:
+        score *= 0.3
+    if not reasons and acc < 0.7:
+        reasons.append(f"{acc:.0%} right so far")
+    return min(score, 1.5), (reasons[0] if reasons else "")
+
+
+def pick_personal(items, stats, asked, n, last=None):
+    """Personalized quiz: a weighted draw where the weight is need² (so the neediest come up far more
+    often), cut to almost nothing right after an item was asked like `pick`. Returns (item, reason)."""
+    med = median_rt(items, stats)
+    pool = [it for it in items if it[0] != last] or items
+    scored = [(it, *need(stats, it[0], med)) for it in pool]
+    ws = [(0.05 + sc * sc) * (cooldown(n - asked[it[0]]) if it[0] in asked else 1) for it, sc, _ in scored]
+    it, _, why = random.choices(scored, ws)[0]
+    return it, why
+
+
+def personal_summary(items, stats):
+    """What a personalized quiz will work on, by main reason, for the start line."""
+    med, counts = median_rt(items, stats), {}
+    for k, _ in items:
+        sc, why = need(stats, k, med)
+        if sc >= 0.3 and why:
+            label = why.split(":")[0].split(" in ")[0].replace("% right so far", "")
+            label = "low accuracy" if label.isdigit() else label
+            counts[label] = counts.get(label, 0) + 1
+    return ", ".join(f"{n} {k}" for k, n in sorted(counts.items(), key=lambda kv: -kv[1])) or "nothing stands out"
 
 
 def pick_focused(items, stats, last=None):
@@ -782,8 +848,17 @@ def main():
 
     stats_path = NOTES / subject / ".quiz_stats.json"
     stats = load_stats(stats_path)
-    focused = "--focused" in sys.argv[2:] or input(
-        f"Focused quiz? skips {noun}s you know well, asks the least-asked first (y, or Enter for a normal quiz): ").strip().lower() == "y"
+    if "--focused" in sys.argv[2:]:
+        mode = "f"
+    elif "--personalized" in sys.argv[2:]:
+        mode = "p"
+    else:
+        print(f"\nMode: Enter = normal · f = focused (skips {noun}s you know well, least-asked first)"
+              f" · p = personalized (what needs the most practice, from your answers)")
+        mode = input("> ").strip().lower()[:1]
+    focused, personal = mode == "f", mode == "p"
+    if personal:
+        print(f"\nPersonalized: {personal_summary(items, stats)}.")
     if focused:
         known = sum(known_well(stats, k) for k, _ in items)
         if known == len(items):
@@ -806,7 +881,13 @@ def main():
     atexit.register(lambda: clock.flush(subject, total, right))
 
     while True:
-        item = pick_focused(items, stats, last) if focused else pick(items, stats, asked_at, total + 1, last)
+        why = ""
+        if personal:
+            item, why = pick_personal(items, stats, asked_at, total + 1, last)
+        else:
+            item = pick_focused(items, stats, last) if focused else pick(items, stats, asked_at, total + 1, last)
+        if why:
+            print(f"  · {why}")
         if item is None:
             print(f"Every {noun} here is now known well. Nothing left to focus on.")
             break

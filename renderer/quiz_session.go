@@ -37,6 +37,7 @@ type QuizCard struct {
 	Note     string   `json:"note,omitempty"`     // recall: the note's path
 	Known    *float64 `json:"known,omitempty"`    // the item's score before answering
 	Cap      int      `json:"cap"`                // seconds before you count as idle on this card
+	Why      string   `json:"why,omitempty"`      // personalized: why this one was picked
 }
 
 type QuizResult struct {
@@ -90,6 +91,7 @@ type QuizState struct {
 	XP       int          `json:"xp"`
 	Combo    int          `json:"combo"`
 	Streak   string       `json:"streak,omitempty"`
+	Intro    string       `json:"intro,omitempty"` // personalized: what it will work on
 	Card     *QuizCard    `json:"card,omitempty"`
 	Last     *QuizCard    `json:"last,omitempty"` // the card a pending result belongs to
 	Result   *QuizResult  `json:"result,omitempty"`
@@ -126,16 +128,19 @@ type QuizSession struct {
 	Subject string
 	Title   string
 
-	items   []*quizItem // practice pool
-	queue   []*quizItem // revision, in order
-	retry   []*quizItem // revision: missed, asked once more at the end
-	pos     int
-	inRetry bool
-	n       int
-	asked   map[string]int
-	last    string
-	dir     int // vocab: 0 forward, 1 backward, 2 mixed
-	focused bool
+	items    []*quizItem // practice pool
+	queue    []*quizItem // revision, in order
+	retry    []*quizItem // revision: missed, asked once more at the end
+	pos      int
+	inRetry  bool
+	n        int
+	asked    map[string]int
+	last     string
+	dir      int // vocab: 0 forward, 1 backward, 2 mixed
+	focused  bool
+	personal bool
+	intro    string
+	why      string // personalized: the reason for the next card
 
 	recall  string            // revision with no bank: the note asked by recall
 	topics  map[string]string // revision: id → title
@@ -186,13 +191,14 @@ func getQuizSession(id string) *QuizSession {
 
 // QuizStart describes a session to start.
 type QuizStart struct {
-	Mode    string `json:"mode"`    // practice or revise
-	Subject string `json:"subject"` // practice
-	Group   string `json:"group"`   // practice: one word type or topic ("" = all)
-	Dir     int    `json:"dir"`     // vocab: 0 forward, 1 backward, 2 mixed
-	Focused bool   `json:"focused"` // practice: skip what you know well, least-asked first
-	ID      string `json:"id"`      // revise: the note
-	Solo    bool   `json:"solo"`    // revise: no blending
+	Mode     string `json:"mode"`     // practice or revise
+	Subject  string `json:"subject"`  // practice
+	Group    string `json:"group"`    // practice: one word type or topic ("" = all)
+	Dir      int    `json:"dir"`      // vocab: 0 forward, 1 backward, 2 mixed
+	Focused  bool   `json:"focused"`  // practice: skip what you know well, least-asked first
+	Personal bool   `json:"personal"` // practice: drawn by need (missed, slow, not seen in a while, new)
+	ID       string `json:"id"`       // revise: the note
+	Solo     bool   `json:"solo"`     // revise: no blending
 }
 
 func (s *Store) StartQuiz(req QuizStart, now time.Time) (*QuizSession, error) {
@@ -227,8 +233,11 @@ func (s *Store) StartQuiz(req QuizStart, now time.Time) (*QuizSession, error) {
 		}
 		if req.Focused {
 			q.Title += " · focused"
+		} else if req.Personal {
+			q.Title += " · personalized"
+			q.intro = "Personalized: " + personalSummary(items, st, now) + "."
 		}
-		q.focused = req.Focused
+		q.focused, q.personal = req.Focused, req.Personal && !req.Focused
 		if kind == "vocab" {
 			q.Title += " · " + []string{"Latin → English", "English → Latin", "mixed"}[min(max(req.Dir, 0), 2)]
 		}
@@ -378,6 +387,8 @@ func (q *QuizSession) advance(s *Store, now time.Time) {
 			q.finish(s, now)
 			return
 		}
+	case q.Mode == "practice" && q.personal:
+		it, q.why = pickPersonal(q.items, s.loadQuizStats(q.Subject), q.asked, q.n+1, q.last, now, q.rnd)
 	case q.Mode == "practice":
 		st := s.loadQuizStats(q.Subject)
 		it = pickQuiz(q.items, st, q.asked, q.n+1, q.last, q.rnd)
@@ -399,7 +410,8 @@ func (q *QuizSession) advance(s *Store, now time.Time) {
 
 func (q *QuizSession) makeAsk(s *Store, it *quizItem, now time.Time) *quizAsk {
 	a := &quizAsk{item: it, shown: now, cap: quizAnswerCaps[it.kind()]}
-	c := QuizCard{N: q.n, Kind: it.kind(), Retry: q.inRetry, Cap: int(quizAnswerCaps[it.kind()].Seconds())}
+	c := QuizCard{N: q.n, Kind: it.kind(), Retry: q.inRetry, Cap: int(quizAnswerCaps[it.kind()].Seconds()), Why: q.why}
+	q.why = ""
 	if q.Mode == "revise" {
 		c.Total = len(q.queue)
 		if q.inRetry {
@@ -842,7 +854,7 @@ func (q *QuizSession) finish(s *Store, now time.Time) {
 // State is what the page shows.
 func (q *QuizSession) State() QuizState {
 	st := QuizState{ID: q.ID, Mode: q.Mode, Title: q.Title, Subject: q.Subject, Latin: strings.HasPrefix(q.Subject, "lat"),
-		Answered: q.answered, Right: math.Round(q.right*10) / 10, XP: q.xp, Combo: q.combo, Streak: q.streak, Done: q.done, Summary: q.summary}
+		Answered: q.answered, Right: math.Round(q.right*10) / 10, XP: q.xp, Combo: q.combo, Streak: q.streak, Intro: q.intro, Done: q.done, Summary: q.summary}
 	if q.cur != nil {
 		c := q.cur.card
 		st.Card = &c
