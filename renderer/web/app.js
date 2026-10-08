@@ -59,6 +59,7 @@
     if (p === "/tasks") return { view: "tasks", line: 0 };
     if (p === "/activity") return { view: "activity", line: 0 };
     if (p === "/classes") return { view: "classes", line: 0 };
+    if (p.startsWith("/classes/")) return { view: "classes", sub: dec(p.slice(9)), pick: new URLSearchParams(q || "").get("pick") || "", line: 0 };
     if (p === "/reading") return { view: "reading", line: 0 };
     if (p === "/settings") return { view: "settings", line: 0 };
     if (p === "/revision") return { view: "revision", line: 0 };
@@ -92,7 +93,7 @@
     } else if (r.view === "activity") {
       await renderActivity(keepScroll);
     } else if (r.view === "classes") {
-      await window.nvCalendar.render(calEnv);
+      await (r.sub !== undefined ? window.nvClassGraph.render(calEnv, r) : window.nvCalendar.render(calEnv));
     } else if (r.view === "reading") {
       await window.nvReading.render(calEnv);
     } else if (r.view === "settings") {

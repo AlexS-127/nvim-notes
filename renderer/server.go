@@ -144,6 +144,7 @@ func (s *Server) Handler() http.Handler {
 	s.routineRoutes(mux)
 	s.settingsRoutes(mux)
 	s.revisionRoutes(mux)
+	s.classGraphRoutes(mux)
 	s.dataRoutes(mux)
 	s.dataViewRoutes(mux)
 	return s.guardHost(mux)

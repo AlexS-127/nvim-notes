@@ -94,9 +94,9 @@
     const sum = d.summary;
     return `<table class="att-table"><thead><tr><th>Class</th><th>Attended</th><th></th></tr></thead><tbody>${d.attendance.map((a) => {
       const p = pct(a);
-      return `<tr${colorStyle(a.color)}><td><i></i>${esc(a.title)}</td><td>${a.attended} of ${a.held}</td><td class="att-bar"><span style="width:${p}%"></span><b>${p}%</b></td></tr>`;
+      return `<tr class="att-row"${colorStyle(a.color)} data-class="${esc(a.title)}" title="Open the topic graph"><td><i></i>${esc(a.title)}</td><td>${a.attended} of ${a.held}</td><td class="att-bar"><span style="width:${p}%"></span><b>${p}%</b></td></tr>`;
     }).join("")}</tbody></table>
-    <p class="act-note">Counted from the day each calendar was imported. Overall ${sum.total_pct < 0 ? "–" : sum.total_pct + "%"}.</p>`;
+    <p class="act-note">Click a class to see its topics as a graph. Counted from the day each calendar was imported. Overall ${sum.total_pct < 0 ? "–" : sum.total_pct + "%"}.</p>`;
   }
 
   async function render(env) {
@@ -144,6 +144,7 @@
         return;
       }
       if (!onPage()) return;
+      if ((b = q(".att-row")) && window.nvClassGraph) return window.nvClassGraph.open(env, b.dataset.class);
       if (q("#cal-import")) return note.querySelector("#cal-file").click();
       const row = q(".cp-row");
       if (row && (b = q("[data-f]"))) {

@@ -58,12 +58,15 @@ def sensor_on(name, default=True):
 
 
 def log_answer(subject, kind, latency, ok, revision="", conf=None):
+    ok = float(ok)  # partial credit: 0 < ok < 1 is logged as not correct, with its credit
     """One line per answer in .signals/YYYY-MM-DD.jsonl: how long it took, right or wrong, the
     question kind and (if asked) how sure you were. Answer latency and accuracy track focus and fatigue."""
     if not sensor_on("quiz"):
         return
     rec = {"at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "src": "quiz", "subject": subject, "kind": kind,
-           "latency_ms": int(latency * 1000), "correct": bool(ok)}
+           "latency_ms": int(latency * 1000), "correct": ok >= 1}
+    if 0 < ok < 1:
+        rec["credit"] = round(ok, 2)
     if revision:
         rec["revision"] = revision
     if conf:
@@ -188,11 +191,19 @@ def save_stats(path, stats):
     tmp.replace(path)
 
 
-def record(stats, word, ok):
+def record(stats, word, ok, notes=None):
+    """Count an answer. `ok` is a credit from 0 to 1 (True/False work): only full credit is a right
+    answer for the streak and scheduling; `credit` keeps a running average of how much you got (the
+    class graph's knowledge colour), `notes` the revision topics the question belongs to."""
+    credit = max(0.0, min(1.0, float(ok)))
+    full = credit >= 1
     e = stats.setdefault(word, {"right": 0, "wrong": 0, "streak": 0})
-    e["right" if ok else "wrong"] += 1
-    e["streak"] = e["streak"] + 1 if ok else 0
+    e["right" if full else "wrong"] += 1
+    e["streak"] = e["streak"] + 1 if full else 0
+    e["credit"] = round(credit if "credit" not in e else (e["credit"] + credit) / 2, 3)
     e["last"] = date.today().isoformat()
+    if notes:
+        e["notes"] = sorted(set(notes) | set(e.get("notes", [])))
 
 
 def struggling(stats, word):
@@ -507,9 +518,13 @@ def ask_question(item, clock):
             return None
         print("\n".join(f"  {l}" for l in q["solution"].splitlines()) + note + ("\n" + src if src else ""))
         while True:
-            r = clock.input("  Did you get it? [y/n] ").strip().lower()
+            r = clock.input("  Did you get it? [y/n, p = partly] ").strip().lower()
             if r in ("y", "n"):
                 return r == "y", "", ""
+            if r == "p":
+                v = clock.input("  How much of it, 1-99 % ").strip().rstrip("%")
+                if v.isdigit() and 0 < int(v) < 100:
+                    return int(v) / 100, "", ""
             if r == "q":
                 return None
 
@@ -553,20 +568,23 @@ def ask_question(item, clock):
     if guess == "?":
         ok = False
     elif kind == "multi":
-        ok = sorted(chosen) == rights
+        hits, extra = len(set(chosen) & set(rights)), len(set(chosen) - set(rights))
+        ok = max(0.0, (hits - extra) / len(rights))  # partial credit: each wrong pick cancels a right one
+        if 0 < ok < 1:
+            print(f"  ◐ {hits} of {len(rights)} right" + (f", {extra} wrong pick{'s' if extra != 1 else ''}" if extra else ""))
     elif kind == "mc":
         ok = g in (letters[rights[0]], str(rights[0] + 1))
     elif kind == "tf":
         ok = g in ("t", "true") if answer == "true" else g in ("f", "false")
     else:
         ok = check(guess, answer)
-    if not ok and guess != "?":
-        print(f"  ✗  {answer}" + note + src)
+    if float(ok) < 1 and guess != "?":
+        print(f"  ✗  {answer}" + note + src if ok == 0 else f"  answer: {answer}" + note + src)
         if clock.input("  Actually right? y = count it as correct (Enter = no) ").strip().lower() == "y":
             if kind == "short":
                 add_answer(q, guess)
             return True, note + src, ""
-        return False, "", ""
+        return ok, "", ""
     return ok, note + src, f"  ✗  {answer}" + note + src
 
 
@@ -671,12 +689,29 @@ def main():
             break
         latency = time.monotonic() - t0
         ok, ok_note, wrong_note = result
-        log_answer(subject, qkind(item[1]) if noun == "question" else "vocab", latency, ok, conf=ask_confidence(clock, subject))
+        credit = float(ok)
+        log_answer(subject, qkind(item[1]) if noun == "question" else "vocab", latency, credit, conf=ask_confidence(clock, subject))
         total += 1
         was_hard = struggling(stats, key)
-        record(stats, key, ok)
+        record(stats, key, credit)
         notes = []
-        if ok:
+        if 0 < credit < 1:  # partial credit: XP in proportion, the combo neither grows nor breaks
+            right += credit
+            gain = max(1, round(10 * credit))
+            old = level_of(pl["xp"])
+            pl["xp"] += gain
+            session_xp += gain
+            clock.xp += gain
+            clock.levels += level_of(pl["xp"]) - old
+            print(f"  ◐ {credit:.0%} credit +{gain} XP" + ok_note)
+            if wrong_note:
+                print(wrong_note)
+            if label(item) not in missed:
+                missed.append(label(item))
+            if level_of(pl["xp"]) > old:
+                new = level_of(pl["xp"])
+                notes.append(f"  ⬆ LEVEL UP! You are now a {rank_of(new)} (level {new})")
+        elif credit >= 1:
             right += 1
             combo += 1
             mult = 1 + min(combo - 1, 9) // 3  # x1 → x4 as the combo grows
@@ -717,7 +752,7 @@ def main():
         clock.flush(subject)  # XP and level-ups score right away, not at the next minute tick
 
     if total:
-        print(f"\nScore: {right}/{total} ({100 * right // total}%)")
+        print(f"\nScore: {right:.1f}/{total} ({round(100 * right / total)}%)".replace(".0/", "/"))
         if total >= 10 and right == total:
             print(award(pl, "perfect") or "  ✨ Another flawless run!")
             save_stats(stats_path, stats)
@@ -911,23 +946,27 @@ def revise(note_id, solo=False):
                 quit_early = True
                 break
             ok, ok_note, wrong_note = r
-            log_answer(subject, qkind(q), time.monotonic() - t0, ok, revision=q["rev_id"], conf=ask_confidence(clock, subject))
+            credit = float(ok)
+            log_answer(subject, qkind(q), time.monotonic() - t0, credit, revision=q["rev_id"], conf=ask_confidence(clock, subject))
             for nid in q["rev_ids"]:
                 got[nid][1] += 1
-                got[nid][0] += ok
-            record(stats, q["q"], ok)
+                got[nid][0] += credit
+            record(stats, q["q"], credit, notes=q["rev_ids"])
             done += 1
-            right += ok
-            if not ok:
+            right += credit
+            if credit < 1:
                 missed_qs.append(q)
-            if ok:
-                combo += 1
-                gain = 10 * (1 + min(combo - 1, 9) // 3)
+            if credit > 0:
+                if credit >= 1:
+                    combo += 1
+                    gain = 10 * (1 + min(combo - 1, 9) // 3)
+                else:  # partial credit: XP in proportion, the combo neither grows nor breaks
+                    gain = max(1, round(10 * credit))
                 old = level_of(pl["xp"])
                 pl["xp"] += gain
                 clock.xp += gain
                 clock.levels += level_of(pl["xp"]) - old
-                print(f"  ✓ +{gain} XP" + ok_note)
+                print((f"  ✓ +{gain} XP" if credit >= 1 else f"  ◐ {credit:.0%} credit +{gain} XP") + ok_note)
             else:
                 combo = 0
                 print(wrong_note)
@@ -944,8 +983,8 @@ def revise(note_id, solo=False):
                     break
                 if r is None:
                     break
-                record(stats, q["q"], r[0])
-                print(("  ✓" + r[1]) if r[0] else r[2])
+                record(stats, q["q"], r[0], notes=q["rev_ids"])
+                print(("  ✓" + r[1]) if r[0] >= 1 else r[2])
                 print()
             save_stats(stats_path, stats)
         for nid, (c, n) in got.items():
@@ -955,12 +994,12 @@ def revise(note_id, solo=False):
                 print(f"Stopped early on {topics[nid]}: not recorded, it stays due.")
         if not results:
             return
-        print(f"\nScore: {right}/{done} ({round(100 * right / done)}%)")
+        print(f"\nScore: {right:.1f}/{done} ({round(100 * right / done)}%)".replace(".0/", "/"))
         if len(topics) > 1:
             for nid, (sc, c, n) in results.items():
-                print(f"  {topics[nid]}: {c}/{n}")
+                print(f"  {topics[nid]}: {c:.1f}/{n}".replace(".0/", "/"))
     for nid, (sc, c, n) in results.items():
-        r = subprocess.run([notesview_bin(), "revise", "done", nid, "--score", f"{sc:.3f}", "--correct", str(c), "--total", str(n)],
+        r = subprocess.run([notesview_bin(), "revise", "done", nid, "--score", f"{sc:.3f}", "--correct", str(round(c)), "--total", str(n)],
                            capture_output=True, text=True, env={**os.environ, "NOTES_DIR": str(NOTES)})
         print((r.stdout or r.stderr).strip())
 
