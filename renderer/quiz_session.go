@@ -106,6 +106,7 @@ type quizAsk struct {
 }
 
 type quizPending struct {
+	took         time.Duration // from the card appearing to the answer (logged as the answer's latency)
 	item         *quizItem
 	ask          *quizAsk
 	credit       float64
@@ -586,7 +587,7 @@ func (s *Store) AnswerQuiz(q *QuizSession, a QuizAnswer, now time.Time) (*QuizRe
 	res.Credit = credit
 	if credit < 1 && overridable {
 		res.Override, res.Pending = true, true
-		q.pending = &quizPending{item: ask.item, ask: ask, credit: credit, guess: guess, shown: guess, result: res}
+		q.pending = &quizPending{took: took, item: ask.item, ask: ask, credit: credit, guess: guess, shown: guess, result: res}
 		q.last1 = res
 		q.cur = nil
 		return res, nil
@@ -626,7 +627,7 @@ func (s *Store) OverrideQuiz(q *QuizSession, now time.Time) (*QuizResult, error)
 			res.Saved = g
 		}
 	}
-	s.commitQuiz(q, p.ask, 1, false, p.guess, res, 0, now)
+	s.commitQuiz(q, p.ask, 1, false, p.guess, res, p.took, now)
 	return res, nil
 }
 
@@ -642,7 +643,7 @@ func (s *Store) NextQuiz(q *QuizSession, now time.Time) {
 	q.touched = now
 	if p := q.pending; p != nil {
 		q.pending = nil
-		s.commitQuiz(q, p.ask, p.credit, true, p.shown, p.result, 0, now)
+		s.commitQuiz(q, p.ask, p.credit, true, p.shown, p.result, p.took, now)
 	}
 	if q.cur == nil {
 		q.advance(s, now)
@@ -654,7 +655,7 @@ func (s *Store) EndQuiz(q *QuizSession, now time.Time) {
 	q.touched = now
 	if p := q.pending; p != nil {
 		q.pending = nil
-		s.commitQuiz(q, p.ask, p.credit, true, p.shown, p.result, 0, now)
+		s.commitQuiz(q, p.ask, p.credit, true, p.shown, p.result, p.took, now)
 	}
 	q.cur = nil
 	q.finish(s, now)

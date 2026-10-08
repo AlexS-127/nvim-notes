@@ -91,6 +91,10 @@ func TestQuizPracticeVocab(t *testing.T) {
 	// wrong and confirmed: mistakes.md, reask
 	s.AnswerQuiz(q, QuizAnswer{Response: "boy"}, now.Add(15*time.Second))
 	s.NextQuiz(q, now.Add(16*time.Second))
+	sig, _ := os.ReadFile(filepath.Join(s.Root, ".signals", "2026-10-07.jsonl"))
+	if !strings.Contains(string(sig), `"latency_ms":5000`) || !strings.Contains(string(sig), `"latency_ms":3000`) || strings.Contains(string(sig), `"latency_ms":0`) {
+		t.Errorf("latencies (a wrong answer must keep its own): %s", sig)
+	}
 	m, _ := os.ReadFile(filepath.Join(s.Root, "lat/mistakes.md"))
 	if !strings.Contains(string(m), "you: boy") {
 		t.Errorf("mistake not listed: %s", m)
