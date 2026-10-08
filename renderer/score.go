@@ -40,7 +40,7 @@ var scoreWorkflowPts = [4]int{ // tasks in the workflow folder
 
 const (
 	scoreCreatedPts   = 1   // points per task created
-	scoreQuizPerMin   = 2.0 // points per minute of quiz time
+	scoreQuizPerMin   = 1.0 // points per minute of quiz time
 	scoreWordsPer     = 20  // new words per point
 	scoreOverduePts   = 10  // points lost per overdue task
 	scoreXPPer        = 30  // quiz XP per point (a correct answer is 10 XP, up to 40 with a combo)
