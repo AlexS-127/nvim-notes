@@ -409,6 +409,13 @@ CHOICE = re.compile(r"^([a-hA-H])[).][ \t]+(.*)$")
 REFERS_TO_LETTERS = re.compile(r"\babove\b|\b[A-H] and [A-H]\b", re.I)
 
 
+def answer_letters(a):
+    """Choice letters of a multiple-choice answer: 'c' -> ['c'], 'a, c' / 'a and c' / 'ac' -> ['a', 'c'].
+    [] when it is not a list of letters."""
+    t = re.sub(r"\band\b|[,;&\s]+", "", a.lower())
+    return list(dict.fromkeys(t)) if t and re.fullmatch(r"[a-h]+", t) else []
+
+
 def load_questions(path):
     """Parse questions.md (format in notes/format/question-format.md) into dicts with keys
     topic, q, choices, a, solution, why, src. A block runs from `Q:` to the next `Q:` or
@@ -421,7 +428,8 @@ def load_questions(path):
         for k in ("q", "a", "solution", "why", "src"):
             cur[k] = textwrap.dedent(cur[k]).strip()
         letters = "abcdefgh"[: len(cur["choices"])]
-        if cur["solution"] or (cur["a"] and (not cur["choices"] or cur["a"].lower() in letters)):
+        picked = answer_letters(cur["a"])
+        if cur["solution"] or (cur["a"] and (not cur["choices"] or (picked and all(x in letters for x in picked)))):
             out.append(cur)
         else:
             bad.append(cur["q"].splitlines()[0][:60] if cur["q"] else "(empty question)")
@@ -462,7 +470,7 @@ def qkind(q):
     if q["solution"]:
         return "problem"
     if q["choices"]:
-        return "mc"
+        return "multi" if len(answer_letters(q["a"])) > 1 else "mc"
     if norm(q["a"]) in ("true", "false"):
         return "tf"
     return "short"
@@ -471,6 +479,19 @@ def qkind(q):
 def short_label(q, n=70):
     first = " ".join(q["q"].split())
     return first if len(first) <= n else first[: n - 1] + "…"
+
+
+def multi_choice(g, n):
+    """Positions picked in a select-all answer ('a,c', 'a c', 'ac', '1 3'); [] if anything is invalid."""
+    picked = set()
+    for tok in re.split(r"[\s,;]+", g.strip()):
+        parts = [tok] if tok.isdigit() else list(tok)
+        for x in parts:
+            i = int(x) - 1 if x.isdigit() else "abcdefgh".find(x)
+            if not 0 <= i < n:
+                return []
+            picked.add(i)
+    return sorted(picked)
 
 
 def ask_question(item, clock):
@@ -492,15 +513,21 @@ def ask_question(item, clock):
             if r == "q":
                 return None
 
-    if kind == "mc":
+    if kind in ("mc", "multi"):
         order = list(range(len(q["choices"])))
         if not any(REFERS_TO_LETTERS.search(c) for c in q["choices"]):
             random.shuffle(order)
         letters = "abcdefgh"
         for i, j in enumerate(order):
             print(f"  {letters[i]}) {q['choices'][j]}")
-        right = order.index(letters.index(q["a"].lower()))
-        prompt, answer = "  → ", f"{letters[right]}) {q['choices'][order[right]]}"
+        rights = sorted(order.index(letters.index(x)) for x in answer_letters(q["a"]))
+        answer = "\n    ".join(f"{letters[r]}) {q['choices'][order[r]]}" for r in rights)
+        if kind == "multi":
+            print("  (select all that apply, e.g. a,c)")
+            prompt = "  → "
+            answer = "\n    " + answer
+        else:
+            prompt = "  → "
         valid = set(letters[: len(order)]) | {str(i + 1) for i in range(len(order))}
     elif kind == "tf":
         prompt, answer, valid = "  [t/f] → ", q["a"].lower(), {"t", "f", "true", "false"}
@@ -512,13 +539,23 @@ def ask_question(item, clock):
         g = guess.lower()
         if g == "q":
             return None
-        if guess == "?" or valid is None or g in valid:
+        if guess == "?":
+            break
+        if kind == "multi":
+            chosen = multi_choice(g, len(order))
+            if chosen:
+                break
+            print("  Answer with letters like a,c; '?' to skip or 'q' to quit.")
+            continue
+        if valid is None or g in valid:
             break
         print("  Answer with " + ("a letter" if kind == "mc" else "t or f") + ", '?' to skip or 'q' to quit.")
     if guess == "?":
         ok = False
+    elif kind == "multi":
+        ok = sorted(chosen) == rights
     elif kind == "mc":
-        ok = g in (letters[right], str(right + 1))
+        ok = g in (letters[rights[0]], str(rights[0] + 1))
     elif kind == "tf":
         ok = g in ("t", "true") if answer == "true" else g in ("f", "false")
     else:
@@ -760,6 +797,19 @@ def cross_questions(subject, topics):
     return out
 
 
+NEGATIVE = re.compile(r"\b(?:NOT|EXCEPT|LEAST)\b")
+NONE_OF = re.compile(r"\b(?:all|none) of the above\b", re.I)
+
+
+def load_revision_bank(path):
+    """A revision bank, minus generated 'which is NOT…' / 'all of the above' questions (they test
+    remembering the odd one out, not the idea; new banks never contain them) while enough others remain."""
+    qs = load_questions(path)
+    keep = [q for q in qs if not (q["choices"] and "[gen]" in q["q"] + q["src"]
+                                  and (NEGATIVE.search(q["q"]) or any(NONE_OF.search(c) for c in q["choices"])))]
+    return keep if len(keep) >= 3 else qs
+
+
 def due_companions(note_id, subject):
     """Other topics due today from the same folder that have a question bank, oldest due first."""
     r = subprocess.run([notesview_bin(), "revise", "--dir", str(NOTES), "--json", "list"],
@@ -807,14 +857,14 @@ def revise(note_id, solo=False):
     title = title_of(note_id)
     stats_path = NOTES / subject / ".quiz_stats.json"
     stats = load_stats(stats_path)
-    qs = load_questions(bank) if bank.exists() else []
+    qs = load_revision_bank(bank) if bank.exists() else []
     for q in qs:
         q["rev_id"] = note_id
     topics = {note_id: title}
     if qs and not solo:
         banks = {}
         for t in due_companions(note_id, subject):
-            more = load_questions(NOTES / ".revision" / "questions" / t["id"])
+            more = load_revision_bank(NOTES / ".revision" / "questions" / t["id"])
             if more:
                 topics[t["id"]] = t.get("title") or title_of(t["id"])
                 for q in more:

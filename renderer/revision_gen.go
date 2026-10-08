@@ -101,6 +101,50 @@ func cleanGenerated(out, title string) string {
 // genGuidance reads the quiz format and the student's guidance on good questions: how to write
 // them is format/revision-questions.md, then format/revision-<subject>.md (both optional, edited by
 // the student); a short built-in version when neither exists.
+var (
+	negativeStemRe = regexp.MustCompile(`\b(NOT|EXCEPT|LEAST)\b`)
+	noneOfRe       = regexp.MustCompile(`(?i)\b(all|none) of the above\b`)
+)
+
+// dropWeakQuestions removes generated questions that test memorising the options instead of the
+// idea: multiple choice with a negative stem ("which is NOT…", "EXCEPT") or "all/none of the above"
+// (the guidance asks for select-all questions instead), and repeats of an earlier question. The
+// heading and the order of the rest are kept.
+func dropWeakQuestions(text string) string {
+	var head []string
+	var blocks [][]string
+	for _, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(l, "Q:") {
+			blocks = append(blocks, nil)
+		}
+		if len(blocks) == 0 {
+			head = append(head, l)
+		} else {
+			blocks[len(blocks)-1] = append(blocks[len(blocks)-1], l)
+		}
+	}
+	seen := map[string]bool{}
+	out := strings.TrimSpace(strings.Join(head, "\n")) + "\n\n"
+	for _, b := range blocks {
+		stem, choices := strings.TrimSpace(strings.TrimPrefix(b[0], "Q:")), false
+		weak := false
+		for _, l := range b[1:] {
+			t := strings.TrimSpace(l)
+			if len(t) > 2 && t[1] == ')' && t[0] >= 'a' && t[0] <= 'h' {
+				choices = true
+				weak = weak || noneOfRe.MatchString(t)
+			}
+		}
+		key := strings.ToLower(stem)
+		if (choices && (weak || negativeStemRe.MatchString(stem))) || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out += strings.TrimRight(strings.Join(b, "\n"), "\n") + "\n\n"
+	}
+	return strings.TrimSpace(out) + "\n"
+}
+
 func (s *Store) genGuidance(subject string) (spec, guide string) {
 	read := func(name string) string {
 		b, _ := os.ReadFile(filepath.Join(s.Root, "format", name))
@@ -176,7 +220,7 @@ func (s *Store) GenerateQuestions(id string, now time.Time) (int, error) {
 		_ = s.setGen(id, RevisionGen{Status: "failed", At: now.Format(scoreStamp), Error: firstLine(msg)})
 		return 0, fmt.Errorf("claude: %s", firstLine(msg))
 	}
-	text := cleanGenerated(out.String(), tp.Title)
+	text := dropWeakQuestions(cleanGenerated(out.String(), tp.Title))
 	n := countQuestionBlocks(text)
 	if n < revMinQuestions {
 		err := fmt.Errorf("claude wrote %d usable questions (need %d)", n, revMinQuestions)

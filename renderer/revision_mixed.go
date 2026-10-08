@@ -158,7 +158,7 @@ func (s *Store) GenerateMixed(subject string, members []Topic, now time.Time) (i
 		}
 		return 0, fmt.Errorf("claude: %s", firstLine(msg))
 	}
-	text := cleanGenerated(out.String(), "Mixed · "+subject)
+	text := dropWeakQuestions(cleanGenerated(out.String(), "Mixed · "+subject))
 	n := countQuestionBlocks(text)
 	if n < revMinQuestions {
 		return 0, fmt.Errorf("claude wrote %d usable questions (need %d)", n, revMinQuestions)
