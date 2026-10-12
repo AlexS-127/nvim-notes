@@ -465,91 +465,161 @@ local function label_items()
   return items
 end
 
--- ── Reading ───────────────────────────────────────────────────────
--- Books being read come with the stats (/api/activity `reading`); logging and adding go through
--- `notesview read` (works on the files, no server). `l` logs pages for the first book, Enter on a
--- line for that one; `b` adds a book to the to-read list. Pages score (see reading.go).
-local function nv_read(args, done)
-  local cmd = { "notesview", "read", "--dir", NOTES }
-  vim.list_extend(cmd, args)
-  vim.system(cmd, { text = true, env = { NOTES_DIR = NOTES } }, function(r)
-    vim.schedule(function()
-      local msg = vim.trim((r.code == 0 and r.stdout or r.stderr) or "")
-      vim.notify(msg ~= "" and msg or "notesview read failed", r.code == 0 and vim.log.levels.INFO or vim.log.levels.WARN)
-      load_stats()
-      if done then done(r.code == 0) end
-    end)
-  end)
+-- ── Goals (SMART) ─────────────────────────────────────────────────
+-- Kept in ~/notes/.goals/goals.json (committed with the notes; no server, no points). `G` sets a goal
+-- with one prompt per letter: Specific (the goal), Measurable (how you'll know it's done), Achievable
+-- (the plan), Relevant (why it matters), Time-bound (the deadline). Open goals are listed soonest
+-- deadline first; Enter on one shows it, marks it done, edits or deletes it.
+local GOALS = NOTES .. "/.goals/goals.json"
+local goals = {}
+
+local function load_goals()
+  local f = io.open(GOALS, "r")
+  local text = f and f:read("*a") or ""
+  if f then f:close() end
+  local ok, decoded = pcall(vim.json.decode, text, { luanil = { object = true, array = true } })
+  goals = (ok and type(decoded) == "table") and decoded or {}
 end
 
-local function reading_books()
-  local r = stats and stats.reading
-  return (type(r) == "table" and type(r.reading) == "table") and r.reading or {}
+-- one goal per line so the file diffs well; written to a temp file, then renamed over the old one
+local function save_goals()
+  vim.fn.mkdir(vim.fn.fnamemodify(GOALS, ":h"), "p")
+  local lines = {}
+  for i, g in ipairs(goals) do lines[i] = "  " .. vim.json.encode(g) end
+  local f = io.open(GOALS .. ".tmp", "w")
+  if not f then return vim.notify("Can't write " .. GOALS, vim.log.levels.ERROR) end
+  f:write("[\n" .. table.concat(lines, ",\n") .. "\n]\n")
+  f:close()
+  os.rename(GOALS .. ".tmp", GOALS)
 end
 
--- "20" = pages read, "p150" (or "@150") = now on page 150, "=150" = already on page 150 (no points)
-local function log_pages(b)
-  b = b or reading_books()[1]
-  if not b then
-    -- nothing on the go: pick one from the list (logging its first pages starts it)
-    local r = vim.system({ "notesview", "read", "--dir", NOTES, "--json", "list" }, { text = true, env = { NOTES_DIR = NOTES } }):wait()
-    local ok, list = pcall(vim.json.decode, r.stdout or "")
-    local open = {}
-    for _, x in ipairs((ok and type(list) == "table") and list or {}) do
-      if x.status ~= "read" then open[#open + 1] = x end
+local function noon(date)
+  local y, mo, d = tostring(date):match("^(%d+)-(%d+)-(%d+)$")
+  return y and os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = 12 })
+end
+
+-- "2026-12-01", "12-01" (the next one), "10d", "2w", "3m" → "YYYY-MM-DD", today or later; nil otherwise
+local function parse_deadline(s)
+  s = vim.trim(s or ""):lower()
+  local today = os.date("%Y-%m-%d")
+  local t = os.date("*t")
+  t.hour = 12
+  local n, unit = s:match("^(%d+)%s*([dwm])$")
+  if n then
+    if unit == "m" then t.month = t.month + tonumber(n) else t.day = t.day + tonumber(n) * (unit == "w" and 7 or 1) end
+    return os.date("%Y-%m-%d", os.time(t))
+  end
+  local y, mo, d = s:match("^(%d%d%d%d)-(%d%d?)-(%d%d?)$")
+  if not y then
+    mo, d = s:match("^(%d%d?)-(%d%d?)$")
+    y = t.year
+  end
+  if not mo then return nil end
+  local date = ("%04d-%02d-%02d"):format(y, mo, d)
+  if not s:match("^%d%d%d%d") and date < today then date = ("%04d-%02d-%02d"):format(y + 1, mo, d) end
+  if not noon(date) or os.date("%Y-%m-%d", noon(date)) ~= date or date < today then return nil end
+  return date
+end
+
+local function days_left(due)
+  local a, b = noon(due), noon(os.date("%Y-%m-%d"))
+  return (a and b) and math.floor((a - b) / 86400 + 0.5) or 0
+end
+
+local function open_goals()
+  local out = {}
+  for _, g in ipairs(goals) do
+    if not g.done then out[#out + 1] = g end
+  end
+  table.sort(out, function(a, b) return (a.due or "") < (b.due or "") end)
+  return out
+end
+
+local SMART = {
+  { "specific", "S · Specific: what exactly will you do? " },
+  { "measurable", "M · Measurable: how will you know it's done? (a number or a clear finish line) " },
+  { "achievable", "A · Achievable: how will you get there? (the plan, the time it takes) " },
+  { "relevant", "R · Relevant: why does it matter to you? " },
+  { "due", "T · Time-bound: by when? (YYYY-MM-DD, MM-DD, 10d, 2w, 3m) " },
+}
+
+-- `g` given: edit it (each prompt starts with the current answer); else a new goal
+local function set_goal(g)
+  local got = {}
+  local function step(i)
+    if i > #SMART then
+      if g then
+        for k, v in pairs(got) do g[k] = v end
+      else
+        local id = 0
+        for _, x in ipairs(goals) do id = math.max(id, tonumber(x.id) or 0) end
+        got.id, got.created = id + 1, os.date("%Y-%m-%dT%H:%M:%S")
+        goals[#goals + 1] = got
+      end
+      save_goals()
+      refresh()
+      return vim.notify(("Goal %s: %s (by %s)"):format(g and "updated" or "set", got.specific, got.due))
     end
-    if #open == 0 then return vim.notify("No books to read: add one with b", vim.log.levels.INFO) end
-    return vim.ui.select(open, { prompt = "Start reading", format_item = function(x) return x.title .. " — " .. x.author end },
-      function(x) if x then log_pages(x) end end)
-  end
-  vim.ui.input({ prompt = ("Pages read in %s (p150 = on page 150, =150 = already there, no points): "):format(b.title) }, function(v)
-    v = vim.trim(v or "")
-    if v == "" then return end
-    local at = v:match("^=%s*(%d+)$")
-    if at then return nv_read({ "at", tostring(b.id), at }) end
-    local to = v:match("^[pP@](%d+)$")
-    if to then return nv_read({ "log", tostring(b.id), "--to", to }) end
-    if not v:match("^[+-]?%d+$") or tonumber(v) == 0 then return vim.notify("Type a number of pages, or p150", vim.log.levels.WARN) end
-    nv_read({ "log", tostring(b.id), (v:gsub("^%+", "")) })
-  end)
-end
-
-local function add_book()
-  vim.ui.input({ prompt = "Title: " }, function(title)
-    title = vim.trim(title or "")
-    if title == "" then return end
-    vim.ui.input({ prompt = "Author: " }, function(author)
-      author = vim.trim(author or "")
-      if author == "" then return vim.notify("A book needs an author", vim.log.levels.WARN) end
-      vim.ui.input({ prompt = "Pages (optional): " }, function(pages)
-        pages = vim.trim(pages or "")
-        if pages ~= "" and not pages:match("^%d+$") then return vim.notify("Pages must be a number", vim.log.levels.WARN) end
-        vim.ui.input({ prompt = "Already on page (optional, started before tracking; no points): " }, function(at)
-          at = vim.trim(at or "")
-          if at ~= "" and not at:match("^%d+$") then return vim.notify("Page must be a number", vim.log.levels.WARN) end
-          local args = { "add", title, author }
-          if pages ~= "" then args[#args + 1] = pages end
-          if at ~= "" and at ~= "0" then vim.list_extend(args, { "--at", at }) end
-          nv_read(args)
-        end)
-      end)
+    local key, prompt = SMART[i][1], SMART[i][2]
+    vim.ui.input({ prompt = prompt, default = g and g[key] or nil }, function(v)
+      v = vim.trim(v or "")
+      if v == "" then
+        if i > 1 then vim.notify("Goal not saved: a SMART goal needs all five answers", vim.log.levels.WARN) end
+        return
+      end
+      if key == "due" then
+        local due = parse_deadline(v)
+        if not due then
+          vim.notify("A deadline from today on: YYYY-MM-DD, MM-DD, 10d, 2w or 3m", vim.log.levels.WARN)
+          return step(i)
+        end
+        v = due
+      end
+      got[key] = v
+      step(i + 1)
     end)
+  end
+  step(1)
+end
+
+local function goal_menu(g)
+  vim.ui.select({ "Show", "Done", "Edit", "Delete" }, { prompt = g.specific }, function(c)
+    if c == "Show" then
+      vim.notify(("S  %s\nM  %s\nA  %s\nR  %s\nT  %s (%d days)"):format(
+        g.specific, g.measurable or "", g.achievable or "", g.relevant or "", g.due or "", days_left(g.due)))
+    elseif c == "Done" then
+      g.done = os.date("%Y-%m-%d")
+      save_goals()
+      vim.notify("Goal done: " .. g.specific)
+    elseif c == "Edit" then
+      return set_goal(g)
+    elseif c == "Delete" then
+      for i, x in ipairs(goals) do
+        if x == g then table.remove(goals, i) break end
+      end
+      save_goals()
+      vim.notify("Goal deleted: " .. g.specific)
+    end
+    refresh()
   end)
 end
 
-local function book_label(b, w)
-  local prog = (b.pages or 0) > 0 and ("%d%% (%d/%d)"):format(b.pct, b.page, b.pages) or ("%d pages"):format(b.page or 0)
-  local tail = cut("  · " .. prog, w - 10)
-  return fit(cut(("%s — %s"):format(b.title, b.author), w - vim.fn.strdisplaywidth(tail)) .. tail, w)
+local function goal_label(g, w)
+  local n = days_left(g.due)
+  local when = n < 0 and ("overdue %dd"):format(-n) or n == 0 and "today" or ("%dd left"):format(n)
+  local y, mo, d = tostring(g.due):match("(%d+)-(%d+)-(%d+)")
+  local by = y and os.date("%b %d", os.time({ year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = 12 })) or "?"
+  local tail = cut(("  · by %s (%s)"):format(by, when), w - 10)
+  return fit(cut(g.specific or "", w - vim.fn.strdisplaywidth(tail)) .. tail, w)
 end
 
-local function reading_items()
-  local books, w, items = reading_books(), next_width(), {}
-  for i = 1, math.min(2, #books) do
-    local b = books[i]
-    -- only the first line has a key; the other is reached with the cursor and Enter
-    items[i] = { name = (i == 1 and "l  " or "   ") .. book_label(b, w - 3), section = "Reading", action = function() log_pages(b) end }
+local function goal_items()
+  local w, items = next_width(), {}
+  -- no key on the goal lines: reach them with the cursor and press Enter
+  for _, g in ipairs(open_goals()) do
+    items[#items + 1] = { name = "   " .. goal_label(g, w - 3), section = "Goals", action = function() goal_menu(g) end }
   end
+  items[#items + 1] = { name = "G  " .. fit("Set a SMART goal", w - 3), section = "Goals", action = function() set_goal() end }
   return items
 end
 
@@ -693,7 +763,6 @@ local actions = {
   { "o", "Go to folder", function() feed("<leader>nF") end },
   { "g", "Search notes", function() feed("<leader>ng") end },
   { "s", "Study (vocab quiz)", run_quiz },
-  { "b", "Add a book", add_book },
   { "r", "Restart renderer (rebuild)", restart_renderer },
   { "q", "Terminal", function() vim.cmd("qa") end },
 }
@@ -730,11 +799,12 @@ function M.setup()
   load_revision()
   load_labels()
   load_helper()
+  load_goals()
   load_stats()
 
   starter.setup({
     header = header,
-    items = { routine_items, class_items, revision_items, label_items, reading_items, task_items, action_items },
+    items = { routine_items, class_items, revision_items, label_items, goal_items, task_items, action_items },
     footer = "",
     content_hooks = { split_keys, starter.gen_hook.aligning("center", "center") },
   })
@@ -770,8 +840,8 @@ function M.setup()
   })
 
   -- fresh tasks and numbers when you come back; the numbers also tick over once a minute while the page is up
-  vim.api.nvim_create_autocmd("FocusGained", { callback = function() load_tasks(); load_classes(); load_routine(); load_revision(); load_labels(); load_helper(); load_stats() end })
-  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = function() load_classes(); load_routine(); load_revision(); load_labels(); load_stats() end })
+  vim.api.nvim_create_autocmd("FocusGained", { callback = function() load_tasks(); load_classes(); load_routine(); load_revision(); load_labels(); load_helper(); load_goals(); load_stats() end })
+  vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = function() load_classes(); load_routine(); load_revision(); load_labels(); load_goals(); load_stats() end })
   -- time on the start page is a signal (lua/signals.lua)
   vim.api.nvim_create_autocmd("User", { pattern = "MiniStarterOpened", callback = function(ev)
     pcall(function() require("signals").emit("start_enter") end)
@@ -789,7 +859,7 @@ function M.setup()
     callback = function(ev)
       local function bmap(key, fn) vim.keymap.set("n", key, fn, { buffer = ev.buf, nowait = true, silent = true }) end
       for _, a in ipairs(actions) do bmap(a[1], a[3]) end
-      bmap("l", function() log_pages() end)
+      bmap("G", function() set_goal() end)
       bmap("m", routine_next)
       bmap("M", routine_end)
       bmap("p", revise_next)

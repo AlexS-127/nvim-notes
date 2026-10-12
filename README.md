@@ -262,12 +262,24 @@ Every day the Activity view (top card) and the Neovim start page (top section) s
 
 CLI: `notesview routine [show | tick ITEM | untick ITEM | forecast SCORE | end]` (ITEM = id, number or start of the label).
 
+## Goals (SMART)
+
+The Neovim start page has a **Goals** section above *Next up*. `G` sets a goal, one prompt per letter:
+
+- **S**pecific: what exactly you will do
+- **M**easurable: how you will know it's done
+- **A**chievable: how you will get there
+- **R**elevant: why it matters
+- **T**ime-bound: the deadline: `2026-12-01`, `12-01` (the next one), `10d`, `2w` or `3m`
+
+All five are needed (Enter on an empty answer cancels). Open goals are listed soonest deadline first with the days left (or overdue); Enter on one shows it in full, marks it done, edits it (each prompt starts with the current answer) or deletes it. Goals are in `<notes>/.goals/goals.json` (committed with your notes); they score no points.
+
 ## Reading list and log
 
 The **Reading** page (sidebar button, or `r` in the viewer) keeps books to read, being read and read. Adding a book needs a title and an author; the number of pages is optional and gives a % read.
 
-- **Log pages** in the box next to a book: `20` = pages just read, `p150` = "I'm on page 150" (a negative number corrects an overcount). Each page logged scores 1 point (`scoreReadPagesPer` in `score.go`). Started a book before tracking it? Put the page you're on in *Already on page* when adding it, or type `=150` in its log box (start page too): that sets the bookmark without scoring. A book with a page count is finished when you reach its last page; *Finished* marks any book read without logging pages.
-- **From home:** the Activity view has a Reading card (same log box) and a Pages read tile; the Neovim start page lists the books being read with their %, `l` logs pages (Enter on a book's line for that book), `b` adds a book.
+- **Log pages** in the box next to a book: `20` = pages just read, `p150` = "I'm on page 150" (a negative number corrects an overcount). Each page logged scores 1 point (`scoreReadPagesPer` in `score.go`). Started a book before tracking it? Put the page you're on in *Already on page* when adding it, or type `=150` in its log box: that sets the bookmark without scoring. A book with a page count is finished when you reach its last page; *Finished* marks any book read without logging pages.
+- **From home:** the Activity view has a Reading card (same log box) and a Pages read tile. (The Neovim start page no longer has a Reading section.)
 - Books are in `<notes>/.reading/books.json`, logged pages in the append-only `.reading/log.jsonl` (both committed with your notes). Removing a book keeps its points.
 
 CLI: `notesview read [list | add "TITLE" "AUTHOR" [PAGES] | log [BOOK] PAGES | log [BOOK] --to PAGE | at [BOOK] PAGE | start | done | later | pages BOOK N | remove] BOOK` (BOOK = id or the start of the title).
