@@ -750,12 +750,20 @@ function run_quiz(args)   -- the local declared in the Revision section
   end
 end
 
+-- Quiz on a topic now (not a revision): Claude writes the questions from the matching notes (quiz.py --topic)
+local function quiz_topic()
+  vim.ui.input({ prompt = "Quiz me on (a topic): " }, function(text)
+    text = vim.trim(text or "")
+    if text ~= "" then run_quiz({ "--topic", text }) end
+  end)
+end
+
 -- ── One-key actions ──────────────────────────────────────────────
 local actions = {
   { "t", "Task list", function() feed("<leader>no") end },
   { "a", "Check in to class", check_in },
   { "v", "Capture a task", function() feed("<leader>ni") end },
-  { "c", "Claude (in ~)", function() feed("<leader>nC") end },
+  { "c", "Claude (pick folder)", function() feed("<leader>nC") end },
   { "e", "Inbox", function() feed("<leader>nI") end },
   { "d", "Today's note", function() feed("<leader>nd") end },
   { "n", "New note", function() feed("<leader>nn") end },
@@ -763,6 +771,7 @@ local actions = {
   { "o", "Go to folder", function() feed("<leader>nF") end },
   { "g", "Search notes", function() feed("<leader>ng") end },
   { "s", "Study (vocab quiz)", run_quiz },
+  { "y", "Quiz on a topic", quiz_topic },
   { "r", "Restart renderer (rebuild)", restart_renderer },
   { "q", "Terminal", function() vim.cmd("qa") end },
 }

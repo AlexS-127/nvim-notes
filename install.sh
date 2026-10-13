@@ -98,6 +98,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   say "Removing the custom.css link"
   unlink_file "$REPO_DIR/notesview/custom.css" "$NV_CONFIG_DIR/custom.css"
   unlink_file "$REPO_DIR/quiz/quiz.py" "$NOTES_HOME/quiz.py"
+  unlink_file "$REPO_DIR/quiz/ingest.py" "$NOTES_HOME/ingest.py"
   say "Removing shell alias and inbox command"
   for f in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do remove_block "$f"; done
   say "Removing Neovim plugin data"
@@ -219,6 +220,7 @@ fi
 mkdir -p "$NOTES_HOME"
 say "Linking the vocab quiz (quiz.py) into $NOTES_HOME"
 link_file "$REPO_DIR/quiz/quiz.py" "$NOTES_HOME/quiz.py"
+link_file "$REPO_DIR/quiz/ingest.py" "$NOTES_HOME/ingest.py"
 
 RC="$(rc_file)"
 touch "$RC"
@@ -235,7 +237,7 @@ done
   cat <<'SHELL'
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
 # notes: open today's note. If nvim quits to run claude (start page c, task picker Shift+Enter),
-# claude runs here in ~ with the prompt nvim left in $NVIM_NOTES_CLAUDE.
+# claude runs here in the folder (default ~) and with the prompt nvim left in $NVIM_NOTES_CLAUDE.
 unalias notes 2>/dev/null
 notes() {
   cd "${NOTES_DIR:-$HOME/notes}" || return
@@ -244,7 +246,11 @@ notes() {
   NVIM_NOTES_CLAUDE="$h" nvim +Today "$@"
   [ -e "$h" ] || return 0
   p="$(<"$h")"; rm -f "$h"
-  cd ~ && if [ -n "$p" ]; then claude "$p"; else claude; fi
+  # first line of the handoff = folder to run claude in, the rest = the first message
+  local d="${p%%$'\n'*}" msg=""
+  [[ "$p" == *$'\n'* ]] && msg="${p#*$'\n'}"
+  cd "${d:-$HOME}" 2>/dev/null || cd ~
+  if [ -n "$msg" ]; then claude "$msg"; else claude; fi
 }
 # inbox [text]: capture a task to inbox.md — asks for the text (unless given), a folder (fzf) and a due date
 inbox() { notesview capture -i -- "$@"; }

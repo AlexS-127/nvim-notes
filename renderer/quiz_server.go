@@ -13,7 +13,7 @@ import (
 //   GET  /api/quiz                 subjects to practise, notes due for revision
 //   GET  /api/quiz/stats?subject=  every word / question with its record (the stats table)
 //   GET  /api/quiz/session?id=     a session's state (to resume after a reload)
-//   POST /api/quiz/start           {mode: practice|revise, subject, group, dir, focused, personal, id, solo}
+//   POST /api/quiz/start           {mode: practice|revise|topic, subject, group, dir, focused, personal, id, solo, topic, count}
 //   POST /api/quiz/answer          {session, response | choices | reveal | grade, percent | skip}
 //   POST /api/quiz/override        {session}: "Actually right?"
 //   POST /api/quiz/next            {session}: confirm the last answer, next card
@@ -37,7 +37,8 @@ func (s *Server) quizRoutes(mux *http.ServeMux) {
 		if subs == nil {
 			subs = []QuizSubject{}
 		}
-		writeJSON(w, map[string]any{"subjects": subs, "due": ds, "points": scoreRevisionPts})
+		classes, notes := s.store.TopicChoices()
+		writeJSON(w, map[string]any{"subjects": subs, "due": ds, "points": scoreRevisionPts, "topic_classes": classes, "topic_notes": notes})
 	})
 	mux.HandleFunc("/api/quiz/stats", func(w http.ResponseWriter, r *http.Request) {
 		sub := r.URL.Query().Get("subject")

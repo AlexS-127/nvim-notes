@@ -1,4 +1,4 @@
-// Quiz tab (#/quiz, key q): practise a course's vocab or question bank, or revise a scheduled note, in the
+// Quiz tab (#/quiz, key q): practise a course's vocab or question bank, revise a scheduled note or be quizzed on a topic, in the
 // viewer. The engine is the server's (quiz.go, quiz_session.go: same files and stats as quiz.py), so this
 // page only shows cards and sends answers. A running session's id is kept in the URL (#/quiz?s=ID), so a
 // reload resumes it. app.js calls in through window.nvQuiz with its own helpers (env).
@@ -13,6 +13,7 @@
 
   let env = null;
   let S = null;        // { state, result, picked: Set, revealed, recallShown, busy }
+  let topicNotes = [];  // notes offered in the topic box
   let lastStart = null; // the request that started the session (for "Again")
   let idle = { key: "", timer: 0, on: false }; // the open card goes idle after its cut-off (card.cap seconds)
   const capWords = (s) => (s >= 120 ? `${Math.round(s / 60)} min` : `${s} s`);
@@ -25,6 +26,18 @@
     const due = d.due.length ? `<ul class="qz-due">${d.due.map((t) => `<li><span><b>${esc(t.title)}</b><small>${esc(t.subject)}${t.count ? ` · revision ${t.count + 1}` : " · first revision"}${t.questions ? "" : " · recall"}</small></span>
         <button class="qz-btn on" data-revise="${esc(t.id)}">Start  +${d.points}</button></li>`).join("")}</ul>`
       : `<p class="act-note">Nothing is due for revision today.</p>`;
+    topicNotes = d.topic_notes || [];
+    const tp = prefs._topic || {};
+    const topicBox = `<form class="qz-subject qz-topic">
+        <div class="qz-opts">
+          <input data-t="topic" list="qz-notes" size="32" autocomplete="off" spellcheck="false" placeholder="a topic, or pick a note" aria-label="Topic">
+          <datalist id="qz-notes">${topicNotes.map((n) => `<option value="${esc(n.title)}" label="${esc(n.id)}"></option>`).join("")}</datalist>
+          <select data-t="class" aria-label="Class"><option value="">Any class</option>${(d.topic_classes || []).map((c) => `<option${tp.cls === c ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>
+          <select data-t="count" aria-label="Questions">${[5, 10, 15, 20].map((n) => `<option value="${n}"${(tp.count || 10) === n ? " selected" : ""}>${n} questions</option>`).join("")}</select>
+          <button class="qz-btn on" data-topic>Quiz me</button>
+        </div>
+        <p class="act-note">Claude writes the questions now from your notes on the topic (or general knowledge when none match), so it takes up to a minute. Not a revision: nothing is scheduled. XP and quiz time count as usual.</p>
+      </form>`;
     const subj = d.subjects.map((s) => {
       const p = prefs[s.name] || {};
       return `<section class="qz-subject" data-subject="${esc(s.name)}">
@@ -39,8 +52,25 @@
     }).join("");
     note.innerHTML = `<h1>Quiz</h1>
       <h2>Revise</h2>${due}
+      <h2>Quiz me on a topic</h2>${topicBox}
       <h2>Practise</h2>${subj || `<p class="act-note">No <code>definitions.md</code> or <code>questions.md</code> in any folder yet.</p>`}
       <p class="act-note">Same questions, stats and XP as the terminal quiz. Keys in a quiz: Enter checks and goes on, letters or 1-8 pick a choice, y = "Actually right?", ? skips, Esc ends.</p>`;
+  }
+
+  // a topic quiz: the notes box takes a free topic; a note's title picks that note
+  async function topicStart(form, given) {
+    const v = (k) => (form ? form.querySelector(`[data-t="${k}"]`).value.trim() : "");
+    const topic = given ? given.topic : v("topic");
+    if (!topic && !(given && given.id)) return env.toast("Type a topic first");
+    const hit = !given && topicNotes.find((n) => n.title.toLowerCase() === topic.toLowerCase());
+    const req = given ? { mode: "topic", topic, id: given.id || "", subject: given.subject || "", count: 10 }
+      : { mode: "topic", topic, id: hit ? hit.id : "", subject: v("class"), count: Number(v("count")) || 10 };
+    const btn = form && form.querySelector("[data-topic]");
+    if (btn) { btn.disabled = true; btn.textContent = "Writing questions…"; }
+    else env.note.innerHTML = `<h1>Quiz</h1><p class="act-note">Writing questions on ${esc(topic || given.id)}… (up to a minute)</p>`;
+    if (!given) { try { const p = JSON.parse(env.store.get("quizPrefs", "{}")) || {}; p._topic = { cls: req.subject, count: req.count }; env.store.set("quizPrefs", JSON.stringify(p)); } catch (err) {} }
+    if (!(await start(req)) && !btn) home();
+    else if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = "Quiz me"; }
   }
 
   async function start(req) {
@@ -52,7 +82,8 @@
       const cur = env.current();  // a refresh (file changes after each answer) re-renders this route: keep the session
       if (cur && cur.view === "quiz") { cur.session = r.state.id; cur.revise = ""; }
       draw();
-    } catch (e) { env.toast(msg(e)); }
+      return true;
+    } catch (e) { env.toast(msg(e)); return false; }
   }
 
   // ── a running session ──
@@ -265,6 +296,7 @@
     }
     env.note.dataset.statsFor = "";
     if (r.revise) { history.replaceState(history.state, "", "#/quiz"); return start({ mode: "revise", id: r.revise }); }
+    if (r.topic || r.tnote) { history.replaceState(history.state, "", "#/quiz"); return topicStart(null, { topic: r.topic, id: r.tnote, subject: r.tclass }); }
     await home();
   }
 
@@ -276,6 +308,7 @@
       const t = ev.target, q = (sel) => t.closest && t.closest(sel);
       let b;
       if ((b = q("[data-revise]"))) return start({ mode: "revise", id: b.dataset.revise });
+      if (q("[data-topic]")) { ev.preventDefault(); return topicStart(q("form")); }
       if ((b = q("[data-practise]"))) {
         const sec = b.closest(".qz-subject"), name = sec.dataset.subject, f = (k) => sec.querySelector(`[data-f="${k}"]`);
         const req = { mode: "practice", subject: name, group: f("group").value, dir: f("dir") ? Number(f("dir").value) : 0, focused: f("mode").value === "focused", personal: f("mode").value === "personal" };

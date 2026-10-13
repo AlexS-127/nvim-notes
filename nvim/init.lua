@@ -716,24 +716,53 @@ local function task_actions(item)
   end
 end
 
--- Run claude from ~ outside nvim (optionally with a first message). Without a launcher it runs through `:!`
--- instead and returns to nvim afterwards. The launcher (ghostty-nvim, or the
--- `notes` shell function) sets $NVIM_NOTES_CLAUDE to a file path; nvim writes the prompt there and
--- quits, then the launcher runs claude in the real terminal and leaves a normal shell when it exits.
-local function open_claude(prompt)
+-- Folders offered by `c` / <Space>nC to start claude in (Enter = ~). Missing ones are not listed.
+local CLAUDE_DIRS = { "~/nvim-notes", "~/jam-frog", "~/econ-tree", "~/notes", "~/Desktop/Emory" }
+
+-- One-keypress menu of CLAUDE_DIRS: a number picks that folder, Enter is ~, anything else cancels.
+local function ask_claude_dir(cb)
+  local dirs = {}
+  for _, d in ipairs(CLAUDE_DIRS) do
+    if vim.fn.isdirectory(vim.fn.expand(d)) == 1 then dirs[#dirs + 1] = d end
+  end
+  local chunks = { { "Claude in: ", "Question" } }
+  for i, d in ipairs(dirs) do
+    chunks[#chunks + 1] = { "[" .. i .. "] ", "Special" }
+    chunks[#chunks + 1] = { d .. "  ", "Normal" }
+  end
+  chunks[#chunks + 1] = { "[Enter] ~", "Special" }
+  vim.api.nvim_echo(chunks, false, {})
+  vim.cmd("redraw")
+  local ok, c = pcall(vim.fn.getcharstr)
+  vim.cmd("echo ''")
+  if not ok then return end
+  if c == "\r" or c == "\n" then return cb("~") end
+  local d = dirs[tonumber(c) or 0]
+  if d then cb(d) end
+end
+
+-- Run claude outside nvim (optionally with a first message), from `dir` (default ~). Without a launcher it
+-- runs through `:!` instead and returns to nvim afterwards. The launcher (ghostty-nvim, or the
+-- `notes` shell function) sets $NVIM_NOTES_CLAUDE to a file path; nvim writes the folder on its first line and
+-- the prompt after it, and quits, then the launcher runs claude in the real terminal and leaves a normal
+-- shell when it exits.
+local function open_claude(prompt, dir)
+  dir = vim.fn.expand(dir or "~")
   pcall(function() require("signals").emit("claude") end)
   local handoff = vim.env.NVIM_NOTES_CLAUDE
   if not handoff or handoff == "" then
     -- Not started through a launcher (plain `nvim`, restored window, ...): run claude in this terminal
     -- from ~ with `:!` and come back to nvim when it exits.
     pcall(vim.cmd, "silent! wall")
-    local cmd = 'cd ~ && PATH="$HOME/.local/bin:$PATH" claude'
+    local cmd = "cd " .. vim.fn.shellescape(dir) .. ' && PATH="$HOME/.local/bin:$PATH" claude'
     if prompt and prompt ~= "" then cmd = cmd .. " " .. vim.fn.shellescape(prompt) end
     vim.cmd("!" .. vim.fn.escape(cmd, "!%#"))
     return vim.cmd("redraw!")
   end
   pcall(vim.cmd, "silent! wall")
-  if vim.fn.writefile(vim.split(prompt or "", "\n", { plain = true }), handoff) ~= 0 then
+  local lines = vim.split(prompt or "", "\n", { plain = true })
+  table.insert(lines, 1, dir)
+  if vim.fn.writefile(lines, handoff) ~= 0 then
     return vim.notify("claude: can't write " .. handoff, vim.log.levels.ERROR)
   end
   local ok, err = pcall(vim.cmd, "qa")
@@ -873,6 +902,25 @@ end
 vim.api.nvim_create_user_command("Revise", revise_cmd("add"), {})
 vim.api.nvim_create_user_command("ReviseRemove", revise_cmd("remove"), {})
 
+-- Question inbox (notesview ask): `:Ask [class]` saves the buffer and has Claude answer the class's ask.md into its
+-- questions.md and under each question in ask.md (class = the argument, else the folder of the current note). Runs in the background.
+vim.api.nvim_create_user_command("Ask", function(o)
+  local subject = o.args ~= "" and o.args or nil
+  local file = vim.api.nvim_buf_get_name(0)
+  if not subject and vim.startswith(file, NOTES .. "/") then subject = file:sub(#NOTES + 2):match("^([^/]+)/") end
+  if not subject then return vim.notify("Ask: say which class, e.g. :Ask oam331", vim.log.levels.WARN) end
+  if vim.fn.executable("notesview") == 0 then return vim.notify("notesview is not installed — run ./install.sh", vim.log.levels.WARN) end
+  if vim.bo.modified and vim.startswith(file, NOTES .. "/") then vim.cmd("silent! write") end
+  vim.notify("Asking Claude about " .. subject .. " … (up to a few minutes)")
+  vim.system({ "notesview", "ask", subject }, { text = true, env = nv_env() }, function(r)
+    vim.schedule(function()
+      vim.cmd("silent! checktime")
+      local msg = vim.trim((r.stdout or "") .. " " .. (r.stderr or ""))
+      vim.notify(msg ~= "" and msg or "Ask finished", r.code == 0 and vim.log.levels.INFO or vim.log.levels.WARN)
+    end)
+  end)
+end, { nargs = "?" })
+
 -- ── Global shortcuts ─────────────────────────────────────────────
 local map = vim.keymap.set
 map("n", "<leader>nn", function()
@@ -909,7 +957,7 @@ map("n", "<leader>o", function()
   if NV.follow then NV.shown = nil end
 end, { desc = "Toggle viewer follow mode" })
 map("n", "<leader>nt", function() notesview({ "open", "--tasks" }) end, { desc = "Open Tasks view" })
-map("n", "<leader>nC", function() open_claude() end, { desc = "Claude (in ~, quits nvim)" })
+map("n", "<leader>nC", function() ask_claude_dir(function(dir) open_claude(nil, dir) end) end, { desc = "Claude (pick a folder, Enter = ~; quits nvim)" })
 map("n", "<leader>?", function() Snacks.picker.keymaps() end, { desc = "Search all shortcuts" })
 map("n", "<leader>w", "<cmd>write<cr>", { desc = "Save" })
 map("n", "<leader>q", "<cmd>quit<cr>", { desc = "Quit window" })

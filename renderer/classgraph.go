@@ -159,7 +159,7 @@ var (
 	graphHeadRe  = regexp.MustCompile(`^(#{1,4})[ \t]+(.+?)[ \t#]*$`)
 	graphWiki2Re = regexp.MustCompile(`\[\[([^\]|#]+)(?:#([^\]|]*))?(?:\|[^\]]*)?\]\]`)
 	graphMd2Re   = regexp.MustCompile(`\]\(([^)#\s]+\.md)(?:#([^)]*))?\)`)
-	graphFieldRe = regexp.MustCompile(`^(Q|A|Why|Src|Solution):[ \t]?(.*)$`)
+	graphFieldRe = regexp.MustCompile(`^(Q|A|Why|Src|Solution|Rubric):[ \t]?(.*)$`)
 	graphChoice  = regexp.MustCompile(`^[a-hA-H][).][ \t]+(.*)$`)
 	graphSlugRe  = regexp.MustCompile(`[^a-z0-9]+`)
 )

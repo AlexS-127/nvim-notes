@@ -44,7 +44,7 @@ func defaultPort() int {
 // version is the notesview release. Release builds override it with
 // -ldflags "-X main.version=…". Bump it whenever the Neovim config starts
 // relying on something new (see NOTESVIEW_MIN_VERSION in nvim/init.lua).
-var version = "0.12.0"
+var version = "0.13.0"
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
@@ -100,7 +100,7 @@ func main() {
 		return
 	case "-h", "--help", "help":
 		usage()
-	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words", "calendar", "read", "routine", "revise", "grade", "label", "data":
+	case "tasks", "date", "due", "capture", "folders", "resolve", "daily", "doctor", "themes", "theme", "fonts", "font", "words", "calendar", "read", "routine", "revise", "topic", "ask", "grade", "label", "data":
 		os.Exit(runCommand(cmd, args, os.Stdout, os.Stderr))
 	}
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
@@ -337,6 +337,10 @@ func runCommandIO(cmd string, args []string, stdin io.Reader, stdout, stderr io.
 		return runLabelCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
 	case "revise":
 		return runReviseCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
+	case "topic":
+		return runTopicCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
+	case "ask":
+		return runAskCommand(store, fs.Args(), *asJSON, stdout, stderr)
 	case "routine":
 		return runRoutineCommand(store, fs.Args(), *asJSON, stdout, stderr, now)
 	case "read":

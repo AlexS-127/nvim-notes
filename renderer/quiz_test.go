@@ -306,3 +306,20 @@ func TestQuizPersonalAndStats(t *testing.T) {
 		t.Errorf("status: %v", status)
 	}
 }
+
+func TestQuizEssayRubric(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "questions.md")
+	os.WriteFile(p, []byte("## Long\n\nQ: Why is bottling less profitable than concentrate?\nRubric:\n  - Barriers are lower\n  - 2. Suppliers and buyers squeeze\nSolution:\n  Concentrate is a great business.\nSrc: Cola Wars\n"), 0o644)
+	qs := loadQuizQuestions(p)
+	if len(qs) != 1 {
+		t.Fatalf("want 1 essay, got %d", len(qs))
+	}
+	if k := quizKind(qs[0]); k != "problem" {
+		t.Errorf("an essay is graded like a problem, got %q", k)
+	}
+	for _, want := range []string{"2 in all", "1. Barriers are lower", "2. Suppliers and buyers squeeze", "Model answer:\nConcentrate"} {
+		if !strings.Contains(qs[0].Solution, want) {
+			t.Errorf("solution missing %q:\n%s", want, qs[0].Solution)
+		}
+	}
+}

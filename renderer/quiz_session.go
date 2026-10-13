@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	mrand "math/rand"
@@ -199,6 +200,8 @@ type QuizStart struct {
 	Personal bool   `json:"personal"` // practice: drawn by need (missed, slow, not seen in a while, new)
 	ID       string `json:"id"`       // revise: the note
 	Solo     bool   `json:"solo"`     // revise: no blending
+	Topic    string `json:"topic"`    // topic: what to be quizzed on (free text)
+	Count    int    `json:"count"`    // topic: how many questions
 }
 
 func (s *Store) StartQuiz(req QuizStart, now time.Time) (*QuizSession, error) {
@@ -245,6 +248,10 @@ func (s *Store) StartQuiz(req QuizStart, now time.Time) (*QuizSession, error) {
 		if err := s.planRevision(q, req.ID, req.Solo, now); err != nil {
 			return nil, err
 		}
+	case "topic":
+		if err := s.planTopic(q, req); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("%w: unknown mode %q", ErrRevision, req.Mode)
 	}
@@ -256,6 +263,38 @@ func (s *Store) StartQuiz(req QuizStart, now time.Time) (*QuizSession, error) {
 	quizSessions.m[q.ID] = q
 	quizSessions.Unlock()
 	return q, nil
+}
+
+// planTopic is a topic quiz (topicquiz.go): Claude writes the questions now (this call takes a
+// while), each is asked once and the missed ones once more, nothing is scheduled or recorded as a
+// revision. The stats and XP are those of the class folder the notes are in.
+func (s *Store) planTopic(q *QuizSession, req QuizStart) error {
+	bank, err := s.GenerateTopicBank(req.Topic, req.ID, req.Subject, req.Count)
+	if err != nil {
+		if errors.Is(err, ErrRevision) {
+			return err
+		}
+		return fmt.Errorf("%w: %v", ErrRevision, err)
+	}
+	var qs []*quizItem
+	for _, qq := range loadRevisionBank(bank.Path) {
+		qs = append(qs, &quizItem{Key: qq.Q, Q: qq})
+	}
+	if len(qs) == 0 {
+		return fmt.Errorf("%w: no questions were written", ErrRevision)
+	}
+	q.rnd.Shuffle(len(qs), func(i, j int) { qs[i], qs[j] = qs[j], qs[i] })
+	q.Subject, q.Title, q.queue = bank.Subject, "Topic: "+bank.Title, qs
+	if len(bank.Notes) > 0 {
+		names := make([]string, len(bank.Notes))
+		for i, id := range bank.Notes {
+			names[i] = s.noteTitle(id)
+		}
+		q.intro = fmt.Sprintf("%d questions from %s. Not a revision: nothing is scheduled.", len(qs), strings.Join(names, ", "))
+	} else {
+		q.intro = fmt.Sprintf("%d questions from general knowledge (none of your notes matched). Not a revision: nothing is scheduled.", len(qs))
+	}
+	return nil
 }
 
 var quizHeadLineRe = regexp.MustCompile(`^#{1,4} `)
@@ -412,7 +451,7 @@ func (q *QuizSession) makeAsk(s *Store, it *quizItem, now time.Time) *quizAsk {
 	a := &quizAsk{item: it, shown: now, cap: quizAnswerCaps[it.kind()]}
 	c := QuizCard{N: q.n, Kind: it.kind(), Retry: q.inRetry, Cap: int(quizAnswerCaps[it.kind()].Seconds()), Why: q.why}
 	q.why = ""
-	if q.Mode == "revise" {
+	if q.Mode == "revise" || q.Mode == "topic" {
 		c.Total = len(q.queue)
 		if q.inRetry {
 			c.N = q.pos
@@ -771,7 +810,7 @@ func (s *Store) commitQuiz(q *QuizSession, ask *quizAsk, credit float64, mistake
 				lab = it.Pair.Word + " :: " + it.Pair.Trans
 			}
 			q.missed = append(q.missed, firstLine(lab))
-			if q.Mode == "revise" {
+			if q.Mode == "revise" || q.Mode == "topic" {
 				q.retry = append(q.retry, it)
 			}
 		}

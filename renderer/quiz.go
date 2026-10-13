@@ -153,6 +153,7 @@ type QuizQuestion struct {
 	Choices  []string `json:"choices"`
 	A        string   `json:"a"`
 	Solution string   `json:"solution"`
+	Rubric   string   `json:"rubric,omitempty"` // an essay's required points, one per line; shown as the checklist
 	Why      string   `json:"why"`
 	Src      string   `json:"src"`
 	file     string
@@ -189,6 +190,28 @@ func quizKind(q *QuizQuestion) string {
 		return "tf"
 	}
 	return "short"
+}
+
+var quizRubricMarkRe = regexp.MustCompile(`^(?:[-*+]|\d+[.)])\s+`)
+
+// essaySolution is what an essay shows after you have written your answer: its rubric as a numbered
+// checklist (grade it "partly" with the share of points you made), then the model answer if there is one.
+func essaySolution(rubric, model string) string {
+	var pts []string
+	for _, l := range strings.Split(rubric, "\n") {
+		if l = strings.TrimSpace(quizRubricMarkRe.ReplaceAllString(strings.TrimSpace(l), "")); l != "" {
+			pts = append(pts, l)
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Rubric: count the points your answer made (%d in all; grade 'partly' with the share you hit)\n", len(pts))
+	for i, p := range pts {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, p)
+	}
+	if model != "" {
+		b.WriteString("\nModel answer:\n" + model)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func dedent(s string) string {
@@ -229,6 +252,9 @@ func loadQuizQuestions(path string) []*QuizQuestion {
 			return
 		}
 		cur.Q, cur.A, cur.Solution, cur.Why, cur.Src = dedent(cur.Q), dedent(cur.A), dedent(cur.Solution), dedent(cur.Why), dedent(cur.Src)
+		if cur.Rubric = dedent(cur.Rubric); cur.Rubric != "" { // an essay is a self-graded problem: rubric to tick off, then the model answer
+			cur.Solution = essaySolution(cur.Rubric, cur.Solution)
+		}
 		ok := cur.Solution != ""
 		if !ok && cur.A != "" {
 			ok = len(cur.Choices) == 0
@@ -294,6 +320,8 @@ func (q *QuizQuestion) get(f string) string {
 		return q.A
 	case "solution":
 		return q.Solution
+	case "rubric":
+		return q.Rubric
 	case "why":
 		return q.Why
 	case "src":
@@ -310,6 +338,8 @@ func (q *QuizQuestion) set(f, v string) {
 		q.A = v
 	case "solution":
 		q.Solution = v
+	case "rubric":
+		q.Rubric = v
 	case "why":
 		q.Why = v
 	case "src":

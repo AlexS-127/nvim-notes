@@ -30,6 +30,8 @@ seen in a while or never saw, each shown with its reason.
 
 Usage: python3 ~/notes/quiz.py [subject] [--focused | --personalized]   (a link to nvim-notes/quiz/quiz.py)
        python3 ~/notes/quiz.py --revise NOTE   (one scheduled revision, see revise())
+       python3 ~/notes/quiz.py --mock SUBJECT [--seed N]   (timed mock exam from <subject>/exam.json, see mock())
+       python3 ~/notes/quiz.py --topic [--note NOTE] [--class FOLDER] [--n N] TOPIC   (quiz on a topic now, see topic())
 """
 
 import atexit
@@ -54,7 +56,7 @@ NOTES = Path(os.environ.get("NOTES_DIR") or Path.home() / "notes").expanduser()
 LOG = NOTES / ".quiz_log.jsonl"
 # Seconds an answer may take before you count as idle (stopped quizzing rather than still thinking):
 # time beyond it is not quiz time, and the answer's response time is not measured. Per question kind.
-ANSWER_CAPS = {"vocab": 10, "tf": 20, "mc": 30, "multi": 45, "short": 45, "problem": 600, "recall": 600}
+ANSWER_CAPS = {"vocab": 10, "tf": 20, "mc": 30, "multi": 45, "short": 45, "problem": 600, "essay": 1200, "recall": 600}
 PROMPT_CAP = 10  # short follow-ups: "Actually right?", "sure?", "how much?"
 READ_CAP = 120  # reading a worked solution or a whole note before grading yourself
 
@@ -591,7 +593,7 @@ def vocab_bank(subject):
 
 # ---- question bank (questions.md) -------------------------------------------------------
 
-FIELD = re.compile(r"^(Q|A|Why|Src|Solution):[ \t]?(.*)$")
+FIELD = re.compile(r"^(Q|A|Why|Src|Solution|Rubric):[ \t]?(.*)$")
 CHOICE = re.compile(r"^([a-hA-H])[).][ \t]+(.*)$")
 REFERS_TO_LETTERS = re.compile(r"\babove\b|\b[A-H] and [A-H]\b", re.I)
 
@@ -605,18 +607,18 @@ def answer_letters(a):
 
 def load_questions(path):
     """Parse questions.md (format in notes/format/question-format.md) into dicts with keys
-    topic, q, choices, a, solution, why, src. A block runs from `Q:` to the next `Q:` or
+    topic, q, choices, a, solution, rubric, why, src. A block runs from `Q:` to the next `Q:` or
     heading; `## ` headings are topics. Malformed blocks are reported and skipped."""
     out, bad, topic, cur, field = [], [], "", None, None
 
     def flush():
         if not cur:
             return
-        for k in ("q", "a", "solution", "why", "src"):
+        for k in ("q", "a", "solution", "rubric", "why", "src"):
             cur[k] = textwrap.dedent(cur[k]).strip()
         letters = "abcdefgh"[: len(cur["choices"])]
         picked = answer_letters(cur["a"])
-        if cur["solution"] or (cur["a"] and (not cur["choices"] or (picked and all(x in letters for x in picked)))):
+        if cur["solution"] or cur["rubric"] or (cur["a"] and (not cur["choices"] or (picked and all(x in letters for x in picked)))):
             out.append(cur)
         else:
             bad.append(cur["q"].splitlines()[0][:60] if cur["q"] else "(empty question)")
@@ -634,7 +636,7 @@ def load_questions(path):
             name, val = m[1].lower(), m[2]
             if name == "q":
                 flush()
-                cur = {"file": path, "topic": topic, "q": "", "choices": [], "a": "", "solution": "", "why": "", "src": ""}
+                cur = {"file": path, "topic": topic, "q": "", "choices": [], "a": "", "solution": "", "rubric": "", "why": "", "src": ""}
             if cur is not None:
                 field = name
                 cur[field] = val
@@ -653,7 +655,14 @@ def load_questions(path):
     return out
 
 
+def rubric_points(q):
+    """The points of an essay's rubric, one per line (leading '-', '*' or '1.' markers dropped)."""
+    return [re.sub(r"^(?:[-*+]|\d+[.)])\s+", "", l.strip()) for l in q.get("rubric", "").splitlines() if l.strip()]
+
+
 def qkind(q):
+    if q.get("rubric"):
+        return "essay"
     if q["solution"]:
         return "problem"
     if q["choices"]:
@@ -681,15 +690,55 @@ def multi_choice(g, n):
     return sorted(picked)
 
 
-def ask_question(item, clock):
+def ask_question(item, clock, graded_only=False):
+    """graded_only (mock exam): you answered on paper, so skip the prompt for the answer and go to the key."""
     _, q = item
     kind = qkind(q)
     print(q["q"])
     note = "".join(f"\n  {l.strip()}" for l in q["why"].splitlines())
     src = f"  ({q['src']})" if q["src"] else ""
 
+    if kind == "essay":
+        if not graded_only:
+            r = clock.input("  Write your answer on paper (closed book), then Enter to see the rubric (q to quit) ",
+                            ANSWER_CAPS["essay"], answer=True)
+            if r.strip().lower() == "q":
+                return None
+        pts = rubric_points(q)
+        print("  Rubric: count the points your answer made")
+        print("\n".join(f"   {i}. {p}" for i, p in enumerate(pts, 1)))
+        if q["solution"]:
+            print("  Model answer:\n" + "\n".join(f"    {l}" for l in q["solution"].splitlines()))
+        print(note + ("\n" + src if src else ""))
+        while True:
+            r = clock.input("  Which points did you make? (numbers e.g. 1 3 4, all, none) ", READ_CAP).strip().lower()
+            if r == "q":
+                return None
+            hit = set(range(1, len(pts) + 1)) if r == "all" else set() if r == "none" else {int(x) for x in re.findall(r"\d+", r)}
+            if r in ("all", "none") or (hit and hit <= set(range(1, len(pts) + 1))):
+                missed = [p for i, p in enumerate(pts, 1) if i not in hit]
+                credit = len(hit) / len(pts) if pts else 0.0
+                if missed:
+                    note_mistake(q["q"], f"{len(hit)}/{len(pts)} points", "\n".join(f"- {p}" for p in missed))
+                return (True if credit >= 1 else credit), "", ""
+
+    if graded_only and kind not in ("essay", "problem"):
+        ans = q["a"] if not q["choices"] else ", ".join(f"{x}) {q['choices'][ord(x) - 97]}" for x in answer_letters(q["a"]))
+        print(f"  Answer: {ans}" + note + ("\n" + src if src else ""))
+        while True:
+            r = clock.input("  Did you get it? [y/n] ", READ_CAP).strip().lower()
+            if r in ("y", "n"):
+                if r == "n":
+                    note_mistake(q["q"], "", q["a"])
+                return r == "y", "", ""
+            if r == "q":
+                return None
+
     if kind == "problem":
-        r = clock.input("  Work it out, then Enter to see the solution (q to quit) ", ANSWER_CAPS["problem"], answer=True)
+        if graded_only:
+            r = ""
+        else:
+            r = clock.input("  Work it out, then Enter to see the solution (q to quit) ", ANSWER_CAPS["problem"], answer=True)
         if r.strip().lower() == "q":
             return None
         print("\n".join(f"  {l}" for l in q["solution"].splitlines()) + note + ("\n" + src if src else ""))
@@ -1227,8 +1276,202 @@ def revise(note_id, solo=False):
         print((r.stdout or r.stderr).strip())
 
 
+def topic(args):
+    """A quiz on one topic, whenever you want it (not a revision: nothing is scheduled or recorded as
+    one). `notesview topic gen` finds the notes that match (or takes `--note`), has Claude write the
+    questions (`--n`, default 10) and saves the bank in .topics/questions/; each question is asked
+    once, the ones you missed once more. XP, quiz time and stats count as in any quiz, under the
+    class folder the notes are in."""
+    words, extra, i = [], [], 0
+    while i < len(args):
+        if args[i] in ("--note", "--class", "--n") and i + 1 < len(args):
+            extra += args[i:i + 2]
+            i += 2
+        else:
+            words.append(args[i])
+            i += 1
+    if not words and "--note" not in extra:
+        sys.exit("Usage: quiz.py --topic [--note NOTE] [--class FOLDER] [--n N] TOPIC")
+    print(f"\nWriting questions on {' '.join(words) or extra[extra.index('--note') + 1]} … (up to a minute)", flush=True)
+    r = subprocess.run([notesview_bin(), "topic", "gen", "--json", *extra, *words], capture_output=True, text=True,
+                       env={**os.environ, "NOTES_DIR": str(NOTES)})
+    try:
+        bank = json.loads(r.stdout)
+    except ValueError:
+        sys.exit((r.stderr or r.stdout or "Could not write questions.").strip())
+    qs = load_revision_bank(Path(bank["path"]))
+    random.shuffle(qs)
+    subject = bank["subject"]
+    (NOTES / subject).mkdir(exist_ok=True)
+    stats_path = NOTES / subject / ".quiz_stats.json"
+    stats = load_stats(stats_path)
+    src = ", ".join(bank["notes"]) if bank["notes"] else "general knowledge (none of your notes matched)"
+    print(f"Topic: {bank['title']}  ·  {len(qs)} questions from {src}")
+    clock = Clock()
+    clock.log_every_minute(subject)
+    atexit.register(lambda: clock.flush(subject))
+    pl, _ = start_player(stats)
+    print("Not a revision: nothing is scheduled. '?' or Enter reveals, 'q' quits.\n")
+    combo, done, right, missed_qs = 0, 0, 0, []
+    for n, q in enumerate(qs, 1):
+        print(f"[{n}/{len(qs)}] ", end="")
+        try:
+            r = ask_question((q["q"], q), clock)
+        except (KeyboardInterrupt, EOFError):
+            print()
+            r = None
+        if r is None:
+            break
+        ok, ok_note, wrong_note = r
+        credit = float(ok)
+        rt = clock.response_time()
+        log_answer(subject, qkind(q), rt, credit, conf=ask_confidence(clock, subject))
+        record(stats, q["q"], credit, rt=rt)
+        if (m := take_mistake()):
+            log_mistake(subject, m, [])
+            stats[q["q"]]["reask"] = True
+        done += 1
+        right += credit
+        if credit < 1:
+            missed_qs.append(q)
+        if credit > 0:
+            if credit >= 1:
+                combo += 1
+                gain = 10 * (1 + min(combo - 1, 9) // 3)
+            else:
+                gain = max(1, round(10 * credit))
+            old = level_of(pl["xp"])
+            pl["xp"] += gain
+            clock.xp += gain
+            clock.levels += level_of(pl["xp"]) - old
+            print((f"  ✓ +{gain} XP" if credit >= 1 else f"  ◐ {credit:.0%} credit +{gain} XP") + ok_note)
+        else:
+            combo = 0
+            print(wrong_note)
+        print()
+        save_stats(stats_path, stats)
+        clock.flush(subject)
+    else:
+        if missed_qs:
+            print(f"Once more, the {len(missed_qs)} you missed (not scored):\n")
+            for q in missed_qs:
+                try:
+                    r = ask_question((q["q"], q), clock)
+                except (KeyboardInterrupt, EOFError):
+                    print()
+                    break
+                if r is None:
+                    break
+                record(stats, q["q"], r[0])
+                print(("  ✓" + r[1]) if r[0] >= 1 else r[2])
+                print()
+            save_stats(stats_path, stats)
+    if done:
+        print(f"\nScore: {right:.1f}/{done} ({round(100 * right / done)}%)".replace(".0/", "/"))
+
+
+# ---- mock exam (exam.json) ------------------------------------------------------------------
+
+
+def mock(args):
+    """quiz.py --mock SUBJECT: build a paper from <subject>/exam.json out of the question bank, time it,
+    then self-grade it. exam.json: {"name", "date", "minutes", "sections": [{"name", "topic" (substring of a
+    `## ` heading), "kinds" (list of question kinds), "show" (questions on the paper), "answer" (how many
+    you answer, default all), "points" (marks each, default 1)}]}. The paper goes to <subject>/.mock/ to
+    print or copy; results to .mock_log.jsonl and the question stats."""
+    if not args:
+        sys.exit("Usage: quiz.py --mock SUBJECT [--seed N]")
+    subject = args[0]
+    d = NOTES / subject
+    try:
+        prof = json.loads((d / "exam.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        sys.exit(f"Need {d}/exam.json (see notes/format/exam-profile.md): {e}")
+    rnd = random.Random(int(args[args.index("--seed") + 1]) if "--seed" in args else None)
+    bank = load_questions(d / "questions.md")
+    paper, used = [], set()
+    for sec in prof["sections"]:
+        pool = [q for q in bank if id(q) not in used
+                and (not sec.get("topic") or sec["topic"].lower() in q["topic"].lower())
+                and (not sec.get("kinds") or qkind(q) in sec["kinds"])]
+        rnd.shuffle(pool)
+        pick = pool[: sec.get("show", 1)]
+        used |= {id(q) for q in pick}
+        paper.append((sec, pick))
+    minutes = prof.get("minutes", 75)
+    lines = [f"# {prof.get('name', subject)} mock exam · {minutes} minutes · closed book, write by hand", ""]
+    n = 0
+    for sec, qs in paper:
+        ans = sec.get("answer", len(qs))
+        lines += [f"## {sec['name']}" + (f" (answer {ans} of {len(qs)})" if ans < len(qs) else ""), ""]
+        for q in qs:
+            n += 1
+            lines += [f"{n}. {q['q']}"] + [f"   {'abcdefgh'[i]}) {c}" for i, c in enumerate(q["choices"])] + [""]
+    out = d / ".mock"
+    out.mkdir(exist_ok=True)
+    f = out / f"paper-{datetime.now():%Y%m%d-%H%M}.md"
+    f.write_text("\n".join(lines), encoding="utf-8")
+    print("\n".join(lines))
+    print(f"(saved to {f}; the answers stay in the bank)\n")
+    got = input(f"Press Enter to start the {minutes}-minute clock, write on paper, Enter again when finished ")
+    t0 = time.monotonic()
+    input("Clock running … ")
+    took = (time.monotonic() - t0) / 60
+    print(f"\nTook {took:.0f} min of {minutes}.  Now grade yourself honestly against the key.\n")
+    stats_path = d / ".quiz_stats.json"
+    stats = load_stats(stats_path)
+    clock = Clock()
+    total = got_pts = 0.0
+    results, n = [], 0
+    for sec, qs in paper:
+        per = sec.get("points", 1)
+        credits = []
+        base = n
+        n += len(qs)
+        print(f"== {sec['name']}")
+        which = list(range(len(qs)))
+        if sec.get("answer", len(qs)) < len(qs):
+            r = input(f"  Which of {base + 1}-{n} did you answer? (numbers, Enter = the first {sec['answer']}) ").strip() or " ".join(
+                str(base + 1 + i) for i in range(sec["answer"]))
+            which = [int(x) - base - 1 for x in re.findall(r"\d+", r) if 0 < int(x) - base <= len(qs)][: sec["answer"]]
+        for i in which:
+            q = qs[i]
+            print(f"\n[{base + i + 1}] ", end="")
+            r = ask_question((q["q"], q), clock, graded_only=True)
+            if r is None:
+                break
+            credit = float(r[0])
+            credits.append(credit)
+            record(stats, q["q"], credit)
+            if (m := take_mistake()):
+                log_mistake(d.name, m, [])
+                stats[q["q"]]["reask"] = True
+        want = sec.get("answer", len(qs))
+        sc = sum(credits) * per
+        total += want * per
+        got_pts += sc
+        results.append({"section": sec["name"], "score": round(sc, 2), "of": want * per})
+        print(f"\n  {sec['name']}: {sc:.1f}/{want * per}\n")
+    save_stats(stats_path, stats)
+    pct = round(100 * got_pts / total) if total else 0
+    print(f"Mock total: {got_pts:.1f}/{total:g} ({pct}%)  ·  {took:.0f}/{minutes} min")
+    with open(NOTES / ".mock_log.jsonl", "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "subject": subject, "minutes": round(took, 1),
+                             "score": round(got_pts, 2), "of": total, "sections": results}) + "\n")
+
+
 if __name__ == "__main__":
     try:
+        if len(sys.argv) > 2 and sys.argv[1] == "--mock":
+            mock(sys.argv[2:])
+            sys.exit(0)
+        if len(sys.argv) > 2 and sys.argv[1] == "--topic":
+            topic(sys.argv[2:])
+            try:
+                input("\nPress Enter to close ")
+            except (KeyboardInterrupt, EOFError):
+                pass
+            sys.exit(0)
         if len(sys.argv) > 2 and sys.argv[1] == "--revise":
             revise(sys.argv[2], solo="--solo" in sys.argv[3:])
             try:  # the terminal is handed back to nvim as soon as we exit: keep the result readable
