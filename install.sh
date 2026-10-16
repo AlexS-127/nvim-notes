@@ -99,6 +99,10 @@ if [ "${1:-}" = "--uninstall" ]; then
   unlink_file "$REPO_DIR/notesview/custom.css" "$NV_CONFIG_DIR/custom.css"
   unlink_file "$REPO_DIR/quiz/quiz.py" "$NOTES_HOME/quiz.py"
   unlink_file "$REPO_DIR/quiz/ingest.py" "$NOTES_HOME/ingest.py"
+say "Linking course notes with class-file folders (.courses.json)"
+"$REPO_DIR/link-courses.sh" || warn "could not link course folders"
+  say "Removing course folder links"
+  "$REPO_DIR/link-courses.sh" --unlink || true
   say "Removing shell alias and inbox command"
   for f in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do remove_block "$f"; done
   say "Removing Neovim plugin data"

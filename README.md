@@ -230,6 +230,10 @@ Calendars are imported on the **Settings** page (Calendars section); the **Class
 
 CLI: `notesview calendar [list | import | remove | next | today | checkin | attendance]`.
 
+### Class files
+
+`./link-courses.sh` (run by `install.sh`) links each course's notes with its class-files folder, using `<notes>/.courses.json` (`{"oam331": "~/Desktop/Emory/OAM 331", ...}`; seeded on first run by matching folder names, `OAM 331` → `oam331`). It makes `<notes>/<course>/.files` → the class folder (hidden, so never counted or quizzed) and `<class folder>/Notes` → the notes folder. Add a course to the JSON and re-run; `--unlink` removes the links.
+
 ## Data (for the future AI traders)
 
 Main collects a labelled history of how you work, so the score market's traders (merged later) can learn from it. Only counts, categories, hashes and model outputs are stored: never what you type, window titles, URLs, screenshots, camera frames or audio. Everything stays in your notes folder (`.signals/`, `.labels/`, `.features/`).
