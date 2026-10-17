@@ -1,6 +1,6 @@
 -- lua/inline.lua — ask Claude from inside a buffer; the answer lands in the file. Loaded from init.lua.
 --   <leader>A  ask about the cursor line (visual: the selection); the answer goes on new lines below it
---   <leader>E  edit the selection (normal: the current line) as you describe; the answer replaces it
+--   <leader>E  edit the selection (normal: the current markdown section, else the line) as you describe; the answer replaces it
 -- The reply streams in as grey virtual lines, then becomes real text in one change (u undoes it) and the
 -- cursor jumps to it. Press the key again while it runs to cancel. Runs `claude -p` with no tools, no
 -- CLAUDE.md/hooks/MCP (--safe-mode), so it is fast and only sees the buffer. Model: vim.g.inline_model (sonnet).
@@ -206,6 +206,22 @@ local function run(buf, s, e, mode, question)
   jobs[buf] = j
 end
 
+-- The markdown section around the cursor: its heading (or line 1) up to the next heading, trailing blanks left out.
+local function section(buf, cur)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local heads, fence = {}, false
+  for i, l in ipairs(lines) do
+    if l:match("^%s*```") or l:match("^%s*~~~") then fence = not fence
+    elseif not fence and l:match("^#+%s") then heads[#heads + 1] = i end
+  end
+  local s, e = 1, #lines
+  for _, h in ipairs(heads) do
+    if h <= cur then s = h else e = h - 1; break end
+  end
+  while e > s and blank(lines[e]) do e = e - 1 end
+  return s, e
+end
+
 -- mode: "insert" (answer below) or "edit" (replace). Uses the visual selection when called from visual mode.
 function M.ask(mode)
   local buf = vim.api.nvim_get_current_buf()
@@ -218,6 +234,8 @@ function M.ask(mode)
     s, e = vim.fn.line("v"), vim.fn.line(".")
     if s > e then s, e = e, s end
     vim.cmd("normal! \27")
+  elseif mode == "edit" and vim.bo[buf].filetype == "markdown" then
+    s, e = section(buf, s)
   end
   vim.ui.input({ prompt = mode == "edit" and "Edit with Claude: " or "Ask Claude: " }, function(q)
     if not q or vim.trim(q) == "" then return end
@@ -228,7 +246,7 @@ end
 
 function M.setup()
   vim.keymap.set({ "n", "x" }, "<leader>A", function() M.ask("insert") end, { desc = "Ask Claude (answer goes below the line/selection)" })
-  vim.keymap.set({ "n", "x" }, "<leader>E", function() M.ask("edit") end, { desc = "Edit line/selection with Claude (replaces it)" })
+  vim.keymap.set({ "n", "x" }, "<leader>E", function() M.ask("edit") end, { desc = "Edit section/selection with Claude (replaces it)" })
 end
 
 return M

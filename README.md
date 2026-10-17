@@ -324,7 +324,7 @@ Leader is `<Space>`. Press `<Space>?` inside Neovim to search all shortcuts.
 | `<Space>ni` | Capture a task to `inbox.md`: text, folder, due date |
 | `<Space>nC` | Quit nvim and run `claude` in `~` (a shell in `~` is left when claude exits) |
 | `<Space>A` | Ask Claude about the cursor line (visual: the selection); the answer streams in, then is inserted below as text and the cursor moves to it (`u` undoes; the key again cancels) |
-| `<Space>E` | Rewrite the line (visual: the selection) with Claude as you describe |
+| `<Space>E` | Rewrite the markdown section around the cursor, heading to next heading (other files: the line; visual: the selection) with Claude as you describe |
 | `<Space>nI` | Open inbox |
 | `<Space>nf` | Find note |
 | `<Space>ng` | Search inside notes |
