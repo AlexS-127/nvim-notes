@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -369,7 +370,7 @@ func loadRevisionBank(path string) []*QuizQuestion {
 	return qs
 }
 
-type quizPair struct{ Word, Trans string }
+type quizPair struct{ Word, Trans, Chapter string } // Chapter: the `## ` heading above the line
 
 func loadVocab(path string) []quizPair {
 	b, err := os.ReadFile(path)
@@ -377,7 +378,12 @@ func loadVocab(path string) []quizPair {
 		return nil
 	}
 	var out []quizPair
+	chapter := ""
 	for _, l := range strings.Split(string(b), "\n") {
+		if h, ok := strings.CutPrefix(l, "## "); ok {
+			chapter = strings.TrimSpace(h)
+			continue
+		}
 		l = quizListMarkRe.ReplaceAllString(l, "")
 		w, t, ok := strings.Cut(l, "::")
 		if !ok {
@@ -385,7 +391,7 @@ func loadVocab(path string) []quizPair {
 		}
 		w, t = strings.TrimSpace(w), strings.TrimSpace(t)
 		if w != "" && t != "" {
-			out = append(out, quizPair{w, t})
+			out = append(out, quizPair{w, t, chapter})
 		}
 	}
 	return out
@@ -400,16 +406,17 @@ func vocabType(trans string) string {
 
 // QuizSubject is a folder you can practise: vocab (definitions.md) or a bank (questions.md).
 type QuizSubject struct {
-	Name   string   `json:"name"`
-	Kind   string   `json:"kind"` // vocab or questions
-	Count  int      `json:"count"`
-	Groups []string `json:"groups"` // word types or bank topics
-	Seen   int      `json:"seen"`   // answered at least once
-	Weak   int      `json:"weak"`   // struggling
-	Known  int      `json:"known"`  // known well (a focused quiz skips them)
-	Level  int      `json:"level"`
-	Rank   string   `json:"rank"`
-	XP     int      `json:"xp"`
+	Name     string   `json:"name"`
+	Kind     string   `json:"kind"` // vocab or questions
+	Count    int      `json:"count"`
+	Groups   []string `json:"groups"`   // word types or bank topics
+	Chapters []string `json:"chapters"` // vocab: `## ` headings in definitions.md, in file order
+	Seen     int      `json:"seen"`     // answered at least once
+	Weak     int      `json:"weak"`     // struggling
+	Known    int      `json:"known"`    // known well (a focused quiz skips them)
+	Level    int      `json:"level"`
+	Rank     string   `json:"rank"`
+	XP       int      `json:"xp"`
 }
 
 func (s *Store) QuizSubjects() []QuizSubject {
@@ -428,6 +435,9 @@ func (s *Store) QuizSubjects() []QuizSubject {
 		groups := map[string]bool{}
 		for _, it := range items {
 			groups[it.group] = true
+			if it.Pair != nil && it.Pair.Chapter != "" && !slices.Contains(sub.Chapters, it.Pair.Chapter) {
+				sub.Chapters = append(sub.Chapters, it.Pair.Chapter)
+			}
 			if st.score(it.Key) >= 0 {
 				sub.Seen++
 			}

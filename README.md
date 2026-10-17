@@ -191,7 +191,9 @@ The **Activity** view (sidebar button, or `a` in the viewer) turns your tasks in
   A subject is quizzed from `notes/<subject>/definitions.md` (`word :: translation` vocab) or, if
   present, `notes/<subject>/questions.md`: blocks of `Q:` with `a)`…`d)` choices and `A: c`,
   `A: true`/`false`, a short `A:` answer, or a `Solution:` you mark yourself right or wrong, with
-  optional `Why:` and `Src:` lines and `## ` topic headings.
+  optional `Why:` and `Src:` lines and `## ` topic headings. `## ` headings in `definitions.md`
+  split vocab into chapters: the quiz asks which chapter first (Enter = all), `quiz.py lat101
+  --chapter 9` picks one, and the Quiz tab has a chapter menu.
 - **Done is automatic.** Ticking a task (in the viewer or with `<Space>x`) moves it, with its
   nested lines, to the end of the note's `## Done` section, creating it if needed. Unticking one
   in Done moves it back up with the open tasks. New captures land with the open tasks, above
@@ -321,6 +323,8 @@ Leader is `<Space>`. Press `<Space>?` inside Neovim to search all shortcuts.
 | `<Space>nd` / `<Space>ny` | Today's / yesterday's daily note (`:Today`; today's carries over open tasks) |
 | `<Space>ni` | Capture a task to `inbox.md`: text, folder, due date |
 | `<Space>nC` | Quit nvim and run `claude` in `~` (a shell in `~` is left when claude exits) |
+| `<Space>A` | Ask Claude about the cursor line (visual: the selection); the answer streams in, then is inserted below as text and the cursor moves to it (`u` undoes; the key again cancels) |
+| `<Space>E` | Rewrite the line (visual: the selection) with Claude as you describe |
 | `<Space>nI` | Open inbox |
 | `<Space>nf` | Find note |
 | `<Space>ng` | Search inside notes |

@@ -323,3 +323,20 @@ func TestQuizEssayRubric(t *testing.T) {
 		}
 	}
 }
+
+func TestQuizVocabChapters(t *testing.T) {
+	s := newTestStore(t, map[string]string{"lat/definitions.md": "## Chapter 1\n\na :: x (noun)\nb :: y (verb)\n\n## Chapter 2\n\nc :: z (noun)\n"})
+	subs := s.QuizSubjects()
+	if len(subs) != 1 || strings.Join(subs[0].Chapters, "|") != "Chapter 1|Chapter 2" {
+		t.Fatalf("chapters: %+v", subs)
+	}
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.Local)
+	q, err := s.StartQuiz(QuizStart{Mode: "practice", Subject: "lat", Chapter: "Chapter 2"}, now)
+	if err != nil || len(q.items) != 1 || q.items[0].Key != "c" || !strings.Contains(q.Title, "Chapter 2") {
+		t.Fatalf("chapter 2: %v %+v", err, q)
+	}
+	q, err = s.StartQuiz(QuizStart{Mode: "practice", Subject: "lat", Chapter: "Chapter 1", Group: "noun"}, now)
+	if err != nil || len(q.items) != 1 || q.items[0].Key != "a" {
+		t.Fatalf("chapter 1 nouns: %v %+v", err, q)
+	}
+}

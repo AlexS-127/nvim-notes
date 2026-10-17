@@ -890,6 +890,9 @@ vim.o.titlestring = "%{v:lua.NotesTitle()}"
 -- ── Workflow signals for the data layer (lua/signals.lua; counts only) ──
 pcall(function() require("signals").setup() end)
 
+-- ── Ask Claude inline: <Space>A answers below the line/selection, <Space>E rewrites it (lua/inline.lua) ──
+require("inline").setup()
+
 -- Spaced-repetition revision (notesview revise): schedule the current note, or take it off.
 local function revise_cmd(sub)
   return function()

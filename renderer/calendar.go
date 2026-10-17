@@ -1122,6 +1122,7 @@ func (s *Store) RecordAttendance(now time.Time) {
 	}
 	checked := s.checkedSet()
 	var lines []byte
+	var missed []ClassOutcome
 	for _, m := range cals {
 		if !m.Class || !m.Enabled {
 			continue
@@ -1143,6 +1144,8 @@ func (s *Store) RecordAttendance(now time.Time) {
 			o := ClassOutcome{Date: e.Date, Cal: m.ID, UID: e.UID, Start: e.startUnix, End: e.end.Format(calStampLocal), Title: e.Title, Status: "missed"}
 			if c, ok := checkins[k]; ok {
 				o.Status, o.CheckinAt, o.Lead = "attended", c.At, c.Lead
+			} else if e.end.After(now.AddDate(0, 0, -catchUpDays)) {
+				missed = append(missed, o)
 			}
 			b, _ := json.Marshal(o)
 			lines = append(lines, append(b, '\n')...)
@@ -1154,8 +1157,50 @@ func (s *Store) RecordAttendance(now time.Time) {
 	if err := os.MkdirAll(s.calPath(""), 0o755); err != nil {
 		return
 	}
-	if f, err := os.OpenFile(s.calPath(calAttendance), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-		f.Write(lines)
-		f.Close()
+	f, err := os.OpenFile(s.calPath(calAttendance), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
 	}
+	_, err = f.Write(lines)
+	if f.Close() != nil || err != nil {
+		return // not logged: the next call retries, so no task yet either
+	}
+	for _, o := range missed {
+		s.catchUpTask(o, now)
+	}
+}
+
+// catchUpDays: a miss logged later than this (server was off) gets no catch-up task, so a first
+// start does not flood the inbox with old classes.
+const catchUpDays = 7
+
+var courseCodeRe = regexp.MustCompile(`([A-Za-z]{2,6})\s*(\d{2,4})`)
+
+// catchUpTask captures "Catch up on missed <class> (Mon DD HH:MM) #folder @class-date" for a
+// missed class. The folder is the course code in the title ("ACT 200 …" → act200), else the
+// longest category whose tag is in the title, else none (as the class graph's open does).
+func (s *Store) catchUpTask(o ClassOutcome, now time.Time) {
+	start := time.Unix(o.Start, 0).In(now.Location())
+	opts := CaptureOpts{Text: fmt.Sprintf("Catch up on missed %s (%s)", o.Title, start.Format("Jan 02 15:04")), Due: o.Date, Folder: classFolderTag(s.Folders(), o.Title)}
+	s.Capture(opts, now)
+}
+
+func classFolderTag(idx *FolderIndex, title string) string {
+	key := strings.ReplaceAll(slugify(title), "-", "")
+	best := ""
+	for _, f := range idx.List {
+		if f.Kind != "category" {
+			continue
+		}
+		t := strings.ReplaceAll(f.Tag, "-", "")
+		for _, m := range courseCodeRe.FindAllStringSubmatch(title, -1) {
+			if strings.EqualFold(m[1]+m[2], t) {
+				return f.Tag
+			}
+		}
+		if len(t) >= 3 && len(t) > len(best) && strings.Contains(key, t) {
+			best = f.Tag
+		}
+	}
+	return best
 }

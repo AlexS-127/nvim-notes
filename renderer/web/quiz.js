@@ -43,6 +43,7 @@
       return `<section class="qz-subject" data-subject="${esc(s.name)}">
         <div class="qz-sh"><b>${esc(s.name)}</b><small>${s.count} ${s.kind === "vocab" ? "words" : "questions"} · ${s.seen} answered · ${s.weak} weak</small><small class="qz-rank">${esc(s.rank)} · level ${s.level} · ${s.xp} XP</small></div>
         <div class="qz-opts">
+          ${s.chapters && s.chapters.length ? `<select data-f="chapter" aria-label="Chapter"><option value="">All chapters</option>${s.chapters.map((c) => `<option${p.chapter === c ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>` : ""}
           <select data-f="group" aria-label="${s.kind === "vocab" ? "Word type" : "Topic"}"><option value="">${s.kind === "vocab" ? "All word types" : "All topics"}</option>${s.groups.map((g) => `<option${p.group === g ? " selected" : ""}>${esc(g)}</option>`).join("")}</select>
           ${s.kind === "vocab" ? `<select data-f="dir" aria-label="Direction">${["Latin → English", "English → Latin", "Mixed"].map((l, i) => `<option value="${i}"${(p.dir || 0) === i ? " selected" : ""}>${l}</option>`).join("")}</select>` : ""}
           <select data-f="mode" aria-label="Mode" title="Normal: weighted towards new and missed. Focused: skips what you know well (3 right in a row), least-asked first. Personalized: what needs the most practice from your answers (missed, slow, not seen in a while, new).">${[["", "Normal"], ["focused", `Focused${s.known ? ` (skips ${s.known} known)` : ""}`], ["personal", "Personalized"]].map(([v, l]) => `<option value="${v}"${(p.mode || (p.focused ? "focused" : "")) === v ? " selected" : ""}>${l}</option>`).join("")}</select>
@@ -311,8 +312,8 @@
       if (q("[data-topic]")) { ev.preventDefault(); return topicStart(q("form")); }
       if ((b = q("[data-practise]"))) {
         const sec = b.closest(".qz-subject"), name = sec.dataset.subject, f = (k) => sec.querySelector(`[data-f="${k}"]`);
-        const req = { mode: "practice", subject: name, group: f("group").value, dir: f("dir") ? Number(f("dir").value) : 0, focused: f("mode").value === "focused", personal: f("mode").value === "personal" };
-        try { const p = JSON.parse(e.store.get("quizPrefs", "{}")) || {}; p[name] = { group: req.group, dir: req.dir, mode: f("mode").value }; e.store.set("quizPrefs", JSON.stringify(p)); } catch (err) {}
+        const req = { mode: "practice", subject: name, group: f("group").value, chapter: f("chapter") ? f("chapter").value : "", dir: f("dir") ? Number(f("dir").value) : 0, focused: f("mode").value === "focused", personal: f("mode").value === "personal" };
+        try { const p = JSON.parse(e.store.get("quizPrefs", "{}")) || {}; p[name] = { group: req.group, chapter: req.chapter, dir: req.dir, mode: f("mode").value }; e.store.set("quizPrefs", JSON.stringify(p)); } catch (err) {}
         return start(req);
       }
       if (!S) return;

@@ -195,6 +195,7 @@ type QuizStart struct {
 	Mode     string `json:"mode"`     // practice or revise
 	Subject  string `json:"subject"`  // practice
 	Group    string `json:"group"`    // practice: one word type or topic ("" = all)
+	Chapter  string `json:"chapter"`  // practice, vocab: one `## ` chapter of definitions.md ("" = all)
 	Dir      int    `json:"dir"`      // vocab: 0 forward, 1 backward, 2 mixed
 	Focused  bool   `json:"focused"`  // practice: skip what you know well, least-asked first
 	Personal bool   `json:"personal"` // practice: drawn by need (missed, slow, not seen in a while, new)
@@ -213,10 +214,10 @@ func (s *Store) StartQuiz(req QuizStart, now time.Time) (*QuizSession, error) {
 		if len(items) == 0 || strings.ContainsAny(req.Subject, "/\\") {
 			return nil, fmt.Errorf("%w: nothing to quiz in %q", ErrRevision, req.Subject)
 		}
-		if req.Group != "" {
+		if req.Group != "" || req.Chapter != "" {
 			var keep []*quizItem
 			for _, it := range items {
-				if it.group == req.Group {
+				if (req.Group == "" || it.group == req.Group) && (req.Chapter == "" || it.Pair != nil && it.Pair.Chapter == req.Chapter) {
 					keep = append(keep, it)
 				}
 			}
@@ -231,6 +232,9 @@ func (s *Store) StartQuiz(req QuizStart, now time.Time) (*QuizSession, error) {
 		}
 		q.Subject, q.items = req.Subject, items
 		q.Title = req.Subject
+		if req.Chapter != "" {
+			q.Title += " · " + req.Chapter
+		}
 		if req.Group != "" {
 			q.Title += " · " + req.Group
 		}

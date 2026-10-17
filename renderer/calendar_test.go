@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -260,12 +261,30 @@ func TestAttendanceSummaryAndOutcomeLog(t *testing.T) {
 	if got := s.AttendanceSummary(at(2026, 10, 7, 9, 0)); got.TodayPct != -1 {
 		t.Errorf("nothing held yet today should be -1: %+v", got)
 	}
+	dir, _ := s.Resolve("ACT 200")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	s.RecordAttendance(now)
 	s.RecordAttendance(now.Add(time.Hour)) // idempotent
 	b, _ := os.ReadFile(s.calPath(calAttendance))
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	if len(lines) != 2 || !strings.Contains(lines[0], `"status":"attended"`) || !strings.Contains(lines[0], `"lead":10`) || !strings.Contains(lines[1], `"status":"missed"`) {
 		t.Errorf("outcome log: %v", lines)
+	}
+	inbox, _ := os.ReadFile(filepath.Join(filepath.Dir(dir), "inbox.md"))
+	if n := strings.Count(string(inbox), "- [ ] "); n != 1 || !strings.Contains(string(inbox), "- [ ] Catch up on missed ACT 200 (Oct 07 10:30) #act-200 @2026-10-07") {
+		t.Errorf("catch-up task for the missed class only, once:\n%s", inbox)
+	}
+}
+
+func TestOldMissGetsNoCatchUpTask(t *testing.T) {
+	s := calStore(t, true, weeklyClass())
+	s.RecordAttendance(at(2026, 10, 15, 12, 0)) // first run: Oct 5 and 7 are over a week old, Oct 12 and 14 are not
+	inbox, _ := s.Resolve("inbox.md")
+	b, _ := os.ReadFile(inbox)
+	if got := strings.Count(string(b), "Catch up on missed"); got != 2 || strings.Contains(string(b), "@2026-10-07") {
+		t.Errorf("only recent misses get a task:\n%s", b)
 	}
 }
 

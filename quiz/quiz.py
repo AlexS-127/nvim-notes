@@ -28,7 +28,10 @@ a row) and asks the least-asked first.
 A personalized quiz (`--personalized`) draws by need: what you keep missing, answer slowly, haven't
 seen in a while or never saw, each shown with its reason.
 
-Usage: python3 ~/notes/quiz.py [subject] [--focused | --personalized]   (a link to nvim-notes/quiz/quiz.py)
+Vocab files can be split into chapters with `## ` headings (e.g. `## Chapter 9`); the quiz then asks which
+chapter to practise first (Enter = all), or `--chapter N` picks one.
+
+Usage: python3 ~/notes/quiz.py [subject] [--focused | --personalized] [--chapter N]   (a link to nvim-notes/quiz/quiz.py)
        python3 ~/notes/quiz.py --revise NOTE   (one scheduled revision, see revise())
        python3 ~/notes/quiz.py --mock SUBJECT [--seed N]   (timed mock exam from <subject>/exam.json, see mock())
        python3 ~/notes/quiz.py --topic [--note NOTE] [--class FOLDER] [--n N] TOPIC   (quiz on a topic now, see topic())
@@ -134,16 +137,37 @@ def fmt_time(seconds):
     return f"{m}m {s:02d}s" if m else f"{s}s"
 
 
-def load(path):
-    pairs = []
+def load(path, chapters=False):
+    """(word, trans) pairs; with chapters=True, (word, trans, chapter) where chapter is the
+    last `## ` heading above the line ('' before any)."""
+    pairs, chapter = [], ""
     for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            chapter = line[3:].strip()
+            continue
         line = re.sub(r"^\s*(?:[-*+]\s+|\d+\.\s+)?", "", line)  # strip list markers
         if "::" not in line:
             continue
         word, trans = (s.strip() for s in line.split("::", 1))
         if word and trans:
-            pairs.append((word, trans))
+            pairs.append((word, trans, chapter) if chapters else (word, trans))
     return pairs
+
+
+def choose_chapter(rows):
+    """Ask which `## ` chapter to practise (Enter = all), or take `--chapter N` (a number
+    matches 'Chapter N'). Returns (word, trans) pairs."""
+    names = list(dict.fromkeys(c for _, _, c in rows))
+    if "--chapter" in sys.argv:
+        i = sys.argv.index("--chapter")
+        want = sys.argv[i + 1].lower() if i + 1 < len(sys.argv) else ""
+        match = next((c for c in names if c.lower() in (want, f"chapter {want}")), None)
+        if match is None:
+            sys.exit(f"No chapter {want!r}. Chapters: {', '.join(n for n in names if n)}")
+        rows = [r for r in rows if r[2] == match]
+    elif any(names):
+        rows = choose_group(rows, lambda r: r[2] or "untitled", "Chapter", by_count=False)
+    return [(w, t) for w, t, _ in rows]
 
 
 def kind(trans):
@@ -561,10 +585,10 @@ def add_meaning(path, pairs, word, guess):
 
 def vocab_bank(subject):
     """Items, asker and display label for a definitions.md subject."""
-    pairs = load(NOTES / subject / "definitions.md")
-    if not pairs:
+    rows = load(NOTES / subject / "definitions.md", chapters=True)
+    if not rows:
         sys.exit(f"No 'word :: translation' lines in {subject}/definitions.md")
-    pairs = choose_type(pairs)
+    pairs = choose_type(choose_chapter(rows))
 
     print("\nDirection:")
     d = choose("> ", ["Latin → English", "English → Latin", "Mixed"])
